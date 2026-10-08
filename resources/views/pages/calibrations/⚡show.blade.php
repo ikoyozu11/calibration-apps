@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Calibration;
+use App\Models\TestPoint;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Livewire\Component;
@@ -58,6 +59,55 @@ new class extends Component
                     ])
                     ->orderBy('point_order')
                     ->orderBy('test_point_id');
+            },
+            'calibrationScopes.calibrationTestResults' => function (HasMany $query): void {
+                $query
+                    ->select([
+                        'calibration_test_result_id',
+                        'calibration_scope_id',
+                        'test_point_id',
+                        'result_status',
+                        'remarks',
+                        'standard_value',
+                        'average_value',
+                        'correction_value',
+                        'created_at',
+                    ])
+                    ->orderBy(
+                        TestPoint::query()
+                            ->select('point_order')
+                            ->whereColumn('test_point.test_point_id', 'calibration_test_result.test_point_id')
+                    )
+                    ->orderBy('calibration_test_result_id');
+            },
+            'calibrationScopes.calibrationTestResults.testPoint' => function (BelongsTo $query): void {
+                $query->select([
+                    'test_point_id',
+                    'test_profile_id',
+                    'point_order',
+                    'nominal_value',
+                    'unit',
+                    'tolerance_plus',
+                    'tolerance_minus',
+                    'description',
+                    'created_at',
+                ]);
+            },
+            'calibrationScopes.calibrationTestResults.calibrationReadings' => function (HasMany $query): void {
+                $query
+                    ->select([
+                        'calibration_reading_id',
+                        'calibration_test_result_id',
+                        'reading_order',
+                        'reference_value',
+                        'instrument_value',
+                        'error_value',
+                        'uncertainty_value',
+                        'unit',
+                        'created_at',
+                    ])
+                    ->orderBy('reading_order')
+                    ->orderBy('calibration_reading_id');
             },
         ]);
     }
@@ -228,6 +278,104 @@ new class extends Component
                                             </table>
                                         </div>
                                     @endif
+
+                                    <div class="mt-6">
+                                        <h4 class="mb-2 text-sm font-semibold text-gray-950 dark:text-gray-100">Test Results</h4>
+
+                                        <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-800">
+                                            <table class="min-w-full divide-y divide-gray-200 text-left text-sm dark:divide-gray-800">
+                                                <thead class="bg-gray-100 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                                                    <tr>
+                                                        <th scope="col" class="whitespace-nowrap px-3 py-2">Point</th>
+                                                        <th scope="col" class="whitespace-nowrap px-3 py-2">Nominal</th>
+                                                        <th scope="col" class="whitespace-nowrap px-3 py-2">Unit</th>
+                                                        <th scope="col" class="whitespace-nowrap px-3 py-2">Result</th>
+                                                        <th scope="col" class="whitespace-nowrap px-3 py-2">Standard</th>
+                                                        <th scope="col" class="whitespace-nowrap px-3 py-2">Average</th>
+                                                        <th scope="col" class="whitespace-nowrap px-3 py-2">Correction</th>
+                                                        <th scope="col" class="min-w-64 px-3 py-2">Remarks</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-gray-200 bg-white dark:divide-gray-800 dark:bg-gray-900">
+                                                    @forelse ($calibrationScope->calibrationTestResults as $calibrationTestResult)
+                                                        <tr wire:key="test-result-{{ $calibrationTestResult->calibration_test_result_id }}">
+                                                            <td class="whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-600 dark:text-gray-400">
+                                                                {{ $calibrationTestResult->testPoint?->point_order ?? '—' }}
+                                                            </td>
+                                                            <td class="whitespace-nowrap px-3 py-2">{{ $calibrationTestResult->testPoint?->nominal_value ?? '—' }}</td>
+                                                            <td class="whitespace-nowrap px-3 py-2">{{ $calibrationTestResult->testPoint?->unit ?? '—' }}</td>
+                                                            <td class="whitespace-nowrap px-3 py-2">
+                                                                @if (is_null($calibrationTestResult->result_status))
+                                                                    —
+                                                                @elseif ($calibrationTestResult->result_status === 'PASS')
+                                                                    <span class="inline-flex rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-700 dark:bg-green-950 dark:text-green-300">
+                                                                        {{ $calibrationTestResult->result_status }}
+                                                                    </span>
+                                                                @elseif ($calibrationTestResult->result_status === 'FAIL')
+                                                                    <span class="inline-flex rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-300">
+                                                                        {{ $calibrationTestResult->result_status }}
+                                                                    </span>
+                                                                @else
+                                                                    {{ $calibrationTestResult->result_status }}
+                                                                @endif
+                                                            </td>
+                                                            <td class="whitespace-nowrap px-3 py-2">{{ $calibrationTestResult->standard_value ?? '—' }}</td>
+                                                            <td class="whitespace-nowrap px-3 py-2">{{ $calibrationTestResult->average_value ?? '—' }}</td>
+                                                            <td class="whitespace-nowrap px-3 py-2">{{ $calibrationTestResult->correction_value ?? '—' }}</td>
+                                                            <td class="px-3 py-2">{{ $calibrationTestResult->remarks ?? '—' }}</td>
+                                                        </tr>
+                                                        <tr wire:key="test-result-readings-{{ $calibrationTestResult->calibration_test_result_id }}">
+                                                            <td colspan="8" class="bg-gray-50 px-3 py-3 dark:bg-gray-950">
+                                                                <h5 class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                                                                    Readings
+                                                                </h5>
+                                                                <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-800">
+                                                                    <table class="min-w-full divide-y divide-gray-200 text-left text-sm dark:divide-gray-800">
+                                                                        <thead class="bg-gray-100 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                                                                            <tr>
+                                                                                <th scope="col" class="whitespace-nowrap px-3 py-2">Reading</th>
+                                                                                <th scope="col" class="whitespace-nowrap px-3 py-2">Reference</th>
+                                                                                <th scope="col" class="whitespace-nowrap px-3 py-2">Instrument</th>
+                                                                                <th scope="col" class="whitespace-nowrap px-3 py-2">Error</th>
+                                                                                <th scope="col" class="whitespace-nowrap px-3 py-2">Uncertainty</th>
+                                                                                <th scope="col" class="whitespace-nowrap px-3 py-2">Unit</th>
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody class="divide-y divide-gray-200 bg-white dark:divide-gray-800 dark:bg-gray-900">
+                                                                            @forelse ($calibrationTestResult->calibrationReadings as $calibrationReading)
+                                                                                <tr wire:key="calibration-reading-{{ $calibrationReading->calibration_reading_id }}">
+                                                                                    <td class="whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-600 dark:text-gray-400">
+                                                                                        {{ $calibrationReading->reading_order }}
+                                                                                    </td>
+                                                                                    <td class="whitespace-nowrap px-3 py-2">{{ $calibrationReading->reference_value ?? '—' }}</td>
+                                                                                    <td class="whitespace-nowrap px-3 py-2">{{ $calibrationReading->instrument_value ?? '—' }}</td>
+                                                                                    <td class="whitespace-nowrap px-3 py-2">{{ $calibrationReading->error_value ?? '—' }}</td>
+                                                                                    <td class="whitespace-nowrap px-3 py-2">{{ $calibrationReading->uncertainty_value ?? '—' }}</td>
+                                                                                    <td class="whitespace-nowrap px-3 py-2">{{ $calibrationReading->unit ?? '—' }}</td>
+                                                                                </tr>
+                                                                            @empty
+                                                                                <tr>
+                                                                                    <td colspan="6" class="px-3 py-4 text-center text-gray-500 dark:text-gray-400">
+                                                                                        No readings found.
+                                                                                    </td>
+                                                                                </tr>
+                                                                            @endforelse
+                                                                        </tbody>
+                                                                    </table>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    @empty
+                                                        <tr>
+                                                            <td colspan="8" class="px-3 py-6 text-center text-gray-500 dark:text-gray-400">
+                                                                No test results found.
+                                                            </td>
+                                                        </tr>
+                                                    @endforelse
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
                                 </td>
                             </tr>
                         @empty

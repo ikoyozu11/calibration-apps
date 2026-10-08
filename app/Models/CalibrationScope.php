@@ -2,8 +2,10 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -15,6 +17,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $remarks
  * @property Carbon $created_at
  * @property-read Calibration $calibration
+ * @property-read Collection<int, CalibrationTestResult> $calibrationTestResults
  * @property-read InstrumentType $instrumentType
  * @property-read TestProfile|null $testProfile
  */
@@ -42,5 +45,11 @@ class CalibrationScope extends Model
     public function testProfile(): BelongsTo
     {
         return $this->belongsTo(TestProfile::class, 'test_profile_id', 'test_profile_id');
+    }
+
+    /** @return HasMany<CalibrationTestResult, $this> */
+    public function calibrationTestResults(): HasMany
+    {
+        return $this->hasMany(CalibrationTestResult::class, 'calibration_scope_id', 'calibration_scope_id');
     }
 }
