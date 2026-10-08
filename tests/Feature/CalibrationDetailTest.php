@@ -102,6 +102,41 @@ function createCalibrationDetailTestTables(): void
         $table->string('unit', 50)->nullable();
         $table->timestamp('created_at');
     });
+
+    Schema::create('calibration_environment', function (Blueprint $table): void {
+        $table->unsignedBigInteger('calibration_environment_id')->primary();
+        $table->unsignedBigInteger('calibration_id');
+        $table->decimal('temperature_value', 10, 3)->nullable();
+        $table->string('temperature_unit', 20)->nullable();
+        $table->decimal('humidity_value', 10, 3)->nullable();
+        $table->string('humidity_unit', 20)->nullable();
+        $table->decimal('pressure_value', 12, 3)->nullable();
+        $table->string('pressure_unit', 20)->nullable();
+        $table->text('remarks')->nullable();
+        $table->timestamp('created_at');
+    });
+
+    Schema::create('calibration_activity', function (Blueprint $table): void {
+        $table->unsignedBigInteger('calibration_activity_id')->primary();
+        $table->unsignedBigInteger('calibration_id');
+        $table->string('activity_type', 100);
+        $table->text('activity_description')->nullable();
+        $table->string('activity_result', 100)->nullable();
+        $table->integer('activity_order');
+        $table->timestamp('created_at');
+    });
+
+    Schema::create('calibration_standard_usage', function (Blueprint $table): void {
+        $table->unsignedBigInteger('calibration_standard_usage_id')->primary();
+        $table->unsignedBigInteger('calibration_id');
+        $table->unsignedBigInteger('standard_instrument_id');
+        $table->integer('usage_order');
+        $table->string('usage_purpose', 150)->nullable();
+        $table->text('remarks')->nullable();
+        $table->timestamp('created_at');
+        $table->string('standard_range')->nullable();
+        $table->string('standard_unit')->nullable();
+    });
 }
 
 function insertCalibrationDetailInstrument(): void
@@ -341,7 +376,13 @@ it('renders calibration information with ordered scopes, profiles, and test poin
             '—',
         ])
         ->assertSee('Test Results')
-        ->assertSee('No test results found.');
+        ->assertSee('No test results found.')
+        ->assertSee('Environment')
+        ->assertSee('No environment data found.')
+        ->assertSee('Activity')
+        ->assertSee('No activities found.')
+        ->assertSee('Standard Used')
+        ->assertSee('No standards used.');
 });
 
 it('renders a scope without a test profile without error', function () {
@@ -579,6 +620,128 @@ it('renders stored calibration test results and ordered readings', function () {
             '500.25',
             '999.123456',
         ]);
+});
+
+it('renders environment, ordered activities, and ordered standard usages', function () {
+    createCalibrationDetailTestTables();
+    insertCalibrationDetailInstrument();
+    insertCalibrationDetailCalibration();
+
+    DB::table('instrument')->insert([
+        [
+            'instrument_id' => 6,
+            'instrument_name' => 'Pressure Drop Standard A',
+            'detail_location_id' => null,
+            'description' => null,
+            'created_at' => '2026-06-12 09:00:00',
+        ],
+        [
+            'instrument_id' => 7,
+            'instrument_name' => 'Pressure Drop Standard B',
+            'detail_location_id' => null,
+            'description' => null,
+            'created_at' => '2026-06-12 09:00:00',
+        ],
+    ]);
+
+    DB::table('calibration_environment')->insert([
+        'calibration_environment_id' => 1,
+        'calibration_id' => 3,
+        'temperature_value' => '25.000',
+        'temperature_unit' => '°C',
+        'humidity_value' => '65.000',
+        'humidity_unit' => '%',
+        'pressure_value' => null,
+        'pressure_unit' => null,
+        'remarks' => 'Prototype environment data',
+        'created_at' => '2026-06-12 09:00:00',
+    ]);
+
+    DB::table('calibration_activity')->insert([
+        [
+            'calibration_activity_id' => 13,
+            'calibration_id' => 3,
+            'activity_type' => 'Verification',
+            'activity_description' => 'Third activity description',
+            'activity_result' => null,
+            'activity_order' => 3,
+            'created_at' => '2026-06-12 09:00:00',
+        ],
+        [
+            'calibration_activity_id' => 11,
+            'calibration_id' => 3,
+            'activity_type' => 'Cleaning',
+            'activity_description' => 'First activity description',
+            'activity_result' => null,
+            'activity_order' => 1,
+            'created_at' => '2026-06-12 09:00:00',
+        ],
+        [
+            'calibration_activity_id' => 12,
+            'calibration_id' => 3,
+            'activity_type' => 'Testing',
+            'activity_description' => 'Second activity description',
+            'activity_result' => 'Completed',
+            'activity_order' => 2,
+            'created_at' => '2026-06-12 09:00:00',
+        ],
+    ]);
+
+    DB::table('calibration_standard_usage')->insert([
+        [
+            'calibration_standard_usage_id' => 22,
+            'calibration_id' => 3,
+            'standard_instrument_id' => 7,
+            'usage_order' => 2,
+            'usage_purpose' => 'Pressure Drop',
+            'remarks' => null,
+            'created_at' => '2026-06-12 09:00:00',
+            'standard_range' => '198.1',
+            'standard_unit' => 'mmWG',
+        ],
+        [
+            'calibration_standard_usage_id' => 21,
+            'calibration_id' => 3,
+            'standard_instrument_id' => 6,
+            'usage_order' => 1,
+            'usage_purpose' => 'Pressure Drop',
+            'remarks' => null,
+            'created_at' => '2026-06-12 09:00:00',
+            'standard_range' => '99.0',
+            'standard_unit' => 'mmWG',
+        ],
+    ]);
+
+    Model::preventLazyLoading();
+
+    $response = $this->get(route('calibrations.show', 3));
+
+    $response
+        ->assertOk()
+        ->assertSee('Environment')
+        ->assertSee('Prototype environment data')
+        ->assertSee('25')
+        ->assertSee('°C')
+        ->assertSee('65')
+        ->assertSee('%')
+        ->assertDontSee('No environment data found.')
+        ->assertSee('Activity')
+        ->assertSeeInOrder([
+            'First activity description',
+            'Second activity description',
+            'Third activity description',
+        ])
+        ->assertSee('Completed')
+        ->assertSee('Standard Used')
+        ->assertSeeInOrder([
+            'Pressure Drop Standard A',
+            '99.0',
+            'Pressure Drop Standard B',
+            '198.1',
+        ])
+        ->assertSee('mmWG')
+        ->assertDontSee('No activities found.')
+        ->assertDontSee('No standards used.');
 });
 
 it('renders calibration status from its due date', function (?string $calibrationDue, ?string $expectedStatus, ?string $unexpectedStatus) {

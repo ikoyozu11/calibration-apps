@@ -4,6 +4,7 @@ use App\Models\Calibration;
 use App\Models\TestPoint;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Livewire\Component;
 
 new class extends Component
@@ -109,6 +110,56 @@ new class extends Component
                     ->orderBy('reading_order')
                     ->orderBy('calibration_reading_id');
             },
+            'environment' => function (HasOne $query): void {
+                $query->select([
+                    'calibration_environment_id',
+                    'calibration_id',
+                    'temperature_value',
+                    'temperature_unit',
+                    'humidity_value',
+                    'humidity_unit',
+                    'pressure_value',
+                    'pressure_unit',
+                    'remarks',
+                    'created_at',
+                ]);
+            },
+            'activities' => function (HasMany $query): void {
+                $query
+                    ->select([
+                        'calibration_activity_id',
+                        'calibration_id',
+                        'activity_type',
+                        'activity_description',
+                        'activity_result',
+                        'activity_order',
+                        'created_at',
+                    ])
+                    ->orderBy('activity_order')
+                    ->orderBy('calibration_activity_id');
+            },
+            'standardUsages' => function (HasMany $query): void {
+                $query
+                    ->select([
+                        'calibration_standard_usage_id',
+                        'calibration_id',
+                        'standard_instrument_id',
+                        'usage_order',
+                        'usage_purpose',
+                        'remarks',
+                        'standard_range',
+                        'standard_unit',
+                        'created_at',
+                    ])
+                    ->orderBy('usage_order')
+                    ->orderBy('calibration_standard_usage_id');
+            },
+            'standardUsages.instrument' => function (BelongsTo $query): void {
+                $query->select([
+                    'instrument_id',
+                    'instrument_name',
+                ]);
+            },
         ]);
     }
 };
@@ -192,6 +243,139 @@ new class extends Component
                     <dd class="mt-1 text-sm">{{ $calibration->resume ?? '—' }}</dd>
                 </div>
             </dl>
+        </section>
+
+        <section class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+            <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-800">
+                <h2 class="text-lg font-semibold">Environment</h2>
+            </div>
+
+            @if ($calibration->environment)
+                <dl class="grid gap-x-6 gap-y-5 px-5 py-5 sm:grid-cols-2 lg:grid-cols-4">
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Temperature</dt>
+                        <dd class="mt-1 text-sm">
+                            @if (is_null($calibration->environment->temperature_value))
+                                —
+                            @else
+                                {{ $calibration->environment->temperature_value }}{{ filled($calibration->environment->temperature_unit) ? ' '.$calibration->environment->temperature_unit : '' }}
+                            @endif
+                        </dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Humidity</dt>
+                        <dd class="mt-1 text-sm">
+                            @if (is_null($calibration->environment->humidity_value))
+                                —
+                            @else
+                                {{ $calibration->environment->humidity_value }}{{ filled($calibration->environment->humidity_unit) ? ' '.$calibration->environment->humidity_unit : '' }}
+                            @endif
+                        </dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Pressure</dt>
+                        <dd class="mt-1 text-sm">
+                            @if (is_null($calibration->environment->pressure_value))
+                                —
+                            @else
+                                {{ $calibration->environment->pressure_value }}{{ filled($calibration->environment->pressure_unit) ? ' '.$calibration->environment->pressure_unit : '' }}
+                            @endif
+                        </dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Remarks</dt>
+                        <dd class="mt-1 text-sm">{{ $calibration->environment->remarks ?? '—' }}</dd>
+                    </div>
+                </dl>
+            @else
+                <p class="px-5 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                    No environment data found.
+                </p>
+            @endif
+        </section>
+
+        <section class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+            <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-800">
+                <h2 class="text-lg font-semibold">Activity</h2>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200 text-left text-sm dark:divide-gray-800">
+                    <thead class="bg-gray-100 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                        <tr>
+                            <th scope="col" class="whitespace-nowrap px-4 py-3">No.</th>
+                            <th scope="col" class="whitespace-nowrap px-4 py-3">Activity Type</th>
+                            <th scope="col" class="min-w-64 px-4 py-3">Description</th>
+                            <th scope="col" class="whitespace-nowrap px-4 py-3">Result</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
+                        @forelse ($calibration->activities as $activity)
+                            <tr wire:key="calibration-activity-{{ $activity->calibration_activity_id }}">
+                                <td class="whitespace-nowrap px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400">
+                                    {{ $activity->activity_order }}
+                                </td>
+                                <td class="whitespace-nowrap px-4 py-3 font-medium">{{ $activity->activity_type }}</td>
+                                <td class="px-4 py-3">{{ $activity->activity_description ?? '—' }}</td>
+                                <td class="whitespace-nowrap px-4 py-3">{{ $activity->activity_result ?? '—' }}</td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="4" class="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                                    No activities found.
+                                </td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+            <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-800">
+                <h2 class="text-lg font-semibold">Standard Used</h2>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200 text-left text-sm dark:divide-gray-800">
+                    <thead class="bg-gray-100 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                        <tr>
+                            <th scope="col" class="whitespace-nowrap px-4 py-3">No.</th>
+                            <th scope="col" class="whitespace-nowrap px-4 py-3">Standard Instrument</th>
+                            <th scope="col" class="whitespace-nowrap px-4 py-3">Serial Number</th>
+                            <th scope="col" class="whitespace-nowrap px-4 py-3">Asset Number</th>
+                            <th scope="col" class="whitespace-nowrap px-4 py-3">Usage Purpose</th>
+                            <th scope="col" class="whitespace-nowrap px-4 py-3">Standard Range</th>
+                            <th scope="col" class="whitespace-nowrap px-4 py-3">Unit</th>
+                            <th scope="col" class="min-w-64 px-4 py-3">Remarks</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
+                        @forelse ($calibration->standardUsages as $standardUsage)
+                            <tr wire:key="standard-usage-{{ $standardUsage->calibration_standard_usage_id }}">
+                                <td class="whitespace-nowrap px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400">
+                                    {{ $standardUsage->usage_order }}
+                                </td>
+                                <td class="whitespace-nowrap px-4 py-3 font-medium">
+                                    {{ $standardUsage->instrument?->instrument_name ?? '—' }}
+                                </td>
+                                <td class="whitespace-nowrap px-4 py-3">—</td>
+                                <td class="whitespace-nowrap px-4 py-3">—</td>
+                                <td class="whitespace-nowrap px-4 py-3">{{ $standardUsage->usage_purpose ?? '—' }}</td>
+                                <td class="whitespace-nowrap px-4 py-3">{{ $standardUsage->standard_range ?? '—' }}</td>
+                                <td class="whitespace-nowrap px-4 py-3">{{ $standardUsage->standard_unit ?? '—' }}</td>
+                                <td class="px-4 py-3">{{ $standardUsage->remarks ?? '—' }}</td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="8" class="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                                    No standards used.
+                                </td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
         </section>
 
         <section class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">

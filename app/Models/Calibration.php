@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
 /**
@@ -23,7 +24,10 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $action_date
  * @property string|null $resume
  * @property int|null $customer_id
+ * @property-read Collection<int, CalibrationActivity> $activities
  * @property-read Collection<int, CalibrationScope> $calibrationScopes
+ * @property-read CalibrationEnvironment|null $environment
+ * @property-read Collection<int, CalibrationStandardUsage> $standardUsages
  */
 class Calibration extends Model
 {
@@ -35,6 +39,24 @@ class Calibration extends Model
     public function calibrationScopes(): HasMany
     {
         return $this->hasMany(CalibrationScope::class, 'calibration_id', 'calibration_id');
+    }
+
+    /** @return HasOne<CalibrationEnvironment, $this> */
+    public function environment(): HasOne
+    {
+        return $this->hasOne(CalibrationEnvironment::class, 'calibration_id', 'calibration_id');
+    }
+
+    /** @return HasMany<CalibrationActivity, $this> */
+    public function activities(): HasMany
+    {
+        return $this->hasMany(CalibrationActivity::class, 'calibration_id', 'calibration_id');
+    }
+
+    /** @return HasMany<CalibrationStandardUsage, $this> */
+    public function standardUsages(): HasMany
+    {
+        return $this->hasMany(CalibrationStandardUsage::class, 'calibration_id', 'calibration_id');
     }
 
     /**
