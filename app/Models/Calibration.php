@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
@@ -26,7 +27,9 @@ use Illuminate\Support\Carbon;
  * @property int|null $customer_id
  * @property-read Collection<int, CalibrationActivity> $activities
  * @property-read Collection<int, CalibrationScope> $calibrationScopes
+ * @property-read Customer|null $customer
  * @property-read CalibrationEnvironment|null $environment
+ * @property-read Instrument $instrument
  * @property-read Collection<int, CalibrationStandardUsage> $standardUsages
  */
 class Calibration extends Model
@@ -39,6 +42,18 @@ class Calibration extends Model
     public function calibrationScopes(): HasMany
     {
         return $this->hasMany(CalibrationScope::class, 'calibration_id', 'calibration_id');
+    }
+
+    /** @return BelongsTo<Customer, $this> */
+    public function customer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class, 'customer_id', 'customer_id');
+    }
+
+    /** @return BelongsTo<Instrument, $this> */
+    public function instrument(): BelongsTo
+    {
+        return $this->belongsTo(Instrument::class, 'instrument_id', 'instrument_id');
     }
 
     /** @return HasOne<CalibrationEnvironment, $this> */
