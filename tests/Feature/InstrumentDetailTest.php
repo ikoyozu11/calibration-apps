@@ -232,7 +232,7 @@ it('links each instrument name to its detail page', function () {
 
     $response = $this->get(route('instruments.index'));
 
-    $response->assertSee('href="'.route('instruments.show', 3).'"', false);
+    $response->assertSee('href="' . route('instruments.show', 3) . '"', false);
 });
 
 it('returns not found for an unknown instrument', function () {

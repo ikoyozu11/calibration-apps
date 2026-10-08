@@ -434,5 +434,5 @@ it('links calibration history to calibration detail', function () {
 
     $response
         ->assertSee('CAL-PROT-0001')
-        ->assertSee('href="'.route('calibrations.show', 3).'"', false);
+        ->assertSee('href="' . route('calibrations.show', 3) . '"', false);
 });
