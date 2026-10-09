@@ -168,7 +168,7 @@ new class extends Component
 <div class="min-h-screen bg-gray-50 px-4 py-8 text-gray-950 sm:px-6 lg:px-8 dark:bg-gray-950 dark:text-gray-100">
     <main class="mx-auto flex max-w-7xl flex-col gap-6">
         <header class="flex flex-col gap-3">
-            <a href="{{ route('instruments.show', $calibration->instrument_id) }}" class="w-fit text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300">
+            <a href="{{ route('instruments.show', $calibration->instrument_id) }}" class="w-fit text-sm font-medium text-brand hover:text-navy">
                 &larr; Back to instrument
             </a>
 
@@ -180,22 +180,22 @@ new class extends Component
             </div>
         </header>
 
-        <section class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <section class="ui-card overflow-hidden">
             <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-800">
                 <h2 class="text-lg font-semibold">Calibration Information</h2>
             </div>
 
             <dl class="grid gap-x-6 gap-y-5 px-5 py-5 sm:grid-cols-2 lg:grid-cols-3">
                 <div>
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Calibration ID</dt>
+                    <dt class="text-xs font-medium text-muted">Calibration ID</dt>
                     <dd class="mt-1 font-mono text-sm">{{ $calibration->calibration_id }}</dd>
                 </div>
                 <div>
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Calibration Number</dt>
+                    <dt class="text-xs font-medium text-muted">Calibration Number</dt>
                     <dd class="mt-1 text-sm font-medium">{{ $calibration->calibration_number }}</dd>
                 </div>
                 <div>
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Status</dt>
+                    <dt class="text-xs font-medium text-muted">Status</dt>
                     <dd class="mt-1">
                         @if (is_null($calibration->calibration_due))
                             —
@@ -211,41 +211,41 @@ new class extends Component
                     </dd>
                 </div>
                 <div>
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Calibration Date</dt>
+                    <dt class="text-xs font-medium text-muted">Calibration Date</dt>
                     <dd class="mt-1 text-sm">{{ $calibration->calibration_date?->format('Y-m-d') ?? '—' }}</dd>
                 </div>
                 <div>
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Calibration Due</dt>
+                    <dt class="text-xs font-medium text-muted">Calibration Due</dt>
                     <dd class="mt-1 text-sm">{{ $calibration->calibration_due?->format('Y-m-d') ?? '—' }}</dd>
                 </div>
                 <div>
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Calibration Method</dt>
+                    <dt class="text-xs font-medium text-muted">Calibration Method</dt>
                     <dd class="mt-1 text-sm">{{ $calibration->calibration_method ?? '—' }}</dd>
                 </div>
                 <div>
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Calibration Result</dt>
+                    <dt class="text-xs font-medium text-muted">Calibration Result</dt>
                     <dd class="mt-1 text-sm">{{ $calibration->calibration_result ?? '—' }}</dd>
                 </div>
                 <div>
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Certificate Number</dt>
+                    <dt class="text-xs font-medium text-muted">Certificate Number</dt>
                     <dd class="mt-1 text-sm">{{ $calibration->certificate_number ?? '—' }}</dd>
                 </div>
                 <div>
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Action Date</dt>
+                    <dt class="text-xs font-medium text-muted">Action Date</dt>
                     <dd class="mt-1 text-sm">{{ $calibration->action_date?->format('Y-m-d') ?? '—' }}</dd>
                 </div>
                 <div class="sm:col-span-2">
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Remarks</dt>
+                    <dt class="text-xs font-medium text-muted">Remarks</dt>
                     <dd class="mt-1 text-sm">{{ $calibration->remarks ?? '—' }}</dd>
                 </div>
                 <div class="sm:col-span-2 lg:col-span-3">
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Resume</dt>
+                    <dt class="text-xs font-medium text-muted">Resume</dt>
                     <dd class="mt-1 text-sm">{{ $calibration->resume ?? '—' }}</dd>
                 </div>
             </dl>
         </section>
 
-        <section class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <section class="ui-card overflow-hidden">
             <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-800">
                 <h2 class="text-lg font-semibold">Environment</h2>
             </div>
@@ -253,7 +253,7 @@ new class extends Component
             @if ($calibration->environment)
                 <dl class="grid gap-x-6 gap-y-5 px-5 py-5 sm:grid-cols-2 lg:grid-cols-4">
                     <div>
-                        <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Temperature</dt>
+                        <dt class="text-xs font-medium text-muted">Temperature</dt>
                         <dd class="mt-1 text-sm">
                             @if (is_null($calibration->environment->temperature_value))
                                 —
@@ -263,7 +263,7 @@ new class extends Component
                         </dd>
                     </div>
                     <div>
-                        <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Humidity</dt>
+                        <dt class="text-xs font-medium text-muted">Humidity</dt>
                         <dd class="mt-1 text-sm">
                             @if (is_null($calibration->environment->humidity_value))
                                 —
@@ -273,7 +273,7 @@ new class extends Component
                         </dd>
                     </div>
                     <div>
-                        <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Pressure</dt>
+                        <dt class="text-xs font-medium text-muted">Pressure</dt>
                         <dd class="mt-1 text-sm">
                             @if (is_null($calibration->environment->pressure_value))
                                 —
@@ -283,7 +283,7 @@ new class extends Component
                         </dd>
                     </div>
                     <div>
-                        <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Remarks</dt>
+                        <dt class="text-xs font-medium text-muted">Remarks</dt>
                         <dd class="mt-1 text-sm">{{ $calibration->environment->remarks ?? '—' }}</dd>
                     </div>
                 </dl>
@@ -294,14 +294,14 @@ new class extends Component
             @endif
         </section>
 
-        <section class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <section class="ui-card overflow-hidden">
             <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-800">
                 <h2 class="text-lg font-semibold">Activity</h2>
             </div>
 
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200 text-left text-sm dark:divide-gray-800">
-                    <thead class="bg-gray-100 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                    <thead class="bg-brand-soft text-xs font-medium text-navy">
                         <tr>
                             <th scope="col" class="whitespace-nowrap px-4 py-3">No.</th>
                             <th scope="col" class="whitespace-nowrap px-4 py-3">Activity Type</th>
@@ -331,14 +331,14 @@ new class extends Component
             </div>
         </section>
 
-        <section class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <section class="ui-card overflow-hidden">
             <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-800">
                 <h2 class="text-lg font-semibold">Standard Used</h2>
             </div>
 
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200 text-left text-sm dark:divide-gray-800">
-                    <thead class="bg-gray-100 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                    <thead class="bg-brand-soft text-xs font-medium text-navy">
                         <tr>
                             <th scope="col" class="whitespace-nowrap px-4 py-3">No.</th>
                             <th scope="col" class="whitespace-nowrap px-4 py-3">Standard Instrument</th>
@@ -378,14 +378,14 @@ new class extends Component
             </div>
         </section>
 
-        <section class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <section class="ui-card overflow-hidden">
             <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-800">
                 <h2 class="text-lg font-semibold">Calibration Scope</h2>
             </div>
 
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200 text-left text-sm dark:divide-gray-800">
-                    <thead class="bg-gray-100 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                    <thead class="bg-brand-soft text-xs font-medium text-navy">
                         <tr>
                             <th scope="col" class="whitespace-nowrap px-4 py-3">Scope Order</th>
                             <th scope="col" class="whitespace-nowrap px-4 py-3">Instrument Type</th>
@@ -429,7 +429,7 @@ new class extends Component
                                     @if ($calibrationScope->testProfile)
                                         <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-800">
                                             <table class="min-w-full divide-y divide-gray-200 text-left text-sm dark:divide-gray-800">
-                                                <thead class="bg-gray-100 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                                                <thead class="bg-brand-soft text-xs font-medium text-navy">
                                                     <tr>
                                                         <th scope="col" class="whitespace-nowrap px-3 py-2">Point</th>
                                                         <th scope="col" class="whitespace-nowrap px-3 py-2">Nominal</th>
@@ -468,7 +468,7 @@ new class extends Component
 
                                         <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-800">
                                             <table class="min-w-full divide-y divide-gray-200 text-left text-sm dark:divide-gray-800">
-                                                <thead class="bg-gray-100 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                                                <thead class="bg-brand-soft text-xs font-medium text-navy">
                                                     <tr>
                                                         <th scope="col" class="whitespace-nowrap px-3 py-2">Point</th>
                                                         <th scope="col" class="whitespace-nowrap px-3 py-2">Nominal</th>
@@ -510,12 +510,12 @@ new class extends Component
                                                         </tr>
                                                         <tr wire:key="test-result-readings-{{ $calibrationTestResult->calibration_test_result_id }}">
                                                             <td colspan="8" class="bg-gray-50 px-3 py-3 dark:bg-gray-950">
-                                                                <h5 class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                                                                <h5 class="mb-2 text-xs font-medium text-muted">
                                                                     Readings
                                                                 </h5>
                                                                 <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-800">
                                                                     <table class="min-w-full divide-y divide-gray-200 text-left text-sm dark:divide-gray-800">
-                                                                        <thead class="bg-gray-100 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                                                                        <thead class="bg-brand-soft text-xs font-medium text-navy">
                                                                             <tr>
                                                                                 <th scope="col" class="whitespace-nowrap px-3 py-2">Reading</th>
                                                                                 <th scope="col" class="whitespace-nowrap px-3 py-2">Reference</th>

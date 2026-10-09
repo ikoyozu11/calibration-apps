@@ -61,7 +61,7 @@ new class extends Component
 <div class="min-h-screen bg-gray-50 px-4 py-8 text-gray-950 sm:px-6 lg:px-8 dark:bg-gray-950 dark:text-gray-100">
     <main class="mx-auto flex max-w-7xl flex-col gap-6">
         <header class="flex flex-col gap-3">
-            <a href="{{ route('instruments.index') }}" class="w-fit text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300">
+            <a href="{{ route('instruments.index') }}" class="w-fit text-sm font-medium text-brand hover:text-navy">
                 &larr; Back to instruments
             </a>
 
@@ -73,43 +73,43 @@ new class extends Component
             </div>
         </header>
 
-        <section class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <section class="ui-card overflow-hidden">
             <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-800">
                 <h2 class="text-lg font-semibold">Instrument Identity</h2>
             </div>
 
             <dl class="grid gap-x-6 gap-y-5 px-5 py-5 sm:grid-cols-2 lg:grid-cols-3">
                 <div>
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Instrument ID</dt>
+                    <dt class="text-xs font-medium text-muted">Instrument ID</dt>
                     <dd class="mt-1 font-mono text-sm">{{ $instrument->instrument_id }}</dd>
                 </div>
                 <div>
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Instrument Name</dt>
+                    <dt class="text-xs font-medium text-muted">Instrument Name</dt>
                     <dd class="mt-1 text-sm font-medium">{{ $instrument->instrument_name }}</dd>
                 </div>
                 <div>
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Detail Location ID</dt>
+                    <dt class="text-xs font-medium text-muted">Detail Location ID</dt>
                     <dd class="mt-1 text-sm">{{ $instrument->detail_location_id ?? '—' }}</dd>
                 </div>
                 <div class="sm:col-span-2">
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Description</dt>
+                    <dt class="text-xs font-medium text-muted">Description</dt>
                     <dd class="mt-1 text-sm">{{ $instrument->description ?? '—' }}</dd>
                 </div>
                 <div>
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Created At</dt>
+                    <dt class="text-xs font-medium text-muted">Created At</dt>
                     <dd class="mt-1 text-sm">{{ $instrument->created_at->format('Y-m-d H:i:s') }}</dd>
                 </div>
             </dl>
         </section>
 
-        <section class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <section class="ui-card overflow-hidden">
             <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-800">
                 <h2 class="text-lg font-semibold">Instrument Types</h2>
             </div>
 
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200 text-left text-sm dark:divide-gray-800">
-                    <thead class="bg-gray-100 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                    <thead class="bg-brand-soft text-xs font-medium text-navy">
                         <tr>
                             <th scope="col" class="whitespace-nowrap px-4 py-3">Type ID</th>
                             <th scope="col" class="whitespace-nowrap px-4 py-3">Type Name</th>
@@ -153,14 +153,14 @@ new class extends Component
             </div>
         </section>
 
-        <section class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <section class="ui-card overflow-hidden">
             <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-800">
                 <h2 class="text-lg font-semibold">Calibration History</h2>
             </div>
 
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200 text-left text-sm dark:divide-gray-800">
-                    <thead class="bg-gray-100 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                    <thead class="bg-brand-soft text-xs font-medium text-navy">
                         <tr>
                             <th scope="col" class="whitespace-nowrap px-4 py-3">Calibration Number</th>
                             <th scope="col" class="whitespace-nowrap px-4 py-3">Calibration Date</th>
@@ -176,7 +176,7 @@ new class extends Component
                         @forelse ($instrument->calibrations as $calibration)
                             <tr wire:key="calibration-{{ $calibration->calibration_id }}" class="align-top">
                                 <td class="whitespace-nowrap px-4 py-3 font-medium">
-                                    <a href="{{ route('calibrations.show', $calibration) }}" class="text-blue-600 hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300">
+                                    <a href="{{ route('calibrations.show', $calibration) }}" class="text-brand hover:text-navy">
                                         {{ $calibration->calibration_number }}
                                     </a>
                                 </td>

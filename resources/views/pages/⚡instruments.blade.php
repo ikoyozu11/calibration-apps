@@ -33,19 +33,19 @@ new class extends Component
                 Read-only instrument data from the calibration database.
             </p>
             <div class="mt-3 flex flex-wrap gap-4">
-                <a href="{{ route('instruments.export.csv') }}" class="text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300">
+                <a href="{{ route('instruments.export.csv') }}" class="text-sm font-medium text-brand hover:text-navy">
                     Export instrument types (CSV)
                 </a>
-                <a href="{{ route('calibrations.export.csv') }}" class="text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300">
+                <a href="{{ route('calibrations.export.csv') }}" class="text-sm font-medium text-brand hover:text-navy">
                     Export calibration history (CSV)
                 </a>
             </div>
         </header>
 
-        <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <div class="ui-card overflow-hidden">
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200 text-left text-sm dark:divide-gray-800">
-                    <thead class="bg-gray-100 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                    <thead class="bg-brand-soft text-xs font-medium text-navy">
                         <tr>
                             <th scope="col" class="px-4 py-3">Instrument ID</th>
                             <th scope="col" class="px-4 py-3">Instrument Name</th>
@@ -61,7 +61,7 @@ new class extends Component
                                     {{ $instrument->instrument_id }}
                                 </td>
                                 <td class="whitespace-nowrap px-4 py-3 font-medium">
-                                    <a href="{{ route('instruments.show', $instrument) }}" class="text-blue-600 hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300">
+                                    <a href="{{ route('instruments.show', $instrument) }}" class="text-brand hover:text-navy">
                                         {{ $instrument->instrument_name }}
                                     </a>
                                 </td>
