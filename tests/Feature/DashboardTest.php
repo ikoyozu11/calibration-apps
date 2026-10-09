@@ -141,6 +141,8 @@ it('classifies each instrument once from its latest calibration', function () {
     $response->assertSeeInOrder(['Overdue', '1']);
     $response->assertSeeInOrder(['Due Soon', '2']);
     $response->assertSeeInOrder(['Not Calibrated', '1']);
+    $response->assertSeeInOrder(['On Track', '1', '20%']);
+    $response->assertSeeInOrder(['Due Soon', '2', '40%']);
     $response->assertSee('ONLY-SERIAL');
     $response->assertSeeInOrder(['Tie Gauge', 'Overdue']);
 
@@ -166,6 +168,8 @@ it('limits recent instruments to ten distinct identities', function () {
     $response->assertDontSee('Gauge 02');
     $response->assertDontSee('Gauge 01');
     $response->assertSee('Not Calibrated');
+    $response->assertSee('100%');
+    $response->assertSee('0%');
     $response->assertSee('href="'.route('instruments.index').'"', false);
 });
 

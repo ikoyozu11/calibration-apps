@@ -61,10 +61,12 @@ new class extends Component
                 <p class="mt-4 text-sm text-muted">No instruments found.</p>
             @else
                 <div class="mt-4 flex flex-col gap-6 md:flex-row md:items-center">
-                    <svg viewBox="0 0 42 42" class="chart-ring mx-auto size-52 shrink-0 drop-shadow-[0_14px_18px_rgb(22_49_114/0.16)]" role="img" aria-labelledby="calibration-status-heading">
+                    <div class="chart-ring relative mx-auto size-52 shrink-0">
+                    <svg viewBox="0 0 42 42" class="size-full drop-shadow-[0_14px_18px_rgb(22_49_114/0.16)]" role="img" aria-labelledby="calibration-status-heading">
                         @php
                             $offset = 25;
                             $drawn = 0;
+                            $labels = [];
                             $gradients = [
                                 'On Track' => ['#6EE7B7', '#12B76A'],
                                 'Due Soon' => ['#FDE68A', '#F5A524'],
@@ -87,6 +89,15 @@ new class extends Component
                                     $raw = ($segment['count'] / $this->overview->total) * 100;
                                     $gap = min(1.8, $raw * 0.22);
                                     $length = max($raw - $gap, 0.6);
+                                    $midpoint = (25 - $offset) + ($length / 2);
+                                    $angle = ($midpoint / 100) * 2 * M_PI;
+                                    $labelRadius = (15.915 / 42) * 100;
+                                    $labels[] = [
+                                        'percent' => $segment['percent'],
+                                        'x' => 50 + sin($angle) * $labelRadius,
+                                        'y' => 50 - cos($angle) * $labelRadius,
+                                        'index' => $drawn,
+                                    ];
                                 @endphp
                                 <circle
                                     class="chart-segment"
@@ -105,6 +116,13 @@ new class extends Component
                             @endif
                         @endforeach
                     </svg>
+                        @foreach ($labels as $label)
+                            <span
+                                class="chart-label pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full bg-white px-1.5 py-0.5 text-[11px] font-semibold leading-none text-navy shadow-sm"
+                                style="left: {{ $label['x'] }}%; top: {{ $label['y'] }}%; --segment-index: {{ $label['index'] }}"
+                            >{{ $label['percent'] }}</span>
+                        @endforeach
+                    </div>
 
                     <ul class="flex flex-1 flex-col">
                         @foreach ($this->overview->segments() as $segment)

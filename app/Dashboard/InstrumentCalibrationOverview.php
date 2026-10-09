@@ -86,16 +86,41 @@ final class InstrumentCalibrationOverview
     }
 
     /**
-     * @return list<array{label: string, count: int, color: string}>
+     * @return list<array{label: string, count: int, color: string, percent: string}>
      */
     public function segments(): array
     {
         return [
-            ['label' => CalibrationStanding::OnTrack->value, 'count' => $this->onTrack, 'color' => '#12B76A'],
-            ['label' => CalibrationStanding::DueSoon->value, 'count' => $this->dueSoon, 'color' => '#F5A524'],
-            ['label' => CalibrationStanding::Overdue->value, 'count' => $this->overdue, 'color' => '#F04438'],
-            ['label' => CalibrationStanding::NotCalibrated->value, 'count' => $this->notCalibrated, 'color' => '#7C93B0'],
+            $this->segment(CalibrationStanding::OnTrack, $this->onTrack, '#12B76A'),
+            $this->segment(CalibrationStanding::DueSoon, $this->dueSoon, '#F5A524'),
+            $this->segment(CalibrationStanding::Overdue, $this->overdue, '#F04438'),
+            $this->segment(CalibrationStanding::NotCalibrated, $this->notCalibrated, '#7C93B0'),
         ];
+    }
+
+    /**
+     * @return array{label: string, count: int, color: string, percent: string}
+     */
+    private function segment(CalibrationStanding $standing, int $count, string $color): array
+    {
+        return [
+            'label' => $standing->value,
+            'count' => $count,
+            'color' => $color,
+            'percent' => $this->percentLabel($count),
+        ];
+    }
+
+    private function percentLabel(int $count): string
+    {
+        if ($this->total === 0 || $count === 0) {
+            return '0%';
+        }
+
+        $percent = round(($count / $this->total) * 100, 1);
+        $formatted = rtrim(rtrim(number_format($percent, 1, '.', ''), '0'), '.');
+
+        return $formatted.'%';
     }
 
     private static function nameNeedle(?string $name): string

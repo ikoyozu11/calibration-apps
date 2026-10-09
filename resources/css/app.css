@@ -97,6 +97,11 @@
         animation: chart-segment-open 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
         animation-delay: calc(0.28s + (var(--segment-index) * 0.16s));
     }
+
+    .chart-label {
+        animation: chart-label-in 0.35s ease both;
+        animation-delay: calc(0.7s + (var(--segment-index) * 0.16s));
+    }
 }
 
 @keyframes chart-ring-in {
@@ -118,10 +123,17 @@
     }
 }
 
+@keyframes chart-label-in {
+    from {
+        opacity: 0;
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
     .chart-ring,
     .chart-track,
-    .chart-segment {
+    .chart-segment,
+    .chart-label {
         animation: none;
     }
 }

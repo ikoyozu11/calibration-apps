@@ -187,15 +187,15 @@ new class extends Component
 
             <dl class="grid gap-x-6 gap-y-5 px-5 py-5 sm:grid-cols-2 lg:grid-cols-3">
                 <div>
-                    <dt class="text-xs font-medium text-muted">Calibration ID</dt>
+                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Calibration ID</dt>
                     <dd class="mt-1 font-mono text-sm">{{ $calibration->calibration_id }}</dd>
                 </div>
                 <div>
-                    <dt class="text-xs font-medium text-muted">Calibration Number</dt>
+                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Calibration Number</dt>
                     <dd class="mt-1 text-sm font-medium">{{ $calibration->calibration_number }}</dd>
                 </div>
                 <div>
-                    <dt class="text-xs font-medium text-muted">Status</dt>
+                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Status</dt>
                     <dd class="mt-1">
                         @if (is_null($calibration->calibration_due))
                             —
@@ -211,35 +211,35 @@ new class extends Component
                     </dd>
                 </div>
                 <div>
-                    <dt class="text-xs font-medium text-muted">Calibration Date</dt>
+                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Calibration Date</dt>
                     <dd class="mt-1 text-sm">{{ $calibration->calibration_date?->format('Y-m-d') ?? '—' }}</dd>
                 </div>
                 <div>
-                    <dt class="text-xs font-medium text-muted">Calibration Due</dt>
+                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Calibration Due</dt>
                     <dd class="mt-1 text-sm">{{ $calibration->calibration_due?->format('Y-m-d') ?? '—' }}</dd>
                 </div>
                 <div>
-                    <dt class="text-xs font-medium text-muted">Calibration Method</dt>
+                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Calibration Method</dt>
                     <dd class="mt-1 text-sm">{{ $calibration->calibration_method ?? '—' }}</dd>
                 </div>
                 <div>
-                    <dt class="text-xs font-medium text-muted">Calibration Result</dt>
+                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Calibration Result</dt>
                     <dd class="mt-1 text-sm">{{ $calibration->calibration_result ?? '—' }}</dd>
                 </div>
                 <div>
-                    <dt class="text-xs font-medium text-muted">Certificate Number</dt>
+                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Certificate Number</dt>
                     <dd class="mt-1 text-sm">{{ $calibration->certificate_number ?? '—' }}</dd>
                 </div>
                 <div>
-                    <dt class="text-xs font-medium text-muted">Action Date</dt>
+                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Action Date</dt>
                     <dd class="mt-1 text-sm">{{ $calibration->action_date?->format('Y-m-d') ?? '—' }}</dd>
                 </div>
                 <div class="sm:col-span-2">
-                    <dt class="text-xs font-medium text-muted">Remarks</dt>
+                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Remarks</dt>
                     <dd class="mt-1 text-sm">{{ $calibration->remarks ?? '—' }}</dd>
                 </div>
                 <div class="sm:col-span-2 lg:col-span-3">
-                    <dt class="text-xs font-medium text-muted">Resume</dt>
+                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Resume</dt>
                     <dd class="mt-1 text-sm">{{ $calibration->resume ?? '—' }}</dd>
                 </div>
             </dl>
@@ -253,7 +253,7 @@ new class extends Component
             @if ($calibration->environment)
                 <dl class="grid gap-x-6 gap-y-5 px-5 py-5 sm:grid-cols-2 lg:grid-cols-4">
                     <div>
-                        <dt class="text-xs font-medium text-muted">Temperature</dt>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Temperature</dt>
                         <dd class="mt-1 text-sm">
                             @if (is_null($calibration->environment->temperature_value))
                                 —
@@ -263,7 +263,7 @@ new class extends Component
                         </dd>
                     </div>
                     <div>
-                        <dt class="text-xs font-medium text-muted">Humidity</dt>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Humidity</dt>
                         <dd class="mt-1 text-sm">
                             @if (is_null($calibration->environment->humidity_value))
                                 —
@@ -273,7 +273,7 @@ new class extends Component
                         </dd>
                     </div>
                     <div>
-                        <dt class="text-xs font-medium text-muted">Pressure</dt>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Pressure</dt>
                         <dd class="mt-1 text-sm">
                             @if (is_null($calibration->environment->pressure_value))
                                 —
@@ -283,7 +283,7 @@ new class extends Component
                         </dd>
                     </div>
                     <div>
-                        <dt class="text-xs font-medium text-muted">Remarks</dt>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Remarks</dt>
                         <dd class="mt-1 text-sm">{{ $calibration->environment->remarks ?? '—' }}</dd>
                     </div>
                 </dl>
