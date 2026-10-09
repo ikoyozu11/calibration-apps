@@ -3,6 +3,125 @@
 @source '../views';
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
     --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+
+    --color-navy: #163172;
+    --color-brand: #1e56a0;
+    --color-brand-soft: #d6e4f0;
+    --color-canvas: #f6f6f6;
+    --color-ink: #163172;
+    --color-muted: #4b5563;
+    --color-line: #d5dee8;
+    --color-on-track: #1f7a4d;
+    --color-due-soon: #8a5a00;
+    --color-overdue: #b42318;
+    --color-not-calibrated: #526070;
+
+    --color-gray-50: #f6f6f6;
+    --color-gray-100: #d6e4f0;
+    --color-gray-200: #d5dee8;
+    --color-gray-950: #163172;
+    --color-blue-600: #1e56a0;
+    --color-blue-700: #163172;
+
+    --radius-card: 1rem;
+}
+
+@layer base {
+    html {
+        color-scheme: light;
+    }
+
+    :focus-visible {
+        outline: 2px solid var(--color-brand);
+        outline-offset: 2px;
+    }
+}
+
+@layer components {
+    .ui-card {
+        @apply rounded-2xl border border-line/80 bg-white shadow-[0_1px_2px_rgb(22_49_114/0.06),0_18px_36px_-22px_rgb(22_49_114/0.45)];
+    }
+
+    .ui-button-primary {
+        @apply inline-flex items-center justify-center rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand;
+    }
+
+    .ui-button-secondary {
+        @apply inline-flex items-center justify-center rounded-lg bg-brand-soft px-4 py-2 text-sm font-semibold text-navy hover:bg-brand-soft/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand;
+    }
+
+    .ui-button-outline {
+        @apply inline-flex items-center justify-center rounded-lg border border-brand bg-white px-4 py-2 text-sm font-semibold text-brand hover:bg-brand-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand;
+    }
+
+    .ui-button-danger {
+        @apply inline-flex items-center justify-center rounded-lg bg-overdue px-4 py-2 text-sm font-semibold text-white hover:bg-red-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-overdue;
+    }
+
+    .ui-label {
+        @apply mb-1 block text-sm font-medium text-ink;
+    }
+
+    .ui-input {
+        @apply w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink focus-visible:outline-brand;
+    }
+
+    .ui-error {
+        @apply mt-1 text-sm font-medium text-overdue;
+    }
+
+    .ui-alert {
+        @apply rounded-lg border border-line bg-brand-soft px-4 py-3 text-sm text-navy;
+    }
+
+    .ui-table {
+        @apply min-w-full divide-y divide-line text-left text-sm;
+    }
+
+    .chart-ring {
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: chart-ring-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+
+    .chart-track {
+        stroke-dasharray: 100;
+        animation: chart-track-open 0.85s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+
+    .chart-segment {
+        animation: chart-segment-open 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+        animation-delay: calc(0.28s + (var(--segment-index) * 0.16s));
+    }
+}
+
+@keyframes chart-ring-in {
+    from {
+        opacity: 0;
+        transform: scale(0.88);
+    }
+}
+
+@keyframes chart-track-open {
+    from {
+        stroke-dashoffset: 100;
+    }
+}
+
+@keyframes chart-segment-open {
+    from {
+        stroke-dasharray: 0 100;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .chart-ring,
+    .chart-track,
+    .chart-segment {
+        animation: none;
+    }
 }
