@@ -5,7 +5,7 @@ use App\Http\Controllers\CertificateServiceReportController;
 use App\Http\Controllers\InstrumentTypeCsvExportController;
 use Illuminate\Support\Facades\Route;
 
-Route::view('/', 'welcome')->name('home');
+Route::livewire('/', 'pages::dashboard')->name('home');
 
 Route::get('/calibrations/export.csv', CalibrationHistoryCsvExportController::class)->name('calibrations.export.csv');
 Route::livewire('/calibrations/{calibration}', 'pages::calibrations.show')->name('calibrations.show');
