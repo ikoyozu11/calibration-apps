@@ -1,8 +1,8 @@
 @php
     $items = [
-        ['label' => 'Dashboard', 'href' => route('home'), 'active' => request()->routeIs('home'), 'icon' => 'home'],
+        ['label' => 'Home', 'href' => route('home'), 'active' => request()->routeIs('home'), 'icon' => 'home'],
         ['label' => 'Instruments', 'href' => route('instruments.index'), 'active' => request()->routeIs('instruments.*'), 'icon' => 'instrument'],
-        ['label' => 'Calibration', 'href' => route('instruments.index'), 'active' => request()->routeIs('calibrations.*'), 'icon' => 'calibration'],
+        ['label' => 'Calibrations', 'href' => route('instruments.index'), 'active' => request()->routeIs('calibrations.*'), 'icon' => 'calibration'],
     ];
 @endphp
 
@@ -16,7 +16,7 @@
                 'text-white hover:bg-white/10' => ! $item['active'],
             ])
             @if ($item['active']) aria-current="page" @endif
-            @if ($item['label'] === 'Calibration') title="Open an instrument to view its calibration history" @endif
+            @if ($item['icon'] === 'calibration') title="Open an instrument to view its calibration history" @endif
         >
             @if ($item['icon'] === 'home')
                 <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
