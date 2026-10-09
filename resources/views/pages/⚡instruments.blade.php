@@ -32,6 +32,14 @@ new class extends Component
             <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
                 Read-only instrument data from the calibration database.
             </p>
+            <div class="mt-3 flex flex-wrap gap-4">
+                <a href="{{ route('instruments.export.csv') }}" class="text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300">
+                    Export instrument types (CSV)
+                </a>
+                <a href="{{ route('calibrations.export.csv') }}" class="text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300">
+                    Export calibration history (CSV)
+                </a>
+            </div>
         </header>
 
         <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
