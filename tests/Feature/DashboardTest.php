@@ -85,6 +85,8 @@ it('shows the dashboard at the root without authentication', function () {
     $response->assertSee('Overview of instrument calibration');
     $response->assertSeeInOrder(['Recent Instruments', 'View All']);
     $response->assertSee('href="'.route('instruments.index').'"', false);
+    $response->assertSee('href="'.route('calibrations.index').'"', false);
+    $response->assertDontSee('Open an instrument to view its calibration history');
 });
 
 it('keeps the instrument and calibration routes available', function () {
@@ -92,6 +94,7 @@ it('keeps the instrument and calibration routes available', function () {
 
     $this->get(route('instruments.index'))->assertOk();
     $this->get(route('instruments.show', 999))->assertNotFound();
+    $this->get(route('calibrations.index'))->assertOk();
     $this->get(route('calibrations.show', 999))->assertNotFound();
 });
 

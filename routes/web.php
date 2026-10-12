@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Route;
 Route::livewire('/', 'pages::dashboard')->name('home');
 
 Route::get('/calibrations/export.csv', CalibrationHistoryCsvExportController::class)->name('calibrations.export.csv');
+Route::livewire('/calibrations', 'pages::calibrations')->name('calibrations.index');
 Route::livewire('/calibrations/{calibration}', 'pages::calibrations.show')->name('calibrations.show');
 Route::get('/certificates/{certificate}/pdf', CertificateServiceReportController::class)->name('certificates.pdf');
 Route::livewire('/certificates/{certificate}', 'pages::certificates.show')->name('certificates.show');
