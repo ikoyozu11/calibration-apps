@@ -40,6 +40,8 @@ function createCsvExportTestTables(): void
         $table->timestamp('created_at');
         $table->string('asset_number')->nullable();
         $table->string('serial_number')->nullable();
+        $table->string('brand')->nullable();
+        $table->string('model')->nullable();
     });
 
     Schema::create('calibration', function (Blueprint $table): void {
@@ -607,12 +609,12 @@ it('neutralizes a leading line feed without changing stored identifiers', functi
     ]);
 });
 
-it('keeps the instrument list available with export links', function () {
+it('keeps the instrument list available without the export links', function () {
     createCsvExportTestTables();
 
     $response = $this->get(route('instruments.index'));
 
     $response->assertSuccessful();
-    $response->assertSee('href="'.route('instruments.export.csv').'"', false);
-    $response->assertSee('href="'.route('calibrations.export.csv').'"', false);
+    $response->assertDontSee('Export instrument types (CSV)');
+    $response->assertDontSee('Export calibration history (CSV)');
 });

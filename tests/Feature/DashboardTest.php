@@ -8,6 +8,17 @@ use Livewire\Livewire;
 
 function createDashboardTestTables(): void
 {
+    Schema::create('location', function (Blueprint $table): void {
+        $table->unsignedBigInteger('location_id')->primary();
+        $table->string('location_name');
+    });
+
+    Schema::create('detail_location', function (Blueprint $table): void {
+        $table->unsignedBigInteger('detail_location_id')->primary();
+        $table->unsignedBigInteger('location_id');
+        $table->string('detail_location_name');
+    });
+
     Schema::create('instrument', function (Blueprint $table): void {
         $table->unsignedBigInteger('instrument_id')->primary();
         $table->string('instrument_name');
@@ -21,6 +32,9 @@ function createDashboardTestTables(): void
         $table->unsignedBigInteger('instrument_id');
         $table->string('type_name');
         $table->string('serial_number')->nullable();
+        $table->string('asset_number')->nullable();
+        $table->string('brand')->nullable();
+        $table->string('model')->nullable();
         $table->timestamp('created_at');
     });
 
@@ -29,6 +43,8 @@ function createDashboardTestTables(): void
         $table->unsignedBigInteger('instrument_id');
         $table->date('calibration_date')->nullable();
         $table->date('calibration_due')->nullable();
+        $table->string('calibration_result', 20)->nullable();
+        $table->string('certificate_number', 100)->nullable();
     });
 }
 
