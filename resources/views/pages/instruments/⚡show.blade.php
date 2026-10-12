@@ -1,11 +1,17 @@
 <?php
 
+use App\Models\Calibration;
 use App\Models\Instrument;
 use App\Models\InstrumentType;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Livewire\Attributes\Computed;
 use Livewire\Component;
+use Livewire\WithPagination;
 
 new class extends Component
 {
+    use WithPagination;
+
     public Instrument $instrument;
 
     public ?InstrumentType $instrumentType = null;
@@ -48,6 +54,46 @@ new class extends Component
             ['label' => 'Max Capacity', 'value' => $this->measurement($type?->max_capacity, $type?->max_capacity_unit)],
             ['label' => 'Resolution', 'value' => $this->measurement($type?->resolution, $type?->resolution_unit)],
         ];
+    }
+
+    /**
+     * @return LengthAwarePaginator<int, array{id: int, date: string, due: string, status: string|null, remarks: string}>
+     */
+    #[Computed]
+    public function history(): LengthAwarePaginator
+    {
+        return $this->instrument->calibrations()
+            ->select([
+                'calibration_id',
+                'instrument_id',
+                'calibration_date',
+                'calibration_due',
+                'remarks',
+            ])
+            ->orderByRaw('case when calibration_date is null then 1 else 0 end')
+            ->orderByDesc('calibration_date')
+            ->orderByDesc('calibration_id')
+            ->paginate(5)
+            ->through(fn (Calibration $calibration): array => [
+                'id' => $calibration->calibration_id,
+                'date' => $calibration->calibration_date?->format('Y-m-d') ?? '—',
+                'due' => $calibration->calibration_due?->format('Y-m-d') ?? '—',
+                'status' => $this->status($calibration),
+                'remarks' => $this->display($calibration->remarks),
+            ]);
+    }
+
+    private function status(Calibration $calibration): ?string
+    {
+        if ($calibration->calibration_due === null) {
+            return null;
+        }
+
+        if (today()->greaterThan($calibration->calibration_due->copy()->startOfDay())) {
+            return 'Overdue';
+        }
+
+        return 'On Track';
     }
 
     private function display(mixed $value): string
@@ -99,6 +145,51 @@ new class extends Component
                     </div>
                 @endforeach
             </dl>
+        </section>
+
+        <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="calibration-history-heading">
+            <div class="px-5 py-4">
+                <h2 id="calibration-history-heading" class="text-base font-semibold tracking-tight text-navy">Calibration History</h2>
+            </div>
+
+            @if ($this->history->isEmpty())
+                <p class="px-5 py-8 text-sm text-navy/70">No calibration history found.</p>
+            @else
+                <div class="overflow-x-auto">
+                    <table class="ui-table">
+                        <thead class="bg-navy text-xs font-medium text-white">
+                            <tr>
+                                <th scope="col" class="px-5 py-3 font-medium">Calibration Date</th>
+                                <th scope="col" class="px-5 py-3 font-medium">Calibration Due</th>
+                                <th scope="col" class="px-5 py-3 font-medium">Status</th>
+                                <th scope="col" class="px-5 py-3 font-medium">Remarks</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-white/70">
+                            @foreach ($this->history as $calibration)
+                                <tr wire:key="calibration-{{ $calibration['id'] }}" class="odd:bg-[#d6e4f0] even:bg-[#c5d8ec] hover:bg-[#edf4fa]">
+                                    <td class="px-5 py-3.5 tabular-nums text-navy">{{ $calibration['date'] }}</td>
+                                    <td class="px-5 py-3.5 tabular-nums text-navy">{{ $calibration['due'] }}</td>
+                                    <td class="px-5 py-3.5">
+                                        @if ($calibration['status'] === null)
+                                            <span class="text-navy/70">—</span>
+                                        @else
+                                            <x-status-badge :status="$calibration['status']" />
+                                        @endif
+                                    </td>
+                                    <td class="px-5 py-3.5 text-navy">{{ $calibration['remarks'] }}</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+
+                @if ($this->history->hasPages())
+                    <div class="px-5 py-4">
+                        {{ $this->history->links() }}
+                    </div>
+                @endif
+            @endif
         </section>
     </div>
 </div>
