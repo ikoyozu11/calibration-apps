@@ -1,12 +1,22 @@
 <?php
 
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 function createInstrumentDetailTestTables(): void
 {
+    Schema::create('location', function (Blueprint $table): void {
+        $table->unsignedBigInteger('location_id')->primary();
+        $table->string('location_name', 150);
+    });
+
+    Schema::create('detail_location', function (Blueprint $table): void {
+        $table->unsignedBigInteger('detail_location_id')->primary();
+        $table->unsignedBigInteger('location_id');
+        $table->string('detail_location_name', 150);
+    });
+
     Schema::create('instrument', function (Blueprint $table): void {
         $table->unsignedBigInteger('instrument_id')->primary();
         $table->string('instrument_name', 150);
@@ -49,9 +59,18 @@ function createInstrumentDetailTestTables(): void
     });
 }
 
-it('renders an instrument identity and its types', function () {
+it('renders one instrument type identity', function () {
     createInstrumentDetailTestTables();
 
+    DB::table('location')->insert([
+        'location_id' => 1,
+        'location_name' => 'Plant A',
+    ]);
+    DB::table('detail_location')->insert([
+        'detail_location_id' => 2,
+        'location_id' => 1,
+        'detail_location_name' => 'Line 2',
+    ]);
     DB::table('instrument')->insert([
         'instrument_id' => 3,
         'instrument_name' => 'Sodiline',
@@ -67,7 +86,7 @@ it('renders an instrument identity and its types', function () {
             'type_name' => 'Weight',
             'description' => 'Weight measurement',
             'created_at' => '2026-10-07 09:17:33',
-            'asset_number' => null,
+            'asset_number' => 'ASSET-9',
             'serial_number' => 'WEIGHT-001',
             'max_capacity' => 1000,
             'max_capacity_unit' => 'g',
@@ -76,6 +95,56 @@ it('renders an instrument identity and its types', function () {
             'brand' => 'Prototype Brand',
             'model' => 'Prototype Model',
         ],
+        [
+            'instrument_type_id' => 32,
+            'instrument_id' => 3,
+            'type_name' => 'Diameter',
+            'description' => null,
+            'created_at' => '2026-10-07 09:17:33',
+            'asset_number' => null,
+            'serial_number' => 'DIA-002',
+            'max_capacity' => null,
+            'max_capacity_unit' => null,
+            'resolution' => null,
+            'resolution_unit' => null,
+            'brand' => null,
+            'model' => null,
+        ],
+    ]);
+
+    $response = $this->get(route('instruments.types.show', ['instrument' => 3, 'instrumentType' => 31]));
+
+    $response
+        ->assertSee('Instrument Identity')
+        ->assertSee('Sodiline')
+        ->assertDontSee('Prototype instrument')
+        ->assertSee('Plant A')
+        ->assertSee('Line 2')
+        ->assertSee('Weight')
+        ->assertSee('WEIGHT-001')
+        ->assertSee('ASSET-9')
+        ->assertSee('Prototype Brand')
+        ->assertSee('Prototype Model')
+        ->assertSee('1000 g')
+        ->assertSee('0.1 g')
+        ->assertDontSee('Weight measurement')
+        ->assertDontSee('Description')
+        ->assertDontSee('DIA-002')
+        ->assertDontSee('Calibration History');
+});
+
+it('opens the first instrument type from the instrument address', function () {
+    createInstrumentDetailTestTables();
+
+    DB::table('instrument')->insert([
+        'instrument_id' => 3,
+        'instrument_name' => 'Sodiline',
+        'detail_location_id' => 2,
+        'description' => 'Prototype instrument',
+        'created_at' => '2026-10-07 09:17:33',
+    ]);
+
+    DB::table('instrument_type')->insert([
         [
             'instrument_type_id' => 32,
             'instrument_id' => 3,
@@ -92,9 +161,9 @@ it('renders an instrument identity and its types', function () {
             'model' => null,
         ],
         [
-            'instrument_type_id' => 33,
+            'instrument_type_id' => 31,
             'instrument_id' => 3,
-            'type_name' => 'PD',
+            'type_name' => 'Weight',
             'description' => null,
             'created_at' => '2026-10-07 09:17:33',
             'asset_number' => null,
@@ -108,115 +177,47 @@ it('renders an instrument identity and its types', function () {
         ],
     ]);
 
-    $response = $this->get(route('instruments.show', 3));
-
-    $response
-        ->assertSee('Instrument Identity')
-        ->assertSee('Sodiline')
-        ->assertSee('Instrument Types')
-        ->assertSeeInOrder(['Weight', 'Diameter', 'PD'])
-        ->assertSee('WEIGHT-001')
-        ->assertSee('Prototype Brand')
-        ->assertSee('Calibration History')
-        ->assertSee('No calibration history found.');
+    $this->get(route('instruments.show', 3))
+        ->assertRedirect(route('instruments.types.show', ['instrument' => 3, 'instrumentType' => 31]));
 });
 
-it('renders calibration history in descending calibration date order', function () {
+it('returns not found when the type belongs to another instrument', function () {
     createInstrumentDetailTestTables();
 
     DB::table('instrument')->insert([
-        'instrument_id' => 3,
-        'instrument_name' => 'Sodiline',
-        'detail_location_id' => 2,
-        'description' => 'Prototype instrument',
-        'created_at' => '2026-10-07 09:17:33',
-    ]);
-
-    DB::table('calibration')->insert([
         [
-            'calibration_id' => 101,
             'instrument_id' => 3,
-            'calibration_provider_id' => 1,
-            'calibration_number' => 'CAL-OLD-001',
-            'calibration_date' => '2025-10-21',
-            'calibration_due' => '2026-10-21',
-            'calibration_method' => 'EXTERNAL',
-            'calibration_result' => 'PASS',
-            'certificate_number' => 'CERT-OLD-001',
-            'remarks' => 'Older calibration',
-            'created_at' => '2025-10-21 09:00:00',
-            'updated_at' => '2025-10-21 09:00:00',
-            'action_date' => null,
-            'resume' => null,
-            'customer_id' => 1,
+            'instrument_name' => 'Sodiline',
+            'detail_location_id' => null,
+            'description' => null,
+            'created_at' => '2026-10-07 09:17:33',
         ],
         [
-            'calibration_id' => 102,
-            'instrument_id' => 3,
-            'calibration_provider_id' => 1,
-            'calibration_number' => 'CAL-NEW-001',
-            'calibration_date' => '2026-10-07',
-            'calibration_due' => '2027-10-07',
-            'calibration_method' => 'EXTERNAL',
-            'calibration_result' => 'PASS',
-            'certificate_number' => 'CERT-NEW-001',
-            'remarks' => 'Newer calibration',
-            'created_at' => '2026-10-07 09:00:00',
-            'updated_at' => '2026-10-07 09:00:00',
-            'action_date' => null,
-            'resume' => 'Instrument working properly',
-            'customer_id' => 1,
+            'instrument_id' => 4,
+            'instrument_name' => 'Gauge',
+            'detail_location_id' => null,
+            'description' => null,
+            'created_at' => '2026-10-07 09:17:33',
         ],
     ]);
-
-    $this->travelTo(Carbon::parse('2027-01-01'));
-
-    $response = $this->get(route('instruments.show', 3));
-
-    $response
-        ->assertSee('Calibration History')
-        ->assertSeeInOrder(['CAL-NEW-001', 'CAL-OLD-001'])
-        ->assertSee('CERT-NEW-001')
-        ->assertSee('CERT-OLD-001')
-        ->assertSee('On Track')
-        ->assertSee('Overdue');
-});
-
-it('shows no calibration status when the due date is missing', function () {
-    createInstrumentDetailTestTables();
-
-    DB::table('instrument')->insert([
-        'instrument_id' => 3,
-        'instrument_name' => 'Sodiline',
-        'detail_location_id' => 2,
-        'description' => 'Prototype instrument',
+    DB::table('instrument_type')->insert([
+        'instrument_type_id' => 40,
+        'instrument_id' => 4,
+        'type_name' => 'Weight',
+        'description' => null,
         'created_at' => '2026-10-07 09:17:33',
+        'asset_number' => null,
+        'serial_number' => null,
+        'max_capacity' => null,
+        'max_capacity_unit' => null,
+        'resolution' => null,
+        'resolution_unit' => null,
+        'brand' => null,
+        'model' => null,
     ]);
 
-    DB::table('calibration')->insert([
-        'calibration_id' => 103,
-        'instrument_id' => 3,
-        'calibration_provider_id' => 1,
-        'calibration_number' => 'CAL-NO-DUE',
-        'calibration_date' => '2026-10-07',
-        'calibration_due' => null,
-        'calibration_method' => 'EXTERNAL',
-        'calibration_result' => 'PASS',
-        'certificate_number' => 'CERT-NO-DUE',
-        'remarks' => 'Due date unavailable',
-        'created_at' => '2026-10-07 09:00:00',
-        'updated_at' => '2026-10-07 09:00:00',
-        'action_date' => null,
-        'resume' => null,
-        'customer_id' => 1,
-    ]);
-
-    $response = $this->get(route('instruments.show', 3));
-
-    $response
-        ->assertSee('CAL-NO-DUE')
-        ->assertDontSee('On Track')
-        ->assertDontSee('Overdue');
+    $this->get(route('instruments.types.show', ['instrument' => 3, 'instrumentType' => 40]))
+        ->assertNotFound();
 });
 
 it('links each instrument name to its detail page', function () {
@@ -232,7 +233,7 @@ it('links each instrument name to its detail page', function () {
 
     $response = $this->get(route('instruments.index'));
 
-    $response->assertSee('href="' . route('instruments.show', 3) . '"', false);
+    $response->assertSee('href="'.route('instruments.show', 3).'"', false);
 });
 
 it('returns not found for an unknown instrument', function () {

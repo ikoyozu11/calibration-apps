@@ -778,14 +778,16 @@ it('returns not found for an unknown calibration', function () {
     $response->assertNotFound();
 });
 
-it('links calibration history to calibration detail', function () {
+it('sends the instrument address to the first instrument type', function () {
     createCalibrationDetailTestTables();
     insertCalibrationDetailInstrument();
-    insertCalibrationDetailCalibration();
+    DB::table('instrument_type')->insert([
+        'instrument_type_id' => 5,
+        'instrument_id' => 3,
+        'type_name' => 'Weight',
+        'created_at' => '2026-06-12 09:00:00',
+    ]);
 
-    $response = $this->get(route('instruments.show', 3));
-
-    $response
-        ->assertSee('CAL-PROT-0001')
-        ->assertSee('href="'.route('calibrations.show', 3).'"', false);
+    $this->get(route('instruments.show', 3))
+        ->assertRedirect(route('instruments.types.show', ['instrument' => 3, 'instrumentType' => 5]));
 });
