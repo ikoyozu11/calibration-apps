@@ -5,6 +5,7 @@ use App\Models\TestPoint;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Livewire\Attributes\Computed;
 use Livewire\Component;
 
 new class extends Component
@@ -16,6 +17,7 @@ new class extends Component
         $this->calibration = $calibration;
 
         $this->calibration->load([
+            'instrument:instrument_id,instrument_name',
             'calibrationScopes' => function (HasMany $query): void {
                 $query
                     ->select([
@@ -33,7 +35,12 @@ new class extends Component
             'calibrationScopes.instrumentType' => function (BelongsTo $query): void {
                 $query->select([
                     'instrument_type_id',
+                    'instrument_id',
                     'type_name',
+                    'brand',
+                    'model',
+                    'serial_number',
+                    'asset_number',
                 ]);
             },
             'calibrationScopes.testProfile' => function (BelongsTo $query): void {
@@ -162,92 +169,171 @@ new class extends Component
             },
         ]);
     }
+
+    #[Computed]
+    public function status(): ?string
+    {
+        if ($this->calibration->calibration_due === null) {
+            return null;
+        }
+
+        if (today()->greaterThan($this->calibration->calibration_due->copy()->startOfDay())) {
+            return 'Overdue';
+        }
+
+        return 'On Track';
+    }
+
+    /**
+     * @return list<array{key: int, name: string, brand: string, type: string, model: string, serial_number: string, asset_number: string}>
+     */
+    #[Computed]
+    public function calibratedTypes(): array
+    {
+        $rows = [];
+        $seen = [];
+
+        foreach ($this->calibration->calibrationScopes as $scope) {
+            $type = $scope->instrumentType;
+
+            if ($type === null || isset($seen[$type->instrument_type_id])) {
+                continue;
+            }
+
+            $seen[$type->instrument_type_id] = true;
+            $rows[] = [
+                'key' => $type->instrument_type_id,
+                'name' => $this->display($this->calibration->instrument?->instrument_name),
+                'brand' => $this->display($type->brand),
+                'type' => $this->display($type->type_name),
+                'model' => $this->display($type->model),
+                'serial_number' => $this->display($type->serial_number),
+                'asset_number' => $this->display($type->asset_number),
+            ];
+        }
+
+        return $rows;
+    }
+
+    private function display(mixed $value): string
+    {
+        return filled($value) ? (string) $value : '—';
+    }
 };
 ?>
 
-<div class="min-h-screen bg-gray-50 px-4 py-8 text-gray-950 sm:px-6 lg:px-8 dark:bg-gray-950 dark:text-gray-100">
-    <main class="mx-auto flex max-w-7xl flex-col gap-6">
-        <header class="flex flex-col gap-3">
-            <a href="{{ route('instruments.show', $calibration->instrument_id) }}" class="w-fit text-sm font-medium text-brand hover:text-navy">
-                &larr; Back to instrument
+<div class="px-4 py-8 sm:px-6 lg:px-10">
+    <main class="mx-auto flex max-w-6xl flex-col gap-8">
+        <header>
+            <a href="{{ route('calibrations.index') }}" class="ui-button-secondary w-fit gap-2 shadow-[0_10px_18px_-14px_rgb(22_49_114/0.9)]">
+                <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 6 9 12l6 6" />
+                </svg>
+                Back to calibrations
             </a>
-
-            <div>
-                <h1 class="text-2xl font-semibold tracking-tight">{{ $calibration->calibration_number }}</h1>
-                <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                    Read-only calibration information and scope.
-                </p>
-            </div>
+            <h1 class="mt-4 text-2xl font-semibold tracking-tight text-navy">{{ $calibration->calibration_number }}</h1>
+            <p class="mt-1 text-sm text-muted">
+                <a href="{{ route('instruments.show', $calibration->instrument_id) }}" class="font-medium text-navy hover:text-brand">
+                    {{ $calibration->instrument?->instrument_name ?? '—' }}
+                </a>
+            </p>
         </header>
 
-        <section class="ui-card overflow-hidden">
-            <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-800">
-                <h2 class="text-lg font-semibold">Calibration Information</h2>
+        <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="calibration-information-heading">
+            <div class="bg-navy px-5 py-4">
+                <h2 id="calibration-information-heading" class="text-base font-semibold tracking-tight text-white">Calibration Information</h2>
             </div>
 
-            <dl class="grid gap-x-6 gap-y-5 px-5 py-5 sm:grid-cols-2 lg:grid-cols-3">
-                <div>
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Calibration ID</dt>
-                    <dd class="mt-1 font-mono text-sm">{{ $calibration->calibration_id }}</dd>
+            <dl class="grid gap-3 px-5 py-5 sm:grid-cols-2 lg:grid-cols-3">
+                <div class="rounded-xl border border-white/70 bg-[#edf4fa] px-4 py-3 shadow-[inset_0_1px_0_rgb(255_255_255/0.8)]">
+                    <dt class="text-xs font-medium text-muted">Calibration Number</dt>
+                    <dd class="mt-1 text-sm font-semibold text-navy">{{ $calibration->calibration_number }}</dd>
                 </div>
-                <div>
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Calibration Number</dt>
-                    <dd class="mt-1 text-sm font-medium">{{ $calibration->calibration_number }}</dd>
-                </div>
-                <div>
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Status</dt>
-                    <dd class="mt-1">
-                        @if (is_null($calibration->calibration_due))
+                <div class="rounded-xl border border-white/70 bg-[#edf4fa] px-4 py-3 shadow-[inset_0_1px_0_rgb(255_255_255/0.8)]">
+                    <dt class="text-xs font-medium text-muted">Status</dt>
+                    <dd class="mt-1 text-sm font-semibold text-navy">
+                        @if ($this->status === null)
                             —
-                        @elseif (today()->gt($calibration->calibration_due))
-                            <span class="inline-flex rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-300">
-                                Overdue
-                            </span>
                         @else
-                            <span class="inline-flex rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-700 dark:bg-green-950 dark:text-green-300">
-                                On Track
-                            </span>
+                            <x-status-badge :status="$this->status" />
                         @endif
                     </dd>
                 </div>
-                <div>
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Calibration Date</dt>
-                    <dd class="mt-1 text-sm">{{ $calibration->calibration_date?->format('Y-m-d') ?? '—' }}</dd>
+                <div class="rounded-xl border border-white/70 bg-[#edf4fa] px-4 py-3 shadow-[inset_0_1px_0_rgb(255_255_255/0.8)]">
+                    <dt class="text-xs font-medium text-muted">Calibration Date</dt>
+                    <dd class="mt-1 text-sm font-semibold text-navy">{{ $calibration->calibration_date?->format('Y-m-d') ?? '—' }}</dd>
                 </div>
-                <div>
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Calibration Due</dt>
-                    <dd class="mt-1 text-sm">{{ $calibration->calibration_due?->format('Y-m-d') ?? '—' }}</dd>
+                <div class="rounded-xl border border-white/70 bg-[#edf4fa] px-4 py-3 shadow-[inset_0_1px_0_rgb(255_255_255/0.8)]">
+                    <dt class="text-xs font-medium text-muted">Calibration Due</dt>
+                    <dd class="mt-1 text-sm font-semibold text-navy">{{ $calibration->calibration_due?->format('Y-m-d') ?? '—' }}</dd>
                 </div>
-                <div>
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Calibration Method</dt>
-                    <dd class="mt-1 text-sm">{{ $calibration->calibration_method ?? '—' }}</dd>
+                <div class="rounded-xl border border-white/70 bg-[#edf4fa] px-4 py-3 shadow-[inset_0_1px_0_rgb(255_255_255/0.8)]">
+                    <dt class="text-xs font-medium text-muted">Calibration Method</dt>
+                    <dd class="mt-1 text-sm font-semibold text-navy">{{ $calibration->calibration_method ?? '—' }}</dd>
                 </div>
-                <div>
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Calibration Result</dt>
-                    <dd class="mt-1 text-sm">{{ $calibration->calibration_result ?? '—' }}</dd>
+                <div class="rounded-xl border border-white/70 bg-[#edf4fa] px-4 py-3 shadow-[inset_0_1px_0_rgb(255_255_255/0.8)]">
+                    <dt class="text-xs font-medium text-muted">Calibration Result</dt>
+                    <dd class="mt-1 text-sm font-semibold text-navy">{{ $calibration->calibration_result ?? '—' }}</dd>
                 </div>
-                <div>
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Certificate Number</dt>
-                    <dd class="mt-1 text-sm">{{ $calibration->certificate_number ?? '—' }}</dd>
+                <div class="rounded-xl border border-white/70 bg-[#edf4fa] px-4 py-3 shadow-[inset_0_1px_0_rgb(255_255_255/0.8)]">
+                    <dt class="text-xs font-medium text-muted">Certificate Number</dt>
+                    <dd class="mt-1 text-sm font-semibold text-navy">{{ $calibration->certificate_number ?? '—' }}</dd>
                 </div>
-                <div>
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Action Date</dt>
-                    <dd class="mt-1 text-sm">{{ $calibration->action_date?->format('Y-m-d') ?? '—' }}</dd>
+                <div class="rounded-xl border border-white/70 bg-[#edf4fa] px-4 py-3 shadow-[inset_0_1px_0_rgb(255_255_255/0.8)]">
+                    <dt class="text-xs font-medium text-muted">Action Date</dt>
+                    <dd class="mt-1 text-sm font-semibold text-navy">{{ $calibration->action_date?->format('Y-m-d') ?? '—' }}</dd>
                 </div>
-                <div class="sm:col-span-2">
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Remarks</dt>
-                    <dd class="mt-1 text-sm">{{ $calibration->remarks ?? '—' }}</dd>
+                <div class="rounded-xl border border-white/70 bg-[#edf4fa] px-4 py-3 shadow-[inset_0_1px_0_rgb(255_255_255/0.8)] sm:col-span-2 lg:col-span-3">
+                    <dt class="text-xs font-medium text-muted">Remarks</dt>
+                    <dd class="mt-1 text-sm font-semibold text-navy">{{ $calibration->remarks ?? '—' }}</dd>
                 </div>
-                <div class="sm:col-span-2 lg:col-span-3">
-                    <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Resume</dt>
-                    <dd class="mt-1 text-sm">{{ $calibration->resume ?? '—' }}</dd>
+                <div class="rounded-xl border border-white/70 bg-[#edf4fa] px-4 py-3 shadow-[inset_0_1px_0_rgb(255_255_255/0.8)] sm:col-span-2 lg:col-span-3">
+                    <dt class="text-xs font-medium text-muted">Resume</dt>
+                    <dd class="mt-1 text-sm font-semibold text-navy">{{ $calibration->resume ?? '—' }}</dd>
                 </div>
             </dl>
         </section>
 
-        <section class="ui-card overflow-hidden">
-            <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-800">
-                <h2 class="text-lg font-semibold">Environment</h2>
+        <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="calibrated-types-heading">
+            <div class="bg-navy px-5 py-4">
+                <h2 id="calibrated-types-heading" class="text-base font-semibold tracking-tight text-white">Calibrated Types</h2>
+            </div>
+
+            @if ($this->calibratedTypes === [])
+                <p class="px-5 py-8 text-sm text-navy/70">No calibrated types found.</p>
+            @else
+                <div class="overflow-x-auto">
+                    <table class="ui-table">
+                        <thead class="bg-navy text-xs font-medium text-white">
+                            <tr>
+                                <th scope="col" class="px-5 py-3 font-medium">Instrument Name</th>
+                                <th scope="col" class="px-5 py-3 font-medium">Brand</th>
+                                <th scope="col" class="px-5 py-3 font-medium">Type</th>
+                                <th scope="col" class="px-5 py-3 font-medium">Model</th>
+                                <th scope="col" class="px-5 py-3 font-medium">Serial Number</th>
+                                <th scope="col" class="px-5 py-3 font-medium">Asset Number</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-white/70">
+                            @foreach ($this->calibratedTypes as $type)
+                                <tr wire:key="calibrated-type-{{ $type['key'] }}" class="odd:bg-[#d6e4f0] even:bg-[#c5d8ec]">
+                                    <td class="px-5 py-3.5 font-medium text-navy">{{ $type['name'] }}</td>
+                                    <td class="px-5 py-3.5 text-navy">{{ $type['brand'] }}</td>
+                                    <td class="px-5 py-3.5 text-navy">{{ $type['type'] }}</td>
+                                    <td class="px-5 py-3.5 text-navy">{{ $type['model'] }}</td>
+                                    <td class="px-5 py-3.5 text-navy/70">{{ $type['serial_number'] }}</td>
+                                    <td class="px-5 py-3.5 text-navy/70">{{ $type['asset_number'] }}</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            @endif
+        </section>
+
+        <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]">
+            <div class="bg-navy px-5 py-4">
+                <h2 class="text-base font-semibold tracking-tight text-white">Environment</h2>
             </div>
 
             @if ($calibration->environment)
@@ -282,7 +368,7 @@ new class extends Component
                             @endif
                         </dd>
                     </div>
-<div>
+                    <div>
                         <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Remarks</dt>
                         <dd class="mt-1 text-sm">{{ $calibration->environment->remarks ?? '—' }}</dd>
                     </div>
@@ -294,9 +380,9 @@ new class extends Component
             @endif
         </section>
 
-        <section class="ui-card overflow-hidden">
-            <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-800">
-                <h2 class="text-lg font-semibold">Activity</h2>
+        <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]">
+            <div class="bg-navy px-5 py-4">
+                <h2 class="text-base font-semibold tracking-tight text-white">Activity</h2>
             </div>
 
             <div class="overflow-x-auto">
@@ -331,9 +417,9 @@ new class extends Component
             </div>
         </section>
 
-        <section class="ui-card overflow-hidden">
-            <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-800">
-                <h2 class="text-lg font-semibold">Standard Used</h2>
+        <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]">
+            <div class="bg-navy px-5 py-4">
+                <h2 class="text-base font-semibold tracking-tight text-white">Standard Used</h2>
             </div>
 
             <div class="overflow-x-auto">
@@ -378,9 +464,9 @@ new class extends Component
             </div>
         </section>
 
-        <section class="ui-card overflow-hidden">
-            <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-800">
-                <h2 class="text-lg font-semibold">Calibration Scope</h2>
+        <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]">
+            <div class="bg-navy px-5 py-4">
+                <h2 class="text-base font-semibold tracking-tight text-white">Calibration Scope</h2>
             </div>
 
             <div class="overflow-x-auto">

@@ -766,9 +766,106 @@ it('renders calibration status from its due date', function (?string $calibratio
         ->assertDontSee($unexpectedStatus);
 })->with([
     'future due date' => ['2027-06-12', 'On Track', 'Overdue'],
+    'due today' => ['2026-10-08', 'On Track', 'Due Soon'],
     'past due date' => ['2025-06-12', 'Overdue', 'On Track'],
     'missing due date' => [null, null, null],
 ]);
+
+it('shows only the types covered by the opened calibration', function () {
+    createCalibrationDetailTestTables();
+    insertCalibrationDetailInstrument();
+
+    DB::table('instrument_type')->insert([
+        [
+            'instrument_type_id' => 5,
+            'instrument_id' => 3,
+            'type_name' => 'Weight',
+            'brand' => 'Sodim',
+            'model' => 'PDV - PD',
+            'serial_number' => 'WEIGHT-001',
+            'asset_number' => 'ASSET-9',
+            'created_at' => '2026-06-12 09:00:00',
+        ],
+        [
+            'instrument_type_id' => 6,
+            'instrument_id' => 3,
+            'type_name' => 'Diameter',
+            'brand' => 'Other Brand',
+            'model' => null,
+            'serial_number' => 'DIA-002',
+            'asset_number' => null,
+            'created_at' => '2026-06-12 09:00:00',
+        ],
+    ]);
+    DB::table('calibration')->insert([
+        [
+            'calibration_id' => 3,
+            'instrument_id' => 3,
+            'calibration_provider_id' => 1,
+            'calibration_number' => 'CAL-WEIGHT',
+            'calibration_date' => '2026-06-12',
+            'calibration_due' => '2027-06-12',
+            'calibration_method' => 'EXTERNAL',
+            'calibration_result' => 'PASS',
+            'certificate_number' => null,
+            'remarks' => null,
+            'created_at' => '2026-06-12 09:00:00',
+            'updated_at' => '2026-06-12 09:00:00',
+            'action_date' => null,
+            'resume' => null,
+            'customer_id' => null,
+        ],
+        [
+            'calibration_id' => 4,
+            'instrument_id' => 3,
+            'calibration_provider_id' => 1,
+            'calibration_number' => 'CAL-DIAMETER',
+            'calibration_date' => '2026-10-01',
+            'calibration_due' => '2027-10-01',
+            'calibration_method' => 'EXTERNAL',
+            'calibration_result' => 'PASS',
+            'certificate_number' => null,
+            'remarks' => null,
+            'created_at' => '2026-10-01 09:00:00',
+            'updated_at' => '2026-10-01 09:00:00',
+            'action_date' => null,
+            'resume' => null,
+            'customer_id' => null,
+        ],
+    ]);
+    DB::table('calibration_scope')->insert([
+        [
+            'calibration_scope_id' => 1,
+            'calibration_id' => 3,
+            'instrument_type_id' => 5,
+            'test_profile_id' => null,
+            'scope_order' => 1,
+            'remarks' => null,
+            'created_at' => '2026-06-12 09:00:00',
+        ],
+        [
+            'calibration_scope_id' => 2,
+            'calibration_id' => 4,
+            'instrument_type_id' => 6,
+            'test_profile_id' => null,
+            'scope_order' => 1,
+            'remarks' => null,
+            'created_at' => '2026-10-01 09:00:00',
+        ],
+    ]);
+
+    $response = $this->get(route('calibrations.show', 3));
+
+    $response
+        ->assertSee('Back to calibrations')
+        ->assertSee('href="'.route('calibrations.index').'"', false)
+        ->assertSee('href="'.route('instruments.show', 3).'"', false)
+        ->assertSeeInOrder(['Sodiline', 'Sodim', 'Weight', 'PDV - PD', 'WEIGHT-001', 'ASSET-9'])
+        ->assertDontSee('Diameter')
+        ->assertDontSee('CAL-DIAMETER')
+        ->assertDontSee('Calibration ID')
+        ->assertDontSee('Due Soon');
+});
 
 it('returns not found for an unknown calibration', function () {
     createCalibrationDetailTestTables();

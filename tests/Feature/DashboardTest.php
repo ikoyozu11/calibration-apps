@@ -46,6 +46,13 @@ function createDashboardTestTables(): void
         $table->string('calibration_result', 20)->nullable();
         $table->string('certificate_number', 100)->nullable();
     });
+
+    Schema::create('calibration_scope', function (Blueprint $table): void {
+        $table->unsignedBigInteger('calibration_scope_id')->primary();
+        $table->unsignedBigInteger('calibration_id');
+        $table->unsignedBigInteger('instrument_type_id');
+        $table->integer('scope_order');
+    });
 }
 
 /**

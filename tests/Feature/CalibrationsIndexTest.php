@@ -32,6 +32,13 @@ function createCalibrationIndexTables(): void
         $table->string('calibration_result', 20)->nullable();
         $table->string('certificate_number', 100)->nullable();
     });
+
+    Schema::create('calibration_scope', function (Blueprint $table): void {
+        $table->unsignedBigInteger('calibration_scope_id')->primary();
+        $table->unsignedBigInteger('calibration_id');
+        $table->unsignedBigInteger('instrument_type_id');
+        $table->integer('scope_order');
+    });
 }
 
 /**
@@ -59,6 +66,19 @@ function insertCalibrationIndexType(array $attributes): void
         'asset_number' => $attributes['asset_number'] ?? null,
         'brand' => $attributes['brand'] ?? null,
         'model' => $attributes['model'] ?? null,
+    ]);
+}
+
+/**
+ * @param  array<string, mixed>  $attributes
+ */
+function insertCalibrationIndexScope(array $attributes): void
+{
+    DB::table('calibration_scope')->insert([
+        'calibration_scope_id' => $attributes['calibration_scope_id'],
+        'calibration_id' => $attributes['calibration_id'],
+        'instrument_type_id' => $attributes['instrument_type_id'],
+        'scope_order' => $attributes['scope_order'] ?? 1,
     ]);
 }
 
@@ -144,6 +164,13 @@ it('shows each instrument type with the latest calibration standing', function (
         'calibration_date' => '2026-10-02',
         'calibration_result' => 'PASS',
     ]);
+    insertCalibrationIndexScope(['calibration_scope_id' => 1, 'calibration_id' => 1, 'instrument_type_id' => 1]);
+    insertCalibrationIndexScope(['calibration_scope_id' => 2, 'calibration_id' => 1, 'instrument_type_id' => 2]);
+    insertCalibrationIndexScope(['calibration_scope_id' => 3, 'calibration_id' => 2, 'instrument_type_id' => 1]);
+    insertCalibrationIndexScope(['calibration_scope_id' => 4, 'calibration_id' => 2, 'instrument_type_id' => 2]);
+    insertCalibrationIndexScope(['calibration_scope_id' => 5, 'calibration_id' => 3, 'instrument_type_id' => 3]);
+    insertCalibrationIndexScope(['calibration_scope_id' => 6, 'calibration_id' => 4, 'instrument_type_id' => 4]);
+    insertCalibrationIndexScope(['calibration_scope_id' => 7, 'calibration_id' => 5, 'instrument_type_id' => 6]);
 
     $response = $this->get(route('calibrations.index'));
 
@@ -168,7 +195,56 @@ it('shows each instrument type with the latest calibration standing', function (
         ->assertSeeInOrder(['Open Due', '2026-10-02', 'Not Calibrated'])
         ->assertDontSee('2026-09-01')
         ->assertDontSee('Calibration Number')
-        ->assertDontSee('Remarks');
+        ->assertDontSee('Remarks')
+        ->assertSee('href="'.route('calibrations.show', 2).'"', false)
+        ->assertDontSee('href="'.route('calibrations.show', 1).'"', false);
+});
+
+it('opens the latest calibration that covers each instrument type', function () {
+    createCalibrationIndexTables();
+    $this->travelTo('2026-10-12');
+
+    insertCalibrationIndexInstrument(['instrument_id' => 3, 'instrument_name' => 'Sodiline']);
+    insertCalibrationIndexType(['instrument_type_id' => 1, 'instrument_id' => 3, 'type_name' => 'Weight']);
+    insertCalibrationIndexType(['instrument_type_id' => 2, 'instrument_id' => 3, 'type_name' => 'Diameter']);
+    insertCalibrationIndexType(['instrument_type_id' => 3, 'instrument_id' => 3, 'type_name' => 'PD']);
+    insertCalibrationIndexRecord([
+        'calibration_id' => 1,
+        'instrument_id' => 3,
+        'calibration_date' => '2026-08-01',
+        'calibration_due' => '2026-09-01',
+        'calibration_result' => 'PASS',
+    ]);
+    insertCalibrationIndexRecord([
+        'calibration_id' => 2,
+        'instrument_id' => 3,
+        'calibration_date' => '2026-10-01',
+        'calibration_due' => '2026-12-12',
+        'calibration_result' => 'PASS',
+        'certificate_number' => 'CERT-WEIGHT',
+    ]);
+    insertCalibrationIndexRecord([
+        'calibration_id' => 3,
+        'instrument_id' => 3,
+        'calibration_date' => '2026-09-15',
+        'calibration_due' => '2026-10-11',
+        'calibration_result' => 'FAIL',
+        'certificate_number' => 'CERT-DIAMETER',
+    ]);
+    insertCalibrationIndexScope(['calibration_scope_id' => 1, 'calibration_id' => 1, 'instrument_type_id' => 1]);
+    insertCalibrationIndexScope(['calibration_scope_id' => 2, 'calibration_id' => 2, 'instrument_type_id' => 1]);
+    insertCalibrationIndexScope(['calibration_scope_id' => 3, 'calibration_id' => 3, 'instrument_type_id' => 2]);
+
+    $response = $this->get(route('calibrations.index'));
+
+    $response
+        ->assertSeeInOrder(['Sodiline', 'Weight', '2026-10-01', '2026-12-12', 'On Track'])
+        ->assertSeeInOrder(['Sodiline', 'Diameter', '2026-09-15', '2026-10-11', 'Overdue'])
+        ->assertSeeInOrder(['Sodiline', 'PD', 'Not Calibrated'])
+        ->assertDontSee('2026-08-01')
+        ->assertSee('href="'.route('calibrations.show', 2).'"', false)
+        ->assertSee('href="'.route('calibrations.show', 3).'"', false)
+        ->assertDontSee('href="'.route('calibrations.show', 1).'"', false);
 });
 
 it('keeps the calibration totals when the type list moves to the next page', function () {

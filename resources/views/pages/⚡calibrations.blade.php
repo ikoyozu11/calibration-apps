@@ -56,7 +56,7 @@ new class extends Component
     }
 
     /**
-     * @return LengthAwarePaginator<int, array{key: string, name: string, brand: string, type: string, model: string, serial_number: string, asset_number: string, date: string, due: string, status: string}>
+     * @return LengthAwarePaginator<int, array{key: string, name: string, brand: string, type: string, model: string, serial_number: string, asset_number: string, calibration_id: int|null, date: string, due: string, status: string}>
      */
     #[Computed]
     public function rows(): LengthAwarePaginator
@@ -78,13 +78,17 @@ new class extends Component
             ->orderBy('instrument_type.instrument_type_id')
             ->paginate($this->perPage);
 
-        $latest = $this->latestByInstrument(
-            $instruments->getCollection()->pluck('instrument_id')->map(fn (mixed $id): int => (int) $id)->all(),
+        $latest = $this->latestByType(
+            $instruments->getCollection()
+                ->pluck('instrument_type_id')
+                ->filter(fn (mixed $id): bool => $id !== null)
+                ->map(fn (mixed $id): int => (int) $id)
+                ->all(),
         );
 
         return $instruments->through(function (Instrument $instrument) use ($latest): array {
-            $calibration = $latest[$instrument->instrument_id] ?? null;
             $typeId = $instrument->getAttribute('instrument_type_id');
+            $calibration = $typeId === null ? null : ($latest[(int) $typeId] ?? null);
 
             return [
                 'key' => $instrument->instrument_id.'-'.($typeId ?? 'none'),
@@ -94,6 +98,7 @@ new class extends Component
                 'model' => $this->display($instrument->getAttribute('model')),
                 'serial_number' => $this->display($instrument->getAttribute('serial_number')),
                 'asset_number' => $this->display($instrument->getAttribute('asset_number')),
+                'calibration_id' => $calibration?->calibration_id,
                 'date' => $calibration?->calibration_date?->format('Y-m-d') ?? '—',
                 'due' => $calibration?->calibration_due?->format('Y-m-d') ?? '—',
                 'status' => CalibrationStanding::fromLatest($calibration)->value,
@@ -102,23 +107,30 @@ new class extends Component
     }
 
     /**
-     * @param  list<int>  $instrumentIds
+     * @param  list<int>  $typeIds
      * @return array<int, Calibration>
      */
-    private function latestByInstrument(array $instrumentIds): array
+    private function latestByType(array $typeIds): array
     {
-        if ($instrumentIds === []) {
+        if ($typeIds === []) {
             return [];
         }
 
         $latest = [];
 
         Calibration::query()
-            ->select(['calibration_id', 'instrument_id', 'calibration_date', 'calibration_due'])
-            ->whereIn('instrument_id', $instrumentIds)
+            ->select([
+                'calibration.calibration_id',
+                'calibration.instrument_id',
+                'calibration.calibration_date',
+                'calibration.calibration_due',
+                'calibration_scope.instrument_type_id',
+            ])
+            ->join('calibration_scope', 'calibration_scope.calibration_id', '=', 'calibration.calibration_id')
+            ->whereIn('calibration_scope.instrument_type_id', $typeIds)
             ->get()
-            ->groupBy('instrument_id')
-            ->each(function (Collection $calibrations, int|string $instrumentId) use (&$latest): void {
+            ->groupBy(fn (Calibration $calibration): int => (int) $calibration->getAttribute('instrument_type_id'))
+            ->each(function (Collection $calibrations, int|string $typeId) use (&$latest): void {
                 $calibration = $calibrations
                     ->sortByDesc(fn (Calibration $calibration): array => [
                         $calibration->calibration_date?->getTimestamp() ?? PHP_INT_MIN,
@@ -127,7 +139,7 @@ new class extends Component
                     ->first();
 
                 if ($calibration instanceof Calibration) {
-                    $latest[(int) $instrumentId] = $calibration;
+                    $latest[(int) $typeId] = $calibration;
                 }
             });
 
@@ -216,7 +228,15 @@ new class extends Component
                         <tbody class="divide-y divide-white/70">
                             @foreach ($this->rows as $row)
                                 <tr wire:key="calibration-row-{{ $row['key'] }}" class="odd:bg-[#d6e4f0] even:bg-[#c5d8ec] hover:bg-[#edf4fa]">
-                                    <td class="px-5 py-3.5 font-medium text-navy">{{ $row['name'] }}</td>
+                                    <td class="px-5 py-3.5 font-medium text-navy">
+                                        @if ($row['calibration_id'] === null)
+                                            {{ $row['name'] }}
+                                        @else
+                                            <a href="{{ route('calibrations.show', $row['calibration_id']) }}" class="text-navy hover:text-brand">
+                                                {{ $row['name'] }}
+                                            </a>
+                                        @endif
+                                    </td>
                                     <td class="px-5 py-3.5 text-navy">{{ $row['brand'] }}</td>
                                     <td class="px-5 py-3.5 text-navy">{{ $row['type'] }}</td>
                                     <td class="px-5 py-3.5 text-navy">{{ $row['model'] }}</td>
