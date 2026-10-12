@@ -14,7 +14,14 @@ new class extends Component
 {
     use WithPagination;
 
+    public string $search = '';
+
     public int $perPage = 10;
+
+    public function updatedSearch(): void
+    {
+        $this->resetPage();
+    }
 
     public function updatedPerPage(mixed $value): void
     {
@@ -66,6 +73,7 @@ new class extends Component
                 'instrument_type.asset_number',
             ])
             ->leftJoin('instrument_type', 'instrument_type.instrument_id', '=', 'instrument.instrument_id')
+            ->whereIdentityMatches($this->search)
             ->orderBy('instrument.instrument_id')
             ->orderBy('instrument_type.instrument_type_id')
             ->paginate($this->perPage);
@@ -170,6 +178,14 @@ new class extends Component
             <div class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <h2 id="calibrations-heading" class="text-base font-semibold tracking-tight text-navy">Calibration List</h2>
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <label for="calibration-search" class="sr-only">Search by name, brand, type, or model</label>
+                    <input
+                        id="calibration-search"
+                        type="search"
+                        wire:model.live.debounce.300ms="search"
+                        placeholder="Name, brand, type, or model"
+                        class="ui-input sm:w-64"
+                    >
                     <label for="calibration-page-size" class="sr-only">Rows per page</label>
                     <select id="calibration-page-size" wire:model.live="perPage" class="rounded-lg border border-line bg-white px-3 py-2 text-sm text-navy">
                         <option value="10">10</option>

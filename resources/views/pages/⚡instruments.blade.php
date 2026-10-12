@@ -4,7 +4,6 @@ use App\Models\DetailLocation;
 use App\Models\Instrument;
 use App\Models\InstrumentType;
 use App\Models\Location;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
@@ -50,8 +49,6 @@ new class extends Component
     #[Computed]
     public function instruments(): LengthAwarePaginator
     {
-        $needle = mb_substr(trim($this->search), 0, 100);
-
         return Instrument::query()
             ->select([
                 'instrument.instrument_id',
@@ -69,12 +66,7 @@ new class extends Component
                 'detailLocation:detail_location_id,location_id,detail_location_name',
                 'detailLocation.location:location_id,location_name',
             ])
-            ->when($needle !== '', function (Builder $query) use ($needle): void {
-                $like = $query->getConnection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
-                $pattern = '%'.addcslashes($needle, '\\%_').'%';
-
-                $query->whereRaw("instrument.instrument_name {$like} ? escape '\\'", [$pattern]);
-            })
+            ->whereIdentityMatches($this->search)
             ->orderBy('instrument.instrument_id')
             ->orderBy('instrument_type.instrument_type_id')
             ->paginate($this->perPage);
@@ -163,12 +155,12 @@ new class extends Component
             <div class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <h2 id="instruments-heading" class="text-base font-semibold tracking-tight text-navy">Instrument List</h2>
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <label for="instrument-search" class="sr-only">Search by name</label>
+                    <label for="instrument-search" class="sr-only">Search by name, brand, type, or model</label>
                     <input
                         id="instrument-search"
                         type="search"
                         wire:model.live.debounce.300ms="search"
-                        placeholder="Search by name"
+                        placeholder="Name, brand, type, or model"
                         class="ui-input sm:w-64"
                     >
                     <label for="instrument-page-size" class="sr-only">Rows per page</label>

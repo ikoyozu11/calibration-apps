@@ -196,16 +196,66 @@ it('shows ten instruments per page and the rest on the next page', function () {
     $component->assertDontSee('Gauge 01');
 });
 
-it('filters the instrument list by name', function () {
+it('filters the instrument list by name, brand, type, or model', function () {
     createInstrumentIndexTables();
 
     insertInstrumentIndexRow(['instrument_id' => 1, 'instrument_name' => 'Digital Caliper']);
     insertInstrumentIndexRow(['instrument_id' => 2, 'instrument_name' => 'Sodiline']);
+    insertInstrumentIndexRow(['instrument_id' => 3, 'instrument_name' => 'A%B Gauge']);
+    DB::table('instrument_type')->insert([
+        [
+            'instrument_type_id' => 1,
+            'instrument_id' => 2,
+            'type_name' => 'Weight',
+            'brand' => 'Sodim',
+            'model' => 'PDV - PD',
+            'serial_number' => 'WEIGHT-001',
+            'asset_number' => null,
+        ],
+        [
+            'instrument_type_id' => 2,
+            'instrument_id' => 2,
+            'type_name' => 'Diameter',
+            'brand' => null,
+            'model' => null,
+            'serial_number' => 'DIA-002',
+            'asset_number' => null,
+        ],
+    ]);
 
-    Livewire::test('pages::instruments')
+    $component = Livewire::test('pages::instruments');
+
+    $component
         ->set('search', 'digital')
         ->assertSee('Digital Caliper')
         ->assertDontSee('Sodiline');
+
+    $component
+        ->set('search', 'sodim')
+        ->assertSee('Weight')
+        ->assertDontSee('Diameter')
+        ->assertDontSee('Digital Caliper');
+
+    $component
+        ->set('search', 'pdv')
+        ->assertSee('PDV - PD')
+        ->assertDontSee('Diameter');
+
+    $component
+        ->set('search', 'diameter')
+        ->assertSee('Diameter')
+        ->assertDontSee('Weight')
+        ->assertDontSee('Digital Caliper');
+
+    $component
+        ->set('search', 'WEIGHT-001')
+        ->assertDontSee('Sodiline');
+
+    $component
+        ->set('search', '%')
+        ->assertSee('A%B Gauge')
+        ->assertDontSee('Sodiline')
+        ->assertDontSee('Digital Caliper');
 });
 
 it('keeps the instrument type and location totals while a name search changes the list', function () {

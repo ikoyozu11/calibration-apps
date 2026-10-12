@@ -209,6 +209,63 @@ it('keeps the calibration totals when the type list moves to the next page', fun
         ->assertDontSee('Gauge 01');
 });
 
+it('filters calibration rows by name brand type or model without changing the totals', function () {
+    createCalibrationIndexTables();
+    $this->travelTo('2026-10-12');
+
+    insertCalibrationIndexInstrument(['instrument_id' => 1, 'instrument_name' => 'Sodiline']);
+    insertCalibrationIndexInstrument(['instrument_id' => 2, 'instrument_name' => 'Digital Caliper']);
+    insertCalibrationIndexType([
+        'instrument_type_id' => 1,
+        'instrument_id' => 1,
+        'type_name' => 'Weight',
+        'brand' => 'Sodim',
+        'model' => 'PDV - PD',
+        'serial_number' => 'WEIGHT-001',
+    ]);
+    insertCalibrationIndexType([
+        'instrument_type_id' => 2,
+        'instrument_id' => 1,
+        'type_name' => 'Diameter',
+    ]);
+    insertCalibrationIndexType([
+        'instrument_type_id' => 3,
+        'instrument_id' => 2,
+        'type_name' => 'Mitutoyo',
+    ]);
+    insertCalibrationIndexRecord([
+        'calibration_id' => 1,
+        'instrument_id' => 2,
+        'calibration_date' => '2026-10-12',
+        'calibration_due' => '2026-12-12',
+        'calibration_result' => 'PASS',
+        'certificate_number' => 'CERT-1',
+    ]);
+
+    Livewire::test('pages::calibrations')
+        ->set('search', 'diameter')
+        ->assertSee('Diameter')
+        ->assertDontSee('Weight')
+        ->assertDontSee('Digital Caliper')
+        ->assertSee('This month')
+        ->assertSee('Pass / Fail')
+        ->assertSee('>1</p>', false)
+        ->assertSee('>/</span>0', false)
+        ->assertSee('No certificate')
+        ->assertSee('>0</p>', false)
+        ->set('search', 'sodim')
+        ->assertSee('Weight')
+        ->assertDontSee('Diameter')
+        ->set('search', 'pdv')
+        ->assertSee('PDV - PD')
+        ->assertDontSee('Diameter')
+        ->set('search', 'WEIGHT-001')
+        ->assertDontSee('Sodiline')
+        ->assertSee('>1</p>', false)
+        ->assertSee('>/</span>0', false)
+        ->assertSee('>0</p>', false);
+});
+
 it('rejects a page size outside the allowed choices', function () {
     createCalibrationIndexTables();
 
