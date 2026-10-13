@@ -41,6 +41,26 @@ function createInstrumentDetailTestTables(): void
         $table->string('model')->nullable();
     });
 
+    Schema::create('test_profile', function (Blueprint $table): void {
+        $table->unsignedBigInteger('test_profile_id')->primary();
+        $table->unsignedBigInteger('instrument_type_id');
+        $table->string('profile_name', 150);
+        $table->text('description')->nullable();
+        $table->timestamp('created_at');
+    });
+
+    Schema::create('test_point', function (Blueprint $table): void {
+        $table->unsignedBigInteger('test_point_id')->primary();
+        $table->unsignedBigInteger('test_profile_id');
+        $table->integer('point_order');
+        $table->decimal('nominal_value', 18, 6)->nullable();
+        $table->string('unit', 50)->nullable();
+        $table->decimal('tolerance_plus', 18, 6)->nullable();
+        $table->decimal('tolerance_minus', 18, 6)->nullable();
+        $table->text('description')->nullable();
+        $table->timestamp('created_at');
+    });
+
     Schema::create('calibration', function (Blueprint $table): void {
         $table->unsignedBigInteger('calibration_id')->primary();
         $table->unsignedBigInteger('instrument_id');
@@ -444,6 +464,230 @@ it('links each instrument name to its detail page', function () {
     $response = $this->get(route('instruments.index'));
 
     $response->assertSee('href="'.route('instruments.show', 3).'"', false);
+});
+
+it('shows only the selected type test components in profile and point order', function () {
+    createInstrumentDetailTestTables();
+
+    DB::table('instrument')->insert([
+        'instrument_id' => 3,
+        'instrument_name' => 'Sodiline',
+        'detail_location_id' => null,
+        'description' => null,
+        'created_at' => '2026-10-07 09:17:33',
+    ]);
+    DB::table('instrument_type')->insert([
+        [
+            'instrument_type_id' => 31,
+            'instrument_id' => 3,
+            'type_name' => 'Weight',
+            'description' => null,
+            'created_at' => '2026-10-07 09:17:33',
+            'asset_number' => 'ASSET-9',
+            'serial_number' => 'WEIGHT-001',
+            'max_capacity' => null,
+            'max_capacity_unit' => null,
+            'resolution' => null,
+            'resolution_unit' => null,
+            'brand' => null,
+            'model' => null,
+        ],
+        [
+            'instrument_type_id' => 32,
+            'instrument_id' => 3,
+            'type_name' => 'Diameter',
+            'description' => null,
+            'created_at' => '2026-10-07 09:17:33',
+            'asset_number' => null,
+            'serial_number' => 'DIA-002',
+            'max_capacity' => null,
+            'max_capacity_unit' => null,
+            'resolution' => null,
+            'resolution_unit' => null,
+            'brand' => null,
+            'model' => null,
+        ],
+    ]);
+    DB::table('test_profile')->insert([
+        [
+            'test_profile_id' => 2,
+            'instrument_type_id' => 31,
+            'profile_name' => 'Weight Check',
+            'description' => null,
+            'created_at' => '2026-06-12 09:00:00',
+        ],
+        [
+            'test_profile_id' => 1,
+            'instrument_type_id' => 31,
+            'profile_name' => 'Weight Calibration',
+            'description' => 'Hidden profile description',
+            'created_at' => '2026-06-12 09:00:00',
+        ],
+        [
+            'test_profile_id' => 3,
+            'instrument_type_id' => 31,
+            'profile_name' => 'Spare Profile',
+            'description' => null,
+            'created_at' => '2026-06-12 09:00:00',
+        ],
+        [
+            'test_profile_id' => 4,
+            'instrument_type_id' => 32,
+            'profile_name' => 'Diameter Calibration',
+            'description' => null,
+            'created_at' => '2026-06-12 09:00:00',
+        ],
+    ]);
+    DB::table('test_point')->insert([
+        [
+            'test_point_id' => 10,
+            'test_profile_id' => 1,
+            'point_order' => 2,
+            'nominal_value' => 500,
+            'unit' => 'g',
+            'tolerance_plus' => 0.2,
+            'tolerance_minus' => -0.2,
+            'description' => 'Later point',
+            'created_at' => '2026-06-12 09:00:00',
+        ],
+        [
+            'test_point_id' => 30,
+            'test_profile_id' => 1,
+            'point_order' => 1,
+            'nominal_value' => 100,
+            'unit' => 'g',
+            'tolerance_plus' => null,
+            'tolerance_minus' => null,
+            'description' => null,
+            'created_at' => '2026-06-12 09:00:00',
+        ],
+        [
+            'test_point_id' => 20,
+            'test_profile_id' => 1,
+            'point_order' => 1,
+            'nominal_value' => 250,
+            'unit' => 'g',
+            'tolerance_plus' => 0.1,
+            'tolerance_minus' => -0.1,
+            'description' => 'First point',
+            'created_at' => '2026-06-12 09:00:00',
+        ],
+        [
+            'test_point_id' => 40,
+            'test_profile_id' => 2,
+            'point_order' => 1,
+            'nominal_value' => 900,
+            'unit' => 'g',
+            'tolerance_plus' => null,
+            'tolerance_minus' => null,
+            'description' => 'Check point',
+            'created_at' => '2026-06-12 09:00:00',
+        ],
+        [
+            'test_point_id' => 50,
+            'test_profile_id' => 4,
+            'point_order' => 1,
+            'nominal_value' => 77,
+            'unit' => 'mm',
+            'tolerance_plus' => 0.01,
+            'tolerance_minus' => -0.01,
+            'description' => 'Diameter point',
+            'created_at' => '2026-06-12 09:00:00',
+        ],
+    ]);
+    DB::table('calibration')->insert([
+        'calibration_id' => 8,
+        'instrument_id' => 3,
+        'calibration_provider_id' => 1,
+        'calibration_number' => 'CAL-SHARED',
+        'calibration_date' => '2026-06-12',
+        'calibration_due' => '2027-06-12',
+        'calibration_method' => 'EXTERNAL',
+        'calibration_result' => 'PASS',
+        'certificate_number' => null,
+        'remarks' => 'Shared history note',
+        'created_at' => '2026-06-12 09:00:00',
+        'updated_at' => '2026-06-12 09:00:00',
+        'action_date' => null,
+        'resume' => null,
+        'customer_id' => null,
+    ]);
+
+    $weight = $this->get(route('instruments.types.show', ['instrument' => 3, 'instrumentType' => 31]));
+    $diameter = $this->get(route('instruments.types.show', ['instrument' => 3, 'instrumentType' => 32]));
+
+    $weight
+        ->assertSee('Instrument Identity')
+        ->assertSee('WEIGHT-001')
+        ->assertSee('ASSET-9')
+        ->assertDontSee('DIA-002')
+        ->assertDontSee('Hidden profile description')
+        ->assertSeeInOrder([
+            'Weight Calibration',
+            '250',
+            'First point',
+            '100',
+            '500',
+            'Later point',
+            'Weight Check',
+            '900',
+            'Check point',
+            'Spare Profile',
+            'No test components found.',
+        ])
+        ->assertDontSee('Diameter Calibration')
+        ->assertDontSee('Diameter point')
+        ->assertSee('Shared history note')
+        ->assertSee('2026-06-12');
+    $diameter
+        ->assertSeeInOrder(['Diameter Calibration', '77', 'mm', 'Diameter point'])
+        ->assertDontSee('Weight Calibration')
+        ->assertDontSee('Weight Check')
+        ->assertDontSee('Spare Profile')
+        ->assertDontSee('First point')
+        ->assertSee('Shared history note')
+        ->assertSee('2026-06-12')
+        ->assertSee('DIA-002')
+        ->assertDontSee('WEIGHT-001');
+});
+
+it('shows an empty test component state without a profile', function () {
+    createInstrumentDetailTestTables();
+
+    DB::table('instrument')->insert([
+        'instrument_id' => 3,
+        'instrument_name' => 'Sodiline',
+        'detail_location_id' => null,
+        'description' => 'Prototype instrument',
+        'created_at' => '2026-10-07 09:17:33',
+    ]);
+    DB::table('instrument_type')->insert([
+        'instrument_type_id' => 31,
+        'instrument_id' => 3,
+        'type_name' => 'Weight',
+        'description' => 'Weight measurement',
+        'created_at' => '2026-10-07 09:17:33',
+        'asset_number' => null,
+        'serial_number' => null,
+        'max_capacity' => null,
+        'max_capacity_unit' => null,
+        'resolution' => null,
+        'resolution_unit' => null,
+        'brand' => null,
+        'model' => null,
+    ]);
+
+    $response = $this->get(route('instruments.types.show', ['instrument' => 3, 'instrumentType' => 31]));
+
+    $response
+        ->assertSee('Instrument Identity')
+        ->assertSee('Sodiline')
+        ->assertSee('Weight')
+        ->assertDontSee('Prototype instrument')
+        ->assertDontSee('Weight measurement')
+        ->assertSee('No test components found.')
+        ->assertSee('No calibration history found.')
+        ->assertDontSee('Standards Used');
 });
 
 it('returns not found for an unknown instrument', function () {

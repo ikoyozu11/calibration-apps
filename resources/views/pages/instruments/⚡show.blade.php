@@ -3,6 +3,7 @@
 use App\Models\Calibration;
 use App\Models\Instrument;
 use App\Models\InstrumentType;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
@@ -32,7 +33,32 @@ new class extends Component
             'detailLocation:detail_location_id,location_id,detail_location_name',
             'detailLocation.location:location_id,location_name',
         ]);
-        $this->instrumentType = $instrumentType;
+        $this->instrumentType = $instrumentType?->load([
+            'testProfiles' => function (HasMany $query): void {
+                $query
+                    ->select([
+                        'test_profile_id',
+                        'instrument_type_id',
+                        'profile_name',
+                    ])
+                    ->orderBy('test_profile_id');
+            },
+            'testProfiles.testPoints' => function (HasMany $query): void {
+                $query
+                    ->select([
+                        'test_point_id',
+                        'test_profile_id',
+                        'point_order',
+                        'nominal_value',
+                        'unit',
+                        'tolerance_plus',
+                        'tolerance_minus',
+                        'description',
+                    ])
+                    ->orderBy('point_order')
+                    ->orderBy('test_point_id');
+            },
+        ]);
     }
 
     /**
@@ -145,6 +171,55 @@ new class extends Component
                     </div>
                 @endforeach
             </dl>
+        </section>
+
+        <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="test-components-heading">
+            <div class="px-5 py-4">
+                <h2 id="test-components-heading" class="text-base font-semibold tracking-tight text-navy">Test Components</h2>
+            </div>
+
+            @if ($instrumentType === null || $instrumentType->testProfiles->isEmpty())
+                <p class="px-5 py-8 text-sm text-navy/70">No test components found.</p>
+            @else
+                <div class="flex flex-col gap-6 px-5 pb-5">
+                    @foreach ($instrumentType->testProfiles as $profile)
+                        <div wire:key="test-profile-{{ $profile->test_profile_id }}">
+                            <h3 class="text-sm font-semibold text-navy">{{ $profile->profile_name }}</h3>
+
+                            @if ($profile->testPoints->isEmpty())
+                                <p class="py-4 text-sm text-navy/70">No test components found.</p>
+                            @else
+                                <div class="mt-3 overflow-x-auto">
+                                    <table class="ui-table">
+                                        <thead class="bg-navy text-xs font-medium text-white">
+                                            <tr>
+                                                <th scope="col" class="px-5 py-3 font-medium">Point</th>
+                                                <th scope="col" class="px-5 py-3 font-medium">Nominal</th>
+                                                <th scope="col" class="px-5 py-3 font-medium">Unit</th>
+                                                <th scope="col" class="px-5 py-3 font-medium">+Tol</th>
+                                                <th scope="col" class="px-5 py-3 font-medium">-Tol</th>
+                                                <th scope="col" class="px-5 py-3 font-medium">Description</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-white/70">
+                                            @foreach ($profile->testPoints as $point)
+                                                <tr wire:key="test-point-{{ $point->test_point_id }}" class="odd:bg-[#d6e4f0] even:bg-[#c5d8ec]">
+                                                    <td class="px-5 py-3.5 tabular-nums text-navy">{{ $point->point_order }}</td>
+                                                    <td class="px-5 py-3.5 tabular-nums text-navy">{{ filled($point->nominal_value) ? $point->nominal_value : '—' }}</td>
+                                                    <td class="px-5 py-3.5 text-navy">{{ filled($point->unit) ? $point->unit : '—' }}</td>
+                                                    <td class="px-5 py-3.5 tabular-nums text-navy">{{ filled($point->tolerance_plus) ? $point->tolerance_plus : '—' }}</td>
+                                                    <td class="px-5 py-3.5 tabular-nums text-navy">{{ filled($point->tolerance_minus) ? $point->tolerance_minus : '—' }}</td>
+                                                    <td class="px-5 py-3.5 text-navy">{{ filled($point->description) ? $point->description : '—' }}</td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            @endif
+                        </div>
+                    @endforeach
+                </div>
+            @endif
         </section>
 
         <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="calibration-history-heading">
