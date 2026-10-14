@@ -17,7 +17,7 @@ new class extends Component
         $this->calibration = $calibration;
 
         $this->calibration->load([
-            'instrument:instrument_id,instrument_name',
+            'instrument:instrument_id,instrument_name,serial_number',
             'calibrationScopes' => function (HasMany $query): void {
                 $query
                     ->select([
@@ -39,7 +39,6 @@ new class extends Component
                     'type_name',
                     'brand',
                     'model',
-                    'serial_number',
                     'asset_number',
                 ]);
             },
@@ -207,7 +206,7 @@ new class extends Component
                 'brand' => $this->display($type->brand),
                 'type' => $this->display($type->type_name),
                 'model' => $this->display($type->model),
-                'serial_number' => $this->display($type->serial_number),
+                'serial_number' => $this->display($this->calibration->instrument?->serial_number),
                 'asset_number' => $this->display($type->asset_number),
             ];
         }

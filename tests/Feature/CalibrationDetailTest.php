@@ -11,6 +11,7 @@ function createCalibrationDetailTestTables(): void
     Schema::create('instrument', function (Blueprint $table): void {
         $table->unsignedBigInteger('instrument_id')->primary();
         $table->string('instrument_name', 150);
+        $table->string('serial_number')->nullable();
         $table->unsignedBigInteger('detail_location_id')->nullable();
         $table->text('description')->nullable();
         $table->timestamp('created_at');
@@ -774,6 +775,7 @@ it('renders calibration status from its due date', function (?string $calibratio
 it('shows only the types covered by the opened calibration', function () {
     createCalibrationDetailTestTables();
     insertCalibrationDetailInstrument();
+    DB::table('instrument')->where('instrument_id', 3)->update(['serial_number' => 'WEIGHT-001']);
 
     DB::table('instrument_type')->insert([
         [
@@ -782,7 +784,6 @@ it('shows only the types covered by the opened calibration', function () {
             'type_name' => 'Weight',
             'brand' => 'Sodim',
             'model' => 'PDV - PD',
-            'serial_number' => 'WEIGHT-001',
             'asset_number' => 'ASSET-9',
             'created_at' => '2026-06-12 09:00:00',
         ],
@@ -792,7 +793,6 @@ it('shows only the types covered by the opened calibration', function () {
             'type_name' => 'Diameter',
             'brand' => 'Other Brand',
             'model' => null,
-            'serial_number' => 'DIA-002',
             'asset_number' => null,
             'created_at' => '2026-06-12 09:00:00',
         ],

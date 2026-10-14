@@ -14,7 +14,6 @@ use Illuminate\Support\Carbon;
  * @property string|null $description
  * @property Carbon $created_at
  * @property string|null $asset_number
- * @property string|null $serial_number
  * @property string|null $max_capacity
  * @property string|null $max_capacity_unit
  * @property string|null $resolution

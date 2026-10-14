@@ -7,6 +7,7 @@ test('returns a successful response', function () {
     Schema::create('instrument', function (Blueprint $table): void {
         $table->unsignedBigInteger('instrument_id')->primary();
         $table->string('instrument_name');
+        $table->string('serial_number')->nullable();
         $table->timestamp('created_at')->nullable();
     });
 

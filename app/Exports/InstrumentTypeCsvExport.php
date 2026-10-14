@@ -36,10 +36,11 @@ class InstrumentTypeCsvExport
             ->select([
                 'instrument_id',
                 'instrument_name',
+                'serial_number',
                 'detail_location_id',
             ])
             ->with([
-                'instrumentTypes:instrument_type_id,instrument_id,type_name,serial_number,asset_number',
+                'instrumentTypes:instrument_type_id,instrument_id,type_name,asset_number',
                 'detailLocation:detail_location_id,location_id,detail_location_code,detail_location_name',
                 'detailLocation.location:location_id,location_code,location_name',
                 'calibrations:calibration_id,instrument_id,calibration_date,calibration_due',
@@ -63,7 +64,7 @@ class InstrumentTypeCsvExport
                 $rows[] = [
                     CsvDownload::cell($instrument->instrument_name),
                     CsvDownload::cell($type->type_name),
-                    CsvDownload::cell($type->serial_number),
+                    CsvDownload::cell($instrument->serial_number),
                     CsvDownload::cell($type->asset_number),
                     CsvDownload::cell($location?->location_code),
                     CsvDownload::cell($location?->location_name),

@@ -22,6 +22,7 @@ function createInstrumentIndexTables(): void
     Schema::create('instrument', function (Blueprint $table): void {
         $table->unsignedBigInteger('instrument_id')->primary();
         $table->string('instrument_name');
+        $table->string('serial_number')->nullable();
         $table->unsignedBigInteger('detail_location_id')->nullable();
         $table->timestamp('created_at');
     });
@@ -45,6 +46,7 @@ function insertInstrumentIndexRow(array $attributes): void
     DB::table('instrument')->insert([
         'instrument_id' => $attributes['instrument_id'],
         'instrument_name' => $attributes['instrument_name'],
+        'serial_number' => $attributes['serial_number'] ?? null,
         'detail_location_id' => $attributes['detail_location_id'] ?? null,
         'created_at' => '2026-02-01 00:00:00',
     ]);
@@ -69,6 +71,7 @@ it('shows one instrument row with its type serial asset and location', function 
     insertInstrumentIndexRow([
         'instrument_id' => 3,
         'instrument_name' => 'Sodiline',
+        'serial_number' => 'WEIGHT-001',
         'detail_location_id' => 2,
     ]);
     DB::table('instrument_type')->insert([
@@ -77,7 +80,6 @@ it('shows one instrument row with its type serial asset and location', function 
         'type_name' => 'Weight',
         'brand' => 'Sodim',
         'model' => 'PDV - PD',
-        'serial_number' => 'WEIGHT-001',
         'asset_number' => 'ASSET-9',
     ]);
 
@@ -104,27 +106,25 @@ it('shows a separate row for every type even when one serial is shared', functio
     insertInstrumentIndexRow([
         'instrument_id' => 3,
         'instrument_name' => 'Sodiline',
+        'serial_number' => 'ONLY-SERIAL',
     ]);
     DB::table('instrument_type')->insert([
         [
             'instrument_type_id' => 1,
             'instrument_id' => 3,
             'type_name' => 'Weight',
-            'serial_number' => 'ONLY-SERIAL',
             'asset_number' => 'ASSET-1',
         ],
         [
             'instrument_type_id' => 2,
             'instrument_id' => 3,
             'type_name' => 'Diameter',
-            'serial_number' => 'ONLY-SERIAL',
             'asset_number' => 'ASSET-2',
         ],
         [
             'instrument_type_id' => 3,
             'instrument_id' => 3,
             'type_name' => 'PD',
-            'serial_number' => null,
             'asset_number' => 'ASSET-3',
         ],
     ]);
@@ -134,7 +134,7 @@ it('shows a separate row for every type even when one serial is shared', functio
     $response->assertSeeInOrder([
         'Sodiline', 'Weight', 'ONLY-SERIAL', 'ASSET-1',
         'Sodiline', 'Diameter', 'ONLY-SERIAL', 'ASSET-2',
-        'Sodiline', 'PD', '—', 'ASSET-3',
+        'Sodiline', 'PD', 'ONLY-SERIAL', 'ASSET-3',
     ]);
     $response->assertSee('href="'.route('instruments.types.show', ['instrument' => 3, 'instrumentType' => 1]).'"', false);
     $response->assertSee('href="'.route('instruments.types.show', ['instrument' => 3, 'instrumentType' => 2]).'"', false);
@@ -154,7 +154,6 @@ it('pages each instrument type as its own row', function () {
             'instrument_type_id' => $id,
             'instrument_id' => 3,
             'type_name' => sprintf('Type %02d', $id),
-            'serial_number' => null,
             'asset_number' => null,
         ]);
     }
@@ -200,7 +199,7 @@ it('filters the instrument list by name, brand, type, or model', function () {
     createInstrumentIndexTables();
 
     insertInstrumentIndexRow(['instrument_id' => 1, 'instrument_name' => 'Digital Caliper']);
-    insertInstrumentIndexRow(['instrument_id' => 2, 'instrument_name' => 'Sodiline']);
+    insertInstrumentIndexRow(['instrument_id' => 2, 'instrument_name' => 'Sodiline', 'serial_number' => 'WEIGHT-001']);
     insertInstrumentIndexRow(['instrument_id' => 3, 'instrument_name' => 'A%B Gauge']);
     DB::table('instrument_type')->insert([
         [
@@ -209,7 +208,6 @@ it('filters the instrument list by name, brand, type, or model', function () {
             'type_name' => 'Weight',
             'brand' => 'Sodim',
             'model' => 'PDV - PD',
-            'serial_number' => 'WEIGHT-001',
             'asset_number' => null,
         ],
         [
@@ -218,7 +216,6 @@ it('filters the instrument list by name, brand, type, or model', function () {
             'type_name' => 'Diameter',
             'brand' => null,
             'model' => null,
-            'serial_number' => 'DIA-002',
             'asset_number' => null,
         ],
     ]);
@@ -278,9 +275,9 @@ it('keeps the instrument type and location totals while a name search changes th
     insertInstrumentIndexRow(['instrument_id' => 4, 'instrument_name' => 'Spare', 'detail_location_id' => 13]);
     insertInstrumentIndexRow(['instrument_id' => 5, 'instrument_name' => 'Loose']);
     DB::table('instrument_type')->insert([
-        ['instrument_type_id' => 1, 'instrument_id' => 1, 'type_name' => 'Weight', 'serial_number' => null, 'asset_number' => null],
-        ['instrument_type_id' => 2, 'instrument_id' => 1, 'type_name' => 'Diameter', 'serial_number' => null, 'asset_number' => null],
-        ['instrument_type_id' => 3, 'instrument_id' => 2, 'type_name' => 'Mitutoyo', 'serial_number' => null, 'asset_number' => null],
+        ['instrument_type_id' => 1, 'instrument_id' => 1, 'type_name' => 'Weight', 'asset_number' => null],
+        ['instrument_type_id' => 2, 'instrument_id' => 1, 'type_name' => 'Diameter', 'asset_number' => null],
+        ['instrument_type_id' => 3, 'instrument_id' => 2, 'type_name' => 'Mitutoyo', 'asset_number' => null],
     ]);
 
     Livewire::test('pages::instruments')

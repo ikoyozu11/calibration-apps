@@ -40,6 +40,7 @@ new class extends Component
                 $query->select([
                     'instrument_id',
                     'instrument_name',
+                    'serial_number',
                     'detail_location_id',
                 ]);
             },
@@ -76,7 +77,6 @@ new class extends Component
                     'type_name',
                     'brand',
                     'model',
-                    'serial_number',
                     'asset_number',
                 ]);
             },
@@ -279,7 +279,7 @@ new class extends Component
                                 <td class="whitespace-nowrap px-4 py-3 font-medium">{{ $calibrationScope->instrumentType?->type_name ?? '—' }}</td>
                                 <td class="whitespace-nowrap px-4 py-3">{{ $calibrationScope->instrumentType?->brand ?? '—' }}</td>
                                 <td class="whitespace-nowrap px-4 py-3">{{ $calibrationScope->instrumentType?->model ?? '—' }}</td>
-                                <td class="whitespace-nowrap px-4 py-3">{{ $calibrationScope->instrumentType?->serial_number ?? '—' }}</td>
+                                <td class="whitespace-nowrap px-4 py-3">{{ filled($certificate->calibration->instrument?->serial_number) ? $certificate->calibration->instrument->serial_number : '—' }}</td>
                                 <td class="whitespace-nowrap px-4 py-3">{{ $calibrationScope->instrumentType?->asset_number ?? '—' }}</td>
                             </tr>
                         @empty

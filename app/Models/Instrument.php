@@ -13,6 +13,7 @@ use Illuminate\Support\Carbon;
 /**
  * @property int $instrument_id
  * @property string $instrument_name
+ * @property string|null $serial_number
  * @property int|null $detail_location_id
  * @property string|null $description
  * @property Carbon $created_at

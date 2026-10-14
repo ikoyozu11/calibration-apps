@@ -138,7 +138,8 @@ Important decisions have already been made.
 
 For example:
 
--   `serial_number` belongs to `instrument_type`, not `instrument`.
+-   `serial_number` belongs to `instrument`. Every type of that instrument shares it, and it may be null.
+-   `instrument_type.serial_number` still exists temporarily and must not be read. `asset_number` remains on `instrument_type`.
 -   One instrument identity may have multiple instrument types.
 -   One calibration may contain multiple calibration scopes.
 -   One calibration has one certificate.
@@ -272,6 +273,7 @@ Important columns:
 ``` text
 instrument_id
 instrument_name
+serial_number
 detail_location_id
 description
 created_at
@@ -279,15 +281,15 @@ created_at
 
 Purpose:
 
-Stores the core identity of an instrument.
+Stores the core identity of one physical instrument.
+
+`serial_number` belongs here. It is shared by every type of that instrument and may be null when Finance data is incomplete.
 
 Examples:
 
 -   Sodiline
 -   Digital Caliper
 -   Timbangan Digital
-
-Do not put serial number directly into this table.
 
 ## 6.2 instrument_type
 
@@ -300,7 +302,6 @@ type_name
 description
 created_at
 asset_number
-serial_number
 max_capacity
 max_capacity_unit
 resolution
@@ -317,7 +318,6 @@ instrument identity.
 Important:
 
 ``` text
-serial_number belongs here.
 asset_number belongs here.
 brand belongs here.
 model belongs here.
@@ -2042,7 +2042,7 @@ One instrument identity can contain multiple instrument types.
 
 ### Decision 2
 
-Serial number belongs to `instrument_type`.
+Serial number belongs to `instrument` and is shared by every type of that instrument. It may be null. The leftover `instrument_type.serial_number` column is unused and must not be read.
 
 ### Decision 3
 

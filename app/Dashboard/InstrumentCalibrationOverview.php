@@ -26,11 +26,11 @@ final class InstrumentCalibrationOverview
             ->select([
                 'instrument_id',
                 'instrument_name',
+                'serial_number',
                 'created_at',
             ])
             ->with([
                 'calibrations:calibration_id,instrument_id,calibration_date,calibration_due',
-                'instrumentTypes:instrument_type_id,instrument_id,serial_number',
             ])
             ->orderByDesc('created_at')
             ->orderByDesc('instrument_id')
@@ -146,17 +146,7 @@ final class InstrumentCalibrationOverview
 
     private static function serialNumber(Instrument $instrument): string
     {
-        $serials = $instrument->instrumentTypes
-            ->pluck('serial_number')
-            ->filter(fn (?string $serial): bool => filled($serial))
-            ->unique()
-            ->values();
-
-        if ($serials->count() !== 1) {
-            return '—';
-        }
-
-        return (string) $serials->first();
+        return filled($instrument->serial_number) ? (string) $instrument->serial_number : '—';
     }
 
     private static function dateLabel(?CarbonInterface $date): string

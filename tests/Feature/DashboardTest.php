@@ -22,6 +22,7 @@ function createDashboardTestTables(): void
     Schema::create('instrument', function (Blueprint $table): void {
         $table->unsignedBigInteger('instrument_id')->primary();
         $table->string('instrument_name');
+        $table->string('serial_number')->nullable();
         $table->unsignedBigInteger('detail_location_id')->nullable();
         $table->text('description')->nullable();
         $table->timestamp('created_at');
@@ -108,7 +109,7 @@ it('keeps the instrument and calibration routes available', function () {
 it('classifies each instrument once from its latest calibration', function () {
     createDashboardTestTables();
 
-    insertDashboardInstrument(['instrument_id' => 1, 'instrument_name' => 'Tie Gauge']);
+    insertDashboardInstrument(['instrument_id' => 1, 'instrument_name' => 'Tie Gauge', 'serial_number' => 'ONLY-SERIAL']);
     insertDashboardInstrument(['instrument_id' => 2, 'instrument_name' => 'Due Today']);
     insertDashboardInstrument(['instrument_id' => 3, 'instrument_name' => 'Due In 60']);
     insertDashboardInstrument(['instrument_id' => 4, 'instrument_name' => 'Due In 61']);
@@ -119,14 +120,12 @@ it('classifies each instrument once from its latest calibration', function () {
             'instrument_type_id' => 1,
             'instrument_id' => 1,
             'type_name' => 'Weight',
-            'serial_number' => 'ONLY-SERIAL',
             'created_at' => '2026-01-01 00:00:00',
         ],
         [
             'instrument_type_id' => 2,
             'instrument_id' => 1,
             'type_name' => 'Diameter',
-            'serial_number' => null,
             'created_at' => '2026-01-01 00:00:00',
         ],
     ]);

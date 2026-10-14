@@ -12,6 +12,7 @@ function createServiceReportTestTables(): void
     Schema::create('instrument', function (Blueprint $table): void {
         $table->unsignedBigInteger('instrument_id')->primary();
         $table->string('instrument_name', 150);
+        $table->string('serial_number')->nullable();
         $table->unsignedBigInteger('detail_location_id')->nullable();
         $table->text('description')->nullable();
         $table->timestamp('created_at');
@@ -195,6 +196,7 @@ it('renders a one-page service report pdf from stored certificate data', functio
         [
             'instrument_id' => 3,
             'instrument_name' => 'Sodiline',
+            'serial_number' => 'Sr. 28 Nr. 752',
             'detail_location_id' => 2,
             'description' => null,
             'created_at' => '2026-06-12 09:00:00',
@@ -202,6 +204,7 @@ it('renders a one-page service report pdf from stored certificate data', functio
         [
             'instrument_id' => 6,
             'instrument_name' => 'Pressure Drop Standard',
+            'serial_number' => 'ET4276',
             'detail_location_id' => null,
             'description' => null,
             'created_at' => '2026-06-12 09:00:00',
@@ -209,6 +212,7 @@ it('renders a one-page service report pdf from stored certificate data', functio
         [
             'instrument_id' => 8,
             'instrument_name' => 'Ambiguous Standard',
+            'serial_number' => null,
             'detail_location_id' => null,
             'description' => null,
             'created_at' => '2026-06-12 09:00:00',
@@ -221,7 +225,6 @@ it('renders a one-page service report pdf from stored certificate data', functio
             'instrument_id' => 3,
             'type_name' => 'Weight',
             'created_at' => '2026-06-12 09:00:00',
-            'serial_number' => 'Sr. 28 Nr. 752',
             'brand' => null,
             'model' => null,
             'max_capacity' => '1000',
@@ -234,7 +237,6 @@ it('renders a one-page service report pdf from stored certificate data', functio
             'instrument_id' => 3,
             'type_name' => 'PD',
             'created_at' => '2026-06-12 09:00:00',
-            'serial_number' => 'Sr. 24 Nr. 745',
             'brand' => 'Sodim',
             'model' => 'PDV - PD',
             'max_capacity' => null,
@@ -247,7 +249,6 @@ it('renders a one-page service report pdf from stored certificate data', functio
             'instrument_id' => 3,
             'type_name' => 'Unused Type',
             'created_at' => '2026-06-12 09:00:00',
-            'serial_number' => 'UNUSED-SERIAL',
             'brand' => null,
             'model' => null,
             'max_capacity' => null,
@@ -260,7 +261,6 @@ it('renders a one-page service report pdf from stored certificate data', functio
             'instrument_id' => 6,
             'type_name' => 'Pressure Drop Standard',
             'created_at' => '2026-06-12 09:00:00',
-            'serial_number' => 'ET4276',
             'brand' => null,
             'model' => null,
             'max_capacity' => null,
@@ -273,7 +273,6 @@ it('renders a one-page service report pdf from stored certificate data', functio
             'instrument_id' => 8,
             'type_name' => 'Ambiguous A',
             'created_at' => '2026-06-12 09:00:00',
-            'serial_number' => 'AMBIG-1',
             'brand' => null,
             'model' => null,
             'max_capacity' => null,
@@ -286,7 +285,6 @@ it('renders a one-page service report pdf from stored certificate data', functio
             'instrument_id' => 8,
             'type_name' => 'Ambiguous B',
             'created_at' => '2026-06-12 09:00:00',
-            'serial_number' => 'AMBIG-2',
             'brand' => null,
             'model' => null,
             'max_capacity' => null,
@@ -515,7 +513,6 @@ it('renders a one-page service report pdf from stored certificate data', functio
         ->toContain('Sr. 28 Nr. 752')
         ->toContain('Sodim')
         ->toContain('PDV - PD')
-        ->toContain('Sr. 24 Nr. 745')
         ->toContain('1000 g')
         ->toContain('0.01 g')
         ->toContain('ENVIRONMENT')

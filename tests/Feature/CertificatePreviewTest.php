@@ -10,6 +10,7 @@ function createCertificatePreviewTestTables(): void
     Schema::create('instrument', function (Blueprint $table): void {
         $table->unsignedBigInteger('instrument_id')->primary();
         $table->string('instrument_name', 150);
+        $table->string('serial_number')->nullable();
         $table->unsignedBigInteger('detail_location_id')->nullable();
         $table->text('description')->nullable();
         $table->timestamp('created_at');
@@ -322,6 +323,7 @@ it('renders customer and scoped instrument identification without duplicate inst
     DB::table('instrument')->insert([
         'instrument_id' => 3,
         'instrument_name' => 'Sodiline',
+        'serial_number' => 'Sr. 28 Nr. 752',
         'detail_location_id' => 2,
         'description' => 'Prototype instrument',
         'created_at' => '2026-10-07 09:17:33',
@@ -334,7 +336,6 @@ it('renders customer and scoped instrument identification without duplicate inst
             'type_name' => 'Weight',
             'created_at' => '2026-06-12 09:00:00',
             'asset_number' => 'ID12-1123100257-0',
-            'serial_number' => 'Sr. 28 Nr. 752',
             'brand' => null,
             'model' => null,
         ],
@@ -344,7 +345,6 @@ it('renders customer and scoped instrument identification without duplicate inst
             'type_name' => 'Diameter',
             'created_at' => '2026-06-12 09:00:00',
             'asset_number' => null,
-            'serial_number' => 'Sr. 19 Nr. 528',
             'brand' => null,
             'model' => null,
         ],
@@ -354,7 +354,6 @@ it('renders customer and scoped instrument identification without duplicate inst
             'type_name' => 'PD',
             'created_at' => '2026-06-12 09:00:00',
             'asset_number' => null,
-            'serial_number' => 'Sr. 24 Nr. 745',
             'brand' => 'Sodim',
             'model' => 'PDV - PD',
         ],
@@ -364,7 +363,6 @@ it('renders customer and scoped instrument identification without duplicate inst
             'type_name' => 'Unused Type',
             'created_at' => '2026-06-12 09:00:00',
             'asset_number' => 'SHOULD-NOT-APPEAR',
-            'serial_number' => 'UNUSED-SERIAL',
             'brand' => null,
             'model' => null,
         ],
@@ -445,7 +443,6 @@ it('renders customer and scoped instrument identification without duplicate inst
         ->assertSee('FMD / FM 05/06')
         ->assertSee('Sr. 28 Nr. 752')
         ->assertSee('ID12-1123100257-0')
-        ->assertSee('Sr. 19 Nr. 528')
         ->assertSee('Sodim')
         ->assertSee('PDV - PD')
         ->assertSeeInOrder([

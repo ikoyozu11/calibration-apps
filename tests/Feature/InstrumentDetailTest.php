@@ -20,6 +20,7 @@ function createInstrumentDetailTestTables(): void
     Schema::create('instrument', function (Blueprint $table): void {
         $table->unsignedBigInteger('instrument_id')->primary();
         $table->string('instrument_name', 150);
+        $table->string('serial_number')->nullable();
         $table->unsignedBigInteger('detail_location_id')->nullable();
         $table->text('description')->nullable();
         $table->timestamp('created_at');
@@ -94,6 +95,7 @@ it('renders one instrument type identity', function () {
     DB::table('instrument')->insert([
         'instrument_id' => 3,
         'instrument_name' => 'Sodiline',
+        'serial_number' => 'WEIGHT-001',
         'detail_location_id' => 2,
         'description' => 'Prototype instrument',
         'created_at' => '2026-10-07 09:17:33',
@@ -107,7 +109,6 @@ it('renders one instrument type identity', function () {
             'description' => 'Weight measurement',
             'created_at' => '2026-10-07 09:17:33',
             'asset_number' => 'ASSET-9',
-            'serial_number' => 'WEIGHT-001',
             'max_capacity' => 1000,
             'max_capacity_unit' => 'g',
             'resolution' => 0.1,
@@ -122,7 +123,6 @@ it('renders one instrument type identity', function () {
             'description' => null,
             'created_at' => '2026-10-07 09:17:33',
             'asset_number' => null,
-            'serial_number' => 'DIA-002',
             'max_capacity' => null,
             'max_capacity_unit' => null,
             'resolution' => null,
@@ -472,6 +472,7 @@ it('shows only the selected type test components in profile and point order', fu
     DB::table('instrument')->insert([
         'instrument_id' => 3,
         'instrument_name' => 'Sodiline',
+        'serial_number' => 'SODI-001',
         'detail_location_id' => null,
         'description' => null,
         'created_at' => '2026-10-07 09:17:33',
@@ -484,7 +485,6 @@ it('shows only the selected type test components in profile and point order', fu
             'description' => null,
             'created_at' => '2026-10-07 09:17:33',
             'asset_number' => 'ASSET-9',
-            'serial_number' => 'WEIGHT-001',
             'max_capacity' => null,
             'max_capacity_unit' => null,
             'resolution' => null,
@@ -499,7 +499,6 @@ it('shows only the selected type test components in profile and point order', fu
             'description' => null,
             'created_at' => '2026-10-07 09:17:33',
             'asset_number' => null,
-            'serial_number' => 'DIA-002',
             'max_capacity' => null,
             'max_capacity_unit' => null,
             'resolution' => null,
@@ -618,7 +617,7 @@ it('shows only the selected type test components in profile and point order', fu
 
     $weight
         ->assertSee('Instrument Identity')
-        ->assertSee('WEIGHT-001')
+        ->assertSee('SODI-001')
         ->assertSee('ASSET-9')
         ->assertDontSee('DIA-002')
         ->assertDontSee('Hidden profile description')
@@ -647,7 +646,7 @@ it('shows only the selected type test components in profile and point order', fu
         ->assertDontSee('First point')
         ->assertSee('Shared history note')
         ->assertSee('2026-06-12')
-        ->assertSee('DIA-002')
+        ->assertSee('SODI-001')
         ->assertDontSee('WEIGHT-001');
 });
 

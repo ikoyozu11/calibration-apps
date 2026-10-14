@@ -27,6 +27,7 @@ function createCsvExportTestTables(): void
     Schema::create('instrument', function (Blueprint $table): void {
         $table->unsignedBigInteger('instrument_id')->primary();
         $table->string('instrument_name', 150);
+        $table->string('serial_number')->nullable();
         $table->unsignedBigInteger('detail_location_id')->nullable();
         $table->text('description')->nullable();
         $table->timestamp('created_at');
@@ -145,6 +146,7 @@ it('exports one csv row per instrument type using the latest calibration', funct
         [
             'instrument_id' => 3,
             'instrument_name' => 'Sodiline',
+            'serial_number' => 'Sr. 28 Nr. 752',
             'detail_location_id' => 2,
             'description' => null,
             'created_at' => '2026-01-01 00:00:00',
@@ -152,6 +154,7 @@ it('exports one csv row per instrument type using the latest calibration', funct
         [
             'instrument_id' => 7,
             'instrument_name' => 'Uncalibrated Gauge',
+            'serial_number' => 'PLAIN-SERIAL',
             'detail_location_id' => null,
             'description' => null,
             'created_at' => '2026-01-01 00:00:00',
@@ -159,6 +162,7 @@ it('exports one csv row per instrument type using the latest calibration', funct
         [
             'instrument_id' => 8,
             'instrument_name' => 'No Types',
+            'serial_number' => null,
             'detail_location_id' => null,
             'description' => null,
             'created_at' => '2026-01-01 00:00:00',
@@ -166,6 +170,7 @@ it('exports one csv row per instrument type using the latest calibration', funct
         [
             'instrument_id' => 9,
             'instrument_name' => 'On Track Gauge',
+            'serial_number' => 'G-1',
             'detail_location_id' => 2,
             'description' => null,
             'created_at' => '2026-01-01 00:00:00',
@@ -173,6 +178,7 @@ it('exports one csv row per instrument type using the latest calibration', funct
         [
             'instrument_id' => 11,
             'instrument_name' => 'Null Due Gauge',
+            'serial_number' => 'NULL-DUE',
             'detail_location_id' => null,
             'description' => null,
             'created_at' => '2026-01-01 00:00:00',
@@ -186,7 +192,6 @@ it('exports one csv row per instrument type using the latest calibration', funct
             'type_name' => 'Weight',
             'description' => null,
             'created_at' => '2026-01-01 00:00:00',
-            'serial_number' => 'Sr. 28 Nr. 752',
             'asset_number' => 'ID12-1123100257-0',
         ],
         [
@@ -195,7 +200,6 @@ it('exports one csv row per instrument type using the latest calibration', funct
             'type_name' => 'Diameter',
             'description' => null,
             'created_at' => '2026-01-01 00:00:00',
-            'serial_number' => 'Sr. 19 Nr. 528',
             'asset_number' => null,
         ],
         [
@@ -204,7 +208,6 @@ it('exports one csv row per instrument type using the latest calibration', funct
             'type_name' => 'Spare',
             'description' => null,
             'created_at' => '2026-01-01 00:00:00',
-            'serial_number' => 'PLAIN-SERIAL',
             'asset_number' => 'PLAIN-ASSET',
         ],
         [
@@ -213,7 +216,6 @@ it('exports one csv row per instrument type using the latest calibration', funct
             'type_name' => 'Gauge',
             'description' => null,
             'created_at' => '2026-01-01 00:00:00',
-            'serial_number' => 'G-1',
             'asset_number' => 'A-1',
         ],
         [
@@ -222,7 +224,6 @@ it('exports one csv row per instrument type using the latest calibration', funct
             'type_name' => 'Open',
             'description' => null,
             'created_at' => '2026-01-01 00:00:00',
-            'serial_number' => 'NULL-DUE',
             'asset_number' => 'NULL-ASSET',
         ],
     ]);
@@ -264,10 +265,10 @@ it('exports one csv row per instrument type using the latest calibration', funct
     $response->assertDownload('instrument-types.csv');
 
     $rows = csvExportRows($response->streamedContent());
-    $bySerial = [];
+    $byType = [];
 
     foreach (array_slice($rows, 1) as $row) {
-        $bySerial[$row[2]] = $row;
+        $byType[$row[1]] = $row;
     }
 
     expect($response->headers->get('content-type'))->toContain('text/csv')
@@ -286,7 +287,7 @@ it('exports one csv row per instrument type using the latest calibration', funct
         ])
         ->and($rows)->toHaveCount(6)
         ->and(implode("\n", array_column($rows, 0)))->not->toContain('No Types')
-        ->and($bySerial['Sr. 28 Nr. 752'])->toBe([
+        ->and($byType['Weight'])->toBe([
             'Sodiline',
             'Weight',
             'Sr. 28 Nr. 752',
@@ -299,10 +300,10 @@ it('exports one csv row per instrument type using the latest calibration', funct
             today()->subDay()->toDateString(),
             'Overdue',
         ])
-        ->and($bySerial['Sr. 19 Nr. 528'])->toBe([
+        ->and($byType['Diameter'])->toBe([
             'Sodiline',
             'Diameter',
-            'Sr. 19 Nr. 528',
+            'Sr. 28 Nr. 752',
             '—',
             'FMD',
             'Factory Mix',
@@ -312,10 +313,10 @@ it('exports one csv row per instrument type using the latest calibration', funct
             today()->subDay()->toDateString(),
             'Overdue',
         ])
-        ->and($bySerial['G-1'][8])->toBe('2026-09-01')
-        ->and($bySerial['G-1'][9])->toBe(today()->toDateString())
-        ->and($bySerial['G-1'][10])->toBe('On Track')
-        ->and($bySerial['PLAIN-SERIAL'])->toBe([
+        ->and($byType['Gauge'][8])->toBe('2026-09-01')
+        ->and($byType['Gauge'][9])->toBe(today()->toDateString())
+        ->and($byType['Gauge'][10])->toBe('On Track')
+        ->and($byType['Spare'])->toBe([
             'Uncalibrated Gauge',
             'Spare',
             'PLAIN-SERIAL',
@@ -328,20 +329,39 @@ it('exports one csv row per instrument type using the latest calibration', funct
             '—',
             '—',
         ])
-        ->and($bySerial['NULL-DUE'][8])->toBe('2026-03-03')
-        ->and($bySerial['NULL-DUE'][9])->toBe('—')
-        ->and($bySerial['NULL-DUE'][10])->toBe('—');
+        ->and($byType['Open'][8])->toBe('2026-03-03')
+        ->and($byType['Open'][9])->toBe('—')
+        ->and($byType['Open'][10])->toBe('—');
 });
 
 it('escapes formulas quotes commas and newlines in the instrument csv', function () {
     createCsvExportTestTables();
 
     DB::table('instrument')->insert([
-        'instrument_id' => 1,
-        'instrument_name' => '=1+1',
-        'detail_location_id' => null,
-        'description' => null,
-        'created_at' => '2026-01-01 00:00:00',
+        [
+            'instrument_id' => 1,
+            'instrument_name' => '=1+1',
+            'serial_number' => 'Sr. 28 Nr. 752',
+            'detail_location_id' => null,
+            'description' => null,
+            'created_at' => '2026-01-01 00:00:00',
+        ],
+        [
+            'instrument_id' => 2,
+            'instrument_name' => 'Second',
+            'serial_number' => '@AT',
+            'detail_location_id' => null,
+            'description' => null,
+            'created_at' => '2026-01-01 00:00:00',
+        ],
+        [
+            'instrument_id' => 3,
+            'instrument_name' => 'Third',
+            'serial_number' => "\tsecret",
+            'detail_location_id' => null,
+            'description' => null,
+            'created_at' => '2026-01-01 00:00:00',
+        ],
     ]);
 
     DB::table('instrument_type')->insert([
@@ -351,25 +371,22 @@ it('escapes formulas quotes commas and newlines in the instrument csv', function
             'type_name' => "Say \"Hi\",\nnow",
             'description' => null,
             'created_at' => '2026-01-01 00:00:00',
-            'serial_number' => 'Sr. 28 Nr. 752',
             'asset_number' => '=ID12',
         ],
         [
             'instrument_type_id' => 2,
-            'instrument_id' => 1,
+            'instrument_id' => 2,
             'type_name' => '+plus',
             'description' => null,
             'created_at' => '2026-01-01 00:00:00',
-            'serial_number' => '@AT',
             'asset_number' => '-minus',
         ],
         [
             'instrument_type_id' => 3,
-            'instrument_id' => 1,
+            'instrument_id' => 3,
             'type_name' => 'Tabbed',
             'description' => null,
             'created_at' => '2026-01-01 00:00:00',
-            'serial_number' => "\tsecret",
             'asset_number' => "\rstart",
         ],
     ]);
@@ -418,7 +435,6 @@ it('exports one csv row per calibration and keeps the calibration certificate nu
             'type_name' => 'Weight',
             'description' => null,
             'created_at' => '2026-01-01 00:00:00',
-            'serial_number' => 'W-1',
             'asset_number' => 'A-1',
         ],
         [
@@ -427,7 +443,6 @@ it('exports one csv row per calibration and keeps the calibration certificate nu
             'type_name' => 'Diameter',
             'description' => null,
             'created_at' => '2026-01-01 00:00:00',
-            'serial_number' => 'D-1',
             'asset_number' => 'A-2',
         ],
     ]);
@@ -528,6 +543,7 @@ it('neutralizes a leading line feed without changing stored identifiers', functi
     DB::table('instrument')->insert([
         'instrument_id' => 1,
         'instrument_name' => "\n=1+1",
+        'serial_number' => '-Sr. 28 Nr. 752',
         'detail_location_id' => null,
         'description' => null,
         'created_at' => '2026-01-01 00:00:00',
@@ -540,7 +556,6 @@ it('neutralizes a leading line feed without changing stored identifiers', functi
             'type_name' => "Say \"Hi\",\r\nnow",
             'description' => null,
             'created_at' => '2026-01-01 00:00:00',
-            'serial_number' => 'Sr. 28 Nr. 752',
             'asset_number' => 'ID12-1123100257-0',
         ],
         [
@@ -549,7 +564,6 @@ it('neutralizes a leading line feed without changing stored identifiers', functi
             'type_name' => 'Spare',
             'description' => null,
             'created_at' => '2026-01-01 00:00:00',
-            'serial_number' => '-Sr. 28 Nr. 752',
             'asset_number' => null,
         ],
     ]);
@@ -573,7 +587,7 @@ it('neutralizes a leading line feed without changing stored identifiers', functi
     expect($instrumentRows[1])->toBe([
         "'\n=1+1",
         "Say \"Hi\",\r\nnow",
-        'Sr. 28 Nr. 752',
+        "'-Sr. 28 Nr. 752",
         'ID12-1123100257-0',
         '—',
         '—',
@@ -593,14 +607,16 @@ it('neutralizes a leading line feed without changing stored identifiers', functi
         ->and($historyRows[1][6])->toBe('—')
         ->and($historyRows[1][7])->toBe('—');
 
+    $this->assertDatabaseHas('instrument', [
+        'instrument_id' => 1,
+        'serial_number' => '-Sr. 28 Nr. 752',
+    ]);
     $this->assertDatabaseHas('instrument_type', [
         'instrument_type_id' => 1,
-        'serial_number' => 'Sr. 28 Nr. 752',
         'asset_number' => 'ID12-1123100257-0',
     ]);
     $this->assertDatabaseHas('instrument_type', [
         'instrument_type_id' => 2,
-        'serial_number' => '-Sr. 28 Nr. 752',
         'asset_number' => null,
     ]);
     $this->assertDatabaseHas('calibration', [

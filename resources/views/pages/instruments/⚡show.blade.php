@@ -73,7 +73,7 @@ new class extends Component
             ['label' => 'Location', 'value' => $this->display($this->instrument->detailLocation?->location?->location_name)],
             ['label' => 'Detail Location', 'value' => $this->display($this->instrument->detailLocation?->detail_location_name)],
             ['label' => 'Type', 'value' => $this->display($type?->type_name)],
-            ['label' => 'Serial Number', 'value' => $this->display($type?->serial_number)],
+            ['label' => 'Serial Number', 'value' => $this->display($this->instrument->serial_number)],
             ['label' => 'Asset Number', 'value' => $this->display($type?->asset_number)],
             ['label' => 'Brand', 'value' => $this->display($type?->brand)],
             ['label' => 'Model', 'value' => $this->display($type?->model)],

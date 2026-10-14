@@ -58,7 +58,7 @@ new class extends Component
                 'instrument_type.type_name',
                 'instrument_type.brand',
                 'instrument_type.model',
-                'instrument_type.serial_number',
+                'instrument.serial_number',
                 'instrument_type.asset_number',
             ])
             ->leftJoin('instrument_type', 'instrument_type.instrument_id', '=', 'instrument.instrument_id')

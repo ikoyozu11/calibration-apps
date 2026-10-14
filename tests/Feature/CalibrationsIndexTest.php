@@ -11,6 +11,7 @@ function createCalibrationIndexTables(): void
     Schema::create('instrument', function (Blueprint $table): void {
         $table->unsignedBigInteger('instrument_id')->primary();
         $table->string('instrument_name');
+        $table->string('serial_number')->nullable();
         $table->timestamp('created_at');
     });
 
@@ -49,6 +50,7 @@ function insertCalibrationIndexInstrument(array $attributes): void
     DB::table('instrument')->insert([
         'instrument_id' => $attributes['instrument_id'],
         'instrument_name' => $attributes['instrument_name'],
+        'serial_number' => $attributes['serial_number'] ?? null,
         'created_at' => '2026-01-01 00:00:00',
     ]);
 }
@@ -62,7 +64,6 @@ function insertCalibrationIndexType(array $attributes): void
         'instrument_type_id' => $attributes['instrument_type_id'],
         'instrument_id' => $attributes['instrument_id'],
         'type_name' => $attributes['type_name'],
-        'serial_number' => $attributes['serial_number'] ?? null,
         'asset_number' => $attributes['asset_number'] ?? null,
         'brand' => $attributes['brand'] ?? null,
         'model' => $attributes['model'] ?? null,
@@ -105,7 +106,7 @@ it('shows each instrument type with the latest calibration standing', function (
     createCalibrationIndexTables();
     $this->travelTo('2026-10-12');
 
-    insertCalibrationIndexInstrument(['instrument_id' => 3, 'instrument_name' => 'Sodiline']);
+    insertCalibrationIndexInstrument(['instrument_id' => 3, 'instrument_name' => 'Sodiline', 'serial_number' => 'WEIGHT-001']);
     insertCalibrationIndexInstrument(['instrument_id' => 4, 'instrument_name' => 'Due Today']);
     insertCalibrationIndexInstrument(['instrument_id' => 5, 'instrument_name' => 'Late Gauge']);
     insertCalibrationIndexInstrument(['instrument_id' => 6, 'instrument_name' => 'No History']);
@@ -116,7 +117,6 @@ it('shows each instrument type with the latest calibration standing', function (
         'type_name' => 'Weight',
         'brand' => 'Sodim',
         'model' => 'PDV - PD',
-        'serial_number' => 'WEIGHT-001',
         'asset_number' => 'ASSET-9',
     ]);
     insertCalibrationIndexType([
@@ -289,7 +289,7 @@ it('filters calibration rows by name brand type or model without changing the to
     createCalibrationIndexTables();
     $this->travelTo('2026-10-12');
 
-    insertCalibrationIndexInstrument(['instrument_id' => 1, 'instrument_name' => 'Sodiline']);
+    insertCalibrationIndexInstrument(['instrument_id' => 1, 'instrument_name' => 'Sodiline', 'serial_number' => 'WEIGHT-001']);
     insertCalibrationIndexInstrument(['instrument_id' => 2, 'instrument_name' => 'Digital Caliper']);
     insertCalibrationIndexType([
         'instrument_type_id' => 1,
@@ -297,7 +297,6 @@ it('filters calibration rows by name brand type or model without changing the to
         'type_name' => 'Weight',
         'brand' => 'Sodim',
         'model' => 'PDV - PD',
-        'serial_number' => 'WEIGHT-001',
     ]);
     insertCalibrationIndexType([
         'instrument_type_id' => 2,

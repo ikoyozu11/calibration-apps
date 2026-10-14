@@ -50,6 +50,7 @@ class ServiceReport
                 $query->select([
                     'instrument_id',
                     'instrument_name',
+                    'serial_number',
                     'detail_location_id',
                 ]);
             },
@@ -86,7 +87,6 @@ class ServiceReport
                     'type_name',
                     'brand',
                     'model',
-                    'serial_number',
                     'max_capacity',
                     'max_capacity_unit',
                     'resolution',
@@ -167,12 +167,6 @@ class ServiceReport
                 $query->select([
                     'instrument_id',
                     'instrument_name',
-                ]);
-            },
-            'calibration.standardUsages.instrument.instrumentTypes' => function (HasMany $query): void {
-                $query->select([
-                    'instrument_type_id',
-                    'instrument_id',
                     'serial_number',
                 ]);
             },
@@ -240,7 +234,7 @@ class ServiceReport
                 'type_name' => $this->text($type->type_name),
                 'brand' => $this->text($type->brand),
                 'model' => $this->text($type->model),
-                'serial_number' => $this->text($type->serial_number),
+                'serial_number' => $this->text($this->certificate->calibration->instrument->serial_number),
                 'max_capacity' => $this->measurement($type->max_capacity, $type->max_capacity_unit),
                 'resolution' => $this->measurement($type->resolution, $type->resolution_unit),
             ];
@@ -359,21 +353,7 @@ class ServiceReport
 
     private function standardSerialNumber(?Instrument $instrument): string
     {
-        if ($instrument === null) {
-            return '—';
-        }
-
-        $serialNumbers = $instrument->instrumentTypes
-            ->map(fn ($type): ?string => $type->serial_number)
-            ->filter(fn (?string $serialNumber): bool => filled($serialNumber))
-            ->unique()
-            ->values();
-
-        if ($serialNumbers->count() !== 1) {
-            return '—';
-        }
-
-        return (string) $serialNumbers->first();
+        return $this->text($instrument?->serial_number);
     }
 
     private function correctionTolerance(CalibrationScope $scope): ?string
