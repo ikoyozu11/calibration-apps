@@ -367,7 +367,7 @@ new class extends Component
                             @endif
                         </dd>
                     </div>
-                    <div>
+<div>
                         <dt class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Remarks</dt>
                         <dd class="mt-1 text-sm">{{ $calibration->environment->remarks ?? '—' }}</dd>
                     </div>

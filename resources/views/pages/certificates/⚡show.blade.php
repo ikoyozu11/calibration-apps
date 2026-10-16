@@ -360,7 +360,7 @@ new class extends Component
                             @endif
                         </dd>
                     </div>
-                    <div>
+<div>
                         <dt class="text-xs font-medium text-muted">Remarks</dt>
                         <dd class="mt-1 text-sm">{{ $certificate->calibration->environment->remarks ?? '—' }}</dd>
                     </div>
