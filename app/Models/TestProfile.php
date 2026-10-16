@@ -12,10 +12,13 @@ use Illuminate\Support\Carbon;
  * @property int $test_profile_id
  * @property int $instrument_type_id
  * @property string $profile_name
+ * @property string|null $display_title
  * @property string|null $description
  * @property Carbon $created_at
  * @property-read InstrumentType $instrumentType
+ * @property-read Collection<int, TestColumn> $testColumns
  * @property-read Collection<int, TestPoint> $testPoints
+ * @property-read Collection<int, TestProfileVersion> $versions
  */
 class TestProfile extends Model
 {
@@ -25,15 +28,39 @@ class TestProfile extends Model
 
     protected $primaryKey = 'test_profile_id';
 
+    /**
+     * @var list<string>
+     */
+    protected $fillable = [
+        'instrument_type_id',
+        'profile_name',
+        'display_title',
+        'description',
+    ];
+
     /** @return BelongsTo<InstrumentType, $this> */
     public function instrumentType(): BelongsTo
     {
         return $this->belongsTo(InstrumentType::class, 'instrument_type_id', 'instrument_type_id');
     }
 
+    /** @return HasMany<TestColumn, $this> */
+    public function testColumns(): HasMany
+    {
+        return $this->hasMany(TestColumn::class, 'test_profile_id', 'test_profile_id');
+    }
+
     /** @return HasMany<TestPoint, $this> */
     public function testPoints(): HasMany
     {
         return $this->hasMany(TestPoint::class, 'test_profile_id', 'test_profile_id');
+    }
+
+    /** @return HasMany<TestProfileVersion, $this> */
+    public function versions(): HasMany
+    {
+        return $this->hasMany(TestProfileVersion::class, 'test_profile_id', 'test_profile_id')
+            ->orderBy('version_number')
+            ->orderBy('test_profile_version_id');
     }
 }

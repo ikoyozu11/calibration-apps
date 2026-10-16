@@ -1,84 +1,6 @@
 <?php
 
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
-
-function createInstrumentDetailTestTables(): void
-{
-    Schema::create('location', function (Blueprint $table): void {
-        $table->unsignedBigInteger('location_id')->primary();
-        $table->string('location_name', 150);
-    });
-
-    Schema::create('detail_location', function (Blueprint $table): void {
-        $table->unsignedBigInteger('detail_location_id')->primary();
-        $table->unsignedBigInteger('location_id');
-        $table->string('detail_location_name', 150);
-    });
-
-    Schema::create('instrument', function (Blueprint $table): void {
-        $table->unsignedBigInteger('instrument_id')->primary();
-        $table->string('instrument_name', 150);
-        $table->string('serial_number')->nullable();
-        $table->unsignedBigInteger('detail_location_id')->nullable();
-        $table->text('description')->nullable();
-        $table->timestamp('created_at');
-    });
-
-    Schema::create('instrument_type', function (Blueprint $table): void {
-        $table->unsignedBigInteger('instrument_type_id')->primary();
-        $table->unsignedBigInteger('instrument_id');
-        $table->string('type_name', 150);
-        $table->text('description')->nullable();
-        $table->timestamp('created_at');
-        $table->string('asset_number')->nullable();
-        $table->string('serial_number')->nullable();
-        $table->decimal('max_capacity')->nullable();
-        $table->string('max_capacity_unit')->nullable();
-        $table->decimal('resolution')->nullable();
-        $table->string('resolution_unit')->nullable();
-        $table->string('brand')->nullable();
-        $table->string('model')->nullable();
-    });
-
-    Schema::create('test_profile', function (Blueprint $table): void {
-        $table->unsignedBigInteger('test_profile_id')->primary();
-        $table->unsignedBigInteger('instrument_type_id');
-        $table->string('profile_name', 150);
-        $table->text('description')->nullable();
-        $table->timestamp('created_at');
-    });
-
-    Schema::create('test_point', function (Blueprint $table): void {
-        $table->unsignedBigInteger('test_point_id')->primary();
-        $table->unsignedBigInteger('test_profile_id');
-        $table->integer('point_order');
-        $table->decimal('nominal_value', 18, 6)->nullable();
-        $table->string('unit', 50)->nullable();
-        $table->decimal('tolerance_plus', 18, 6)->nullable();
-        $table->decimal('tolerance_minus', 18, 6)->nullable();
-        $table->text('description')->nullable();
-        $table->timestamp('created_at');
-    });
-
-    Schema::create('calibration', function (Blueprint $table): void {
-        $table->unsignedBigInteger('calibration_id')->primary();
-        $table->unsignedBigInteger('instrument_id');
-        $table->unsignedBigInteger('calibration_provider_id');
-        $table->string('calibration_number', 100);
-        $table->date('calibration_date')->nullable();
-        $table->date('calibration_due')->nullable();
-        $table->string('calibration_method', 20);
-        $table->string('calibration_result', 20)->nullable();
-        $table->string('certificate_number', 100)->nullable();
-        $table->text('remarks')->nullable();
-        $table->timestamps();
-        $table->date('action_date')->nullable();
-        $table->text('resume')->nullable();
-        $table->unsignedBigInteger('customer_id')->nullable();
-    });
-}
 
 it('renders one instrument type identity', function () {
     createInstrumentDetailTestTables();
@@ -512,6 +434,7 @@ it('shows only the selected type test components in profile and point order', fu
             'test_profile_id' => 2,
             'instrument_type_id' => 31,
             'profile_name' => 'Weight Check',
+            'display_title' => 'Weight Check',
             'description' => null,
             'created_at' => '2026-06-12 09:00:00',
         ],
@@ -519,6 +442,7 @@ it('shows only the selected type test components in profile and point order', fu
             'test_profile_id' => 1,
             'instrument_type_id' => 31,
             'profile_name' => 'Weight Calibration',
+            'display_title' => 'Weight Calibration',
             'description' => 'Hidden profile description',
             'created_at' => '2026-06-12 09:00:00',
         ],
@@ -526,6 +450,7 @@ it('shows only the selected type test components in profile and point order', fu
             'test_profile_id' => 3,
             'instrument_type_id' => 31,
             'profile_name' => 'Spare Profile',
+            'display_title' => 'Spare Profile',
             'description' => null,
             'created_at' => '2026-06-12 09:00:00',
         ],
@@ -533,6 +458,7 @@ it('shows only the selected type test components in profile and point order', fu
             'test_profile_id' => 4,
             'instrument_type_id' => 32,
             'profile_name' => 'Diameter Calibration',
+            'display_title' => 'Diameter Calibration',
             'description' => null,
             'created_at' => '2026-06-12 09:00:00',
         ],
@@ -632,14 +558,19 @@ it('shows only the selected type test components in profile and point order', fu
             '900',
             'Check point',
             'Spare Profile',
-            'No test components found.',
+            'No test points yet.',
         ])
+        ->assertSee('Manage Test Components')
+        ->assertDontSee('Add Test Table')
+        ->assertDontSee('Manage Columns')
+        ->assertDontSee('Add Row')
         ->assertDontSee('Diameter Calibration')
         ->assertDontSee('Diameter point')
         ->assertSee('Shared history note')
         ->assertSee('2026-06-12');
     $diameter
-        ->assertSeeInOrder(['Diameter Calibration', '77', 'mm', 'Diameter point'])
+        ->assertSeeInOrder(['77', 'mm', 'Diameter point'])
+        ->assertSee('Manage Test Components')
         ->assertDontSee('Weight Calibration')
         ->assertDontSee('Weight Check')
         ->assertDontSee('Spare Profile')
@@ -685,8 +616,192 @@ it('shows an empty test component state without a profile', function () {
         ->assertDontSee('Prototype instrument')
         ->assertDontSee('Weight measurement')
         ->assertSee('No test components found.')
+        ->assertSee('Manage Test Components')
         ->assertSee('No calibration history found.')
-        ->assertDontSee('Standards Used');
+        ->assertDontSee('Standards Used')
+        ->assertDontSee('Add Test Table');
+});
+
+it('shows dynamic test columns read-only on the instrument detail page', function () {
+    createInstrumentDetailTestTables();
+    insertInstrumentDetailSubject();
+
+    DB::table('test_profile')->insert([
+        [
+            'test_profile_id' => 1,
+            'instrument_type_id' => 31,
+            'profile_name' => 'Dynamic Profile',
+            'display_title' => 'Dynamic table',
+            'description' => null,
+            'created_at' => '2026-10-14 09:00:00',
+        ],
+        [
+            'test_profile_id' => 2,
+            'instrument_type_id' => 31,
+            'profile_name' => 'Legacy Profile',
+            'display_title' => 'Legacy table',
+            'description' => null,
+            'created_at' => '2026-10-14 09:00:00',
+        ],
+    ]);
+    DB::table('test_point')->insert([
+        [
+            'test_point_id' => 20,
+            'test_profile_id' => 1,
+            'point_order' => 2,
+            'nominal_value' => 500,
+            'unit' => 'g',
+            'tolerance_plus' => 0.2,
+            'tolerance_minus' => -0.2,
+            'description' => 'Hidden dynamic point',
+            'created_at' => '2026-10-14 09:00:00',
+        ],
+        [
+            'test_point_id' => 10,
+            'test_profile_id' => 1,
+            'point_order' => 1,
+            'nominal_value' => 100,
+            'unit' => 'g',
+            'tolerance_plus' => 0.1,
+            'tolerance_minus' => -0.1,
+            'description' => 'First dynamic point',
+            'created_at' => '2026-10-14 09:00:00',
+        ],
+        [
+            'test_point_id' => 30,
+            'test_profile_id' => 2,
+            'point_order' => 1,
+            'nominal_value' => 77,
+            'unit' => 'mm',
+            'tolerance_plus' => 0.01,
+            'tolerance_minus' => -0.01,
+            'description' => 'Legacy point',
+            'created_at' => '2026-10-14 09:00:00',
+        ],
+    ]);
+    DB::table('test_column')->insert([
+        [
+            'test_column_id' => 4,
+            'test_profile_id' => 1,
+            'column_key' => 'error_value',
+            'column_label' => 'Error',
+            'column_order' => 4,
+            'data_type' => 'numeric',
+            'value_source' => 'calculated',
+            'unit' => 'g',
+            'display_scale' => null,
+            'formula_code' => 'deviation',
+            'formula_inputs' => '["setpoint","reading"]',
+            'created_at' => '2026-10-14 09:00:00',
+        ],
+        [
+            'test_column_id' => 2,
+            'test_profile_id' => 1,
+            'column_key' => 'setpoint',
+            'column_label' => 'Setpoint',
+            'column_order' => 2,
+            'data_type' => 'numeric',
+            'value_source' => 'template',
+            'unit' => 'g',
+            'display_scale' => null,
+            'formula_code' => null,
+            'formula_inputs' => '[]',
+            'created_at' => '2026-10-14 09:00:00',
+        ],
+        [
+            'test_column_id' => 1,
+            'test_profile_id' => 1,
+            'column_key' => 'note',
+            'column_label' => 'Note',
+            'column_order' => 1,
+            'data_type' => 'text',
+            'value_source' => 'template',
+            'unit' => null,
+            'display_scale' => null,
+            'formula_code' => null,
+            'formula_inputs' => '[]',
+            'created_at' => '2026-10-14 09:00:00',
+        ],
+        [
+            'test_column_id' => 3,
+            'test_profile_id' => 1,
+            'column_key' => 'reading',
+            'column_label' => 'Reading',
+            'column_order' => 3,
+            'data_type' => 'numeric',
+            'value_source' => 'engineer',
+            'unit' => 'g',
+            'display_scale' => 3,
+            'formula_code' => null,
+            'formula_inputs' => '[]',
+            'created_at' => '2026-10-14 09:00:00',
+        ],
+    ]);
+    DB::table('test_point_value')->insert([
+        [
+            'test_point_value_id' => 1,
+            'test_profile_id' => 1,
+            'test_point_id' => 10,
+            'test_column_id' => 2,
+            'numeric_value' => 10.5,
+            'text_value' => null,
+            'unit' => null,
+            'created_at' => '2026-10-14 09:00:00',
+        ],
+        [
+            'test_point_value_id' => 2,
+            'test_profile_id' => 1,
+            'test_point_id' => 10,
+            'test_column_id' => 1,
+            'numeric_value' => null,
+            'text_value' => 'stable-note',
+            'unit' => null,
+            'created_at' => '2026-10-14 09:00:00',
+        ],
+        [
+            'test_point_value_id' => 3,
+            'test_profile_id' => 1,
+            'test_point_id' => 20,
+            'test_column_id' => 1,
+            'numeric_value' => null,
+            'text_value' => 'second-note',
+            'unit' => null,
+            'created_at' => '2026-10-14 09:00:00',
+        ],
+        [
+            'test_point_value_id' => 4,
+            'test_profile_id' => 1,
+            'test_point_id' => 10,
+            'test_column_id' => 3,
+            'numeric_value' => 99.25,
+            'text_value' => null,
+            'unit' => null,
+            'created_at' => '2026-10-14 09:00:00',
+        ],
+    ]);
+
+    $this->get(route('instruments.types.show', ['instrument' => 3, 'instrumentType' => 31]))
+        ->assertSee('Manage Test Components')
+        ->assertDontSee('Manage Columns')
+        ->assertDontSee('Add Row')
+        ->assertSeeInOrder([
+            'Dynamic table',
+            'Note',
+            'Setpoint',
+            'Reading',
+            'Error',
+            'stable-note',
+            '10.5',
+            'second-note',
+            'Legacy table',
+            'Point',
+            'Nominal',
+            '+Tol',
+            'Legacy point',
+        ])
+        ->assertDontSee('99.25')
+        ->assertDontSee('Hidden dynamic point')
+        ->assertDontSee('First dynamic point');
 });
 
 it('returns not found for an unknown instrument', function () {
@@ -695,4 +810,61 @@ it('returns not found for an unknown instrument', function () {
     $response = $this->get(route('instruments.show', 999));
 
     $response->assertNotFound();
+});
+
+it('shows only the active version on instrument detail when a draft also exists', function () {
+    createInstrumentDetailTestTables();
+    insertTwoVersionTestTable();
+
+    $this->get(route('instruments.types.show', ['instrument' => 3, 'instrumentType' => 31]))
+        ->assertSee('Active Voltage')
+        ->assertSee('active-cell-100')
+        ->assertDontSee('Draft Current')
+        ->assertDontSee('draft-cell-200')
+        ->assertDontSee('This test table has not been published yet.')
+        ->assertDontSee('Manage Columns')
+        ->assertSee('Instrument Identity');
+});
+
+it('marks an unpublished draft on instrument detail when no active version exists', function () {
+    createInstrumentDetailTestTables();
+    insertDynamicRowFixture();
+
+    $this->get(route('instruments.types.show', ['instrument' => 3, 'instrumentType' => 31]))
+        ->assertSee('This test table has not been published yet.')
+        ->assertSee('Standard Value')
+        ->assertDontSee('Manage Columns');
+});
+
+it('still shows test components when the versioning catalog is not installed', function () {
+    createInstrumentDetailTestTables(withVersioning: false);
+    insertInstrumentDetailSubject();
+
+    DB::table('test_profile')->insert([
+        'test_profile_id' => 1,
+        'instrument_type_id' => 31,
+        'profile_name' => 'Main Test',
+        'display_title' => null,
+        'description' => null,
+        'created_at' => '2026-10-14 09:00:00',
+    ]);
+    DB::table('test_column')->insert([
+        'test_column_id' => 1,
+        'test_profile_id' => 1,
+        'column_key' => 'note',
+        'column_label' => 'Legacy Note',
+        'column_order' => 1,
+        'data_type' => 'text',
+        'value_source' => 'template',
+        'unit' => null,
+        'display_scale' => null,
+        'formula_code' => null,
+        'formula_inputs' => '[]',
+        'created_at' => '2026-10-14 09:00:00',
+    ]);
+
+    $this->get(route('instruments.types.show', ['instrument' => 3, 'instrumentType' => 31]))
+        ->assertSee('Legacy Note')
+        ->assertDontSee('This test table has not been published yet.')
+        ->assertSee('Instrument Identity');
 });

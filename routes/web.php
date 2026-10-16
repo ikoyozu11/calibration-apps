@@ -14,6 +14,9 @@ Route::get('/certificates/{certificate}/pdf', CertificateServiceReportController
 Route::livewire('/certificates/{certificate}', 'pages::certificates.show')->name('certificates.show');
 Route::get('/instruments/export.csv', InstrumentTypeCsvExportController::class)->name('instruments.export.csv');
 Route::livewire('/instruments', 'pages::instruments')->name('instruments.index');
+Route::livewire('/instruments/{instrument}/types/{instrumentType}/test-components', 'pages::instruments.test-components')
+    ->name('instruments.types.test-components')
+    ->scopeBindings();
 Route::livewire('/instruments/{instrument}/types/{instrumentType}', 'pages::instruments.show')
     ->name('instruments.types.show')
     ->scopeBindings();

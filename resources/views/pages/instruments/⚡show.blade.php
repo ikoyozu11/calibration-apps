@@ -1,20 +1,24 @@
 <?php
 
+use App\Livewire\Concerns\DisplaysTestComponents;
 use App\Models\Calibration;
 use App\Models\Instrument;
 use App\Models\InstrumentType;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Livewire\WithPagination;
 
 new class extends Component
 {
+    use DisplaysTestComponents;
     use WithPagination;
 
+    #[Locked]
     public Instrument $instrument;
 
+    #[Locked]
     public ?InstrumentType $instrumentType = null;
 
     public function mount(Instrument $instrument, ?InstrumentType $instrumentType = null): void
@@ -33,32 +37,22 @@ new class extends Component
             'detailLocation:detail_location_id,location_id,detail_location_name',
             'detailLocation.location:location_id,location_name',
         ]);
-        $this->instrumentType = $instrumentType?->load([
-            'testProfiles' => function (HasMany $query): void {
-                $query
-                    ->select([
-                        'test_profile_id',
-                        'instrument_type_id',
-                        'profile_name',
-                    ])
-                    ->orderBy('test_profile_id');
-            },
-            'testProfiles.testPoints' => function (HasMany $query): void {
-                $query
-                    ->select([
-                        'test_point_id',
-                        'test_profile_id',
-                        'point_order',
-                        'nominal_value',
-                        'unit',
-                        'tolerance_plus',
-                        'tolerance_minus',
-                        'description',
-                    ])
-                    ->orderBy('point_order')
-                    ->orderBy('test_point_id');
-            },
-        ]);
+        $this->instrumentType = $instrumentType;
+        $this->loadTestProfiles();
+    }
+
+    public function hydrate(): void
+    {
+        $this->loadTestProfiles();
+    }
+
+    /**
+     * @param  mixed  $view
+     * @param  mixed  $data
+     */
+    public function rendering(mixed $view = null, mixed $data = null): void
+    {
+        $this->loadTestProfiles();
     }
 
     /**
@@ -174,8 +168,13 @@ new class extends Component
         </section>
 
         <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="test-components-heading">
-            <div class="px-5 py-4">
+            <div class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <h2 id="test-components-heading" class="text-base font-semibold tracking-tight text-navy">Test Components</h2>
+                @if ($instrumentType !== null)
+                    <a href="{{ route('instruments.types.test-components', [$instrument, $instrumentType]) }}" class="ui-button-outline">
+                        Manage Test Components
+                    </a>
+                @endif
             </div>
 
             @if ($instrumentType === null || $instrumentType->testProfiles->isEmpty())
@@ -183,13 +182,51 @@ new class extends Component
             @else
                 <div class="flex flex-col gap-6 px-5 pb-5">
                     @foreach ($instrumentType->testProfiles as $profile)
-                        <div wire:key="test-profile-{{ $profile->test_profile_id }}">
-                            <h3 class="text-sm font-semibold text-navy">{{ $profile->profile_name }}</h3>
+                        @php($heading = $this->profileHeading($profile))
+                        <div wire:key="test-profile-{{ $profile->test_profile_id }}" class="flex flex-col gap-3">
+                            @if ($heading !== null)
+                                <h3 @class([
+                                    'text-sm font-semibold text-navy' => ! $heading['missing'],
+                                    'text-sm font-medium text-muted' => $heading['missing'],
+                                ])>{{ $heading['text'] }}</h3>
+                            @endif
+                            @if ($this->testTableIsUnpublished($profile))
+                                <p class="text-sm text-muted">This test table has not been published yet.</p>
+                            @endif
 
-                            @if ($profile->testPoints->isEmpty())
-                                <p class="py-4 text-sm text-navy/70">No test components found.</p>
+                            @if ($profile->testColumns->isNotEmpty())
+                                <div class="overflow-x-auto">
+                                    <table class="ui-table">
+                                        <thead class="bg-navy text-xs font-medium text-white">
+                                            <tr>
+                                                @foreach ($profile->testColumns as $column)
+                                                    <th scope="col" wire:key="test-column-{{ $column->test_column_id }}" class="px-5 py-3 font-medium">{{ $column->column_label }}</th>
+                                                @endforeach
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-white/70">
+                                            @forelse ($profile->testPoints as $point)
+                                                <tr wire:key="test-point-{{ $point->test_point_id }}" class="odd:bg-[#d6e4f0] even:bg-[#c5d8ec]">
+                                                    @foreach ($profile->testColumns as $column)
+                                                        <td wire:key="test-cell-{{ $point->test_point_id }}-{{ $column->test_column_id }}" @class([
+                                                            'px-5 py-3.5 text-navy',
+                                                            'tabular-nums' => $column->data_type === 'numeric',
+                                                        ])>{{ $this->templateCell($point, $column) }}</td>
+                                                    @endforeach
+                                                </tr>
+                                            @empty
+                                                <tr>
+                                                    <td colspan="{{ $profile->testColumns->count() }}" class="px-5 py-4 text-sm text-navy/70">No test points yet.</td>
+                                                </tr>
+                                            @endforelse
+                                        </tbody>
+                                    </table>
+                                </div>
+                            @elseif ($profile->testPoints->isEmpty())
+                                <p class="text-sm font-semibold text-navy">{{ $profile->profile_name }}</p>
+                                <p class="py-4 text-sm text-navy/70">No test points yet.</p>
                             @else
-                                <div class="mt-3 overflow-x-auto">
+                                <div class="overflow-x-auto">
                                     <table class="ui-table">
                                         <thead class="bg-navy text-xs font-medium text-white">
                                             <tr>
