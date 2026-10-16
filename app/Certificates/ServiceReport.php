@@ -422,7 +422,14 @@ class ServiceReport
             return null;
         }
 
-        return filled($unit) ? $value.' '.$unit : $value;
+        $amount = $value;
+
+        if (is_numeric($amount) && str_contains($amount, '.')) {
+            $amount = rtrim(rtrim($amount, '0'), '.');
+            $amount = $amount === '' || $amount === '-' ? '0' : $amount;
+        }
+
+        return filled($unit) ? $amount.' '.$unit : $amount;
     }
 
     private function text(?string $value): string
