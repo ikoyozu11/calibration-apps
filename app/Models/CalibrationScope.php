@@ -13,6 +13,8 @@ use Illuminate\Support\Carbon;
  * @property int $calibration_id
  * @property int $instrument_type_id
  * @property int|null $test_profile_id
+ * @property int|null $test_profile_version_id
+ * @property array<string, mixed>|null $test_table_snapshot
  * @property int $scope_order
  * @property string|null $remarks
  * @property Carbon $created_at
@@ -20,6 +22,7 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, CalibrationTestResult> $calibrationTestResults
  * @property-read InstrumentType $instrumentType
  * @property-read TestProfile|null $testProfile
+ * @property-read TestProfileVersion|null $testProfileVersion
  */
 class CalibrationScope extends Model
 {
@@ -47,9 +50,25 @@ class CalibrationScope extends Model
         return $this->belongsTo(TestProfile::class, 'test_profile_id', 'test_profile_id');
     }
 
+    /** @return BelongsTo<TestProfileVersion, $this> */
+    public function testProfileVersion(): BelongsTo
+    {
+        return $this->belongsTo(TestProfileVersion::class, 'test_profile_version_id', 'test_profile_version_id');
+    }
+
     /** @return HasMany<CalibrationTestResult, $this> */
     public function calibrationTestResults(): HasMany
     {
         return $this->hasMany(CalibrationTestResult::class, 'calibration_scope_id', 'calibration_scope_id');
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'test_table_snapshot' => 'array',
+        ];
     }
 }
