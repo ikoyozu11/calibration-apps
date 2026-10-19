@@ -4,6 +4,7 @@ namespace App\Exports;
 
 use App\Models\Calibration;
 use App\Models\Instrument;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class InstrumentTypeCsvExport
 {
@@ -43,7 +44,16 @@ class InstrumentTypeCsvExport
                 'instrumentTypes:instrument_type_id,instrument_id,type_name,asset_number',
                 'detailLocation:detail_location_id,location_id,detail_location_code,detail_location_name',
                 'detailLocation.location:location_id,location_code,location_name',
-                'calibrations:calibration_id,instrument_id,calibration_date,calibration_due',
+                'calibrations' => function (HasMany $query): void {
+                    $query
+                        ->completed()
+                        ->select([
+                            'calibration_id',
+                            'instrument_id',
+                            'calibration_date',
+                            'calibration_due',
+                        ]);
+                },
             ])
             ->orderBy('instrument_id')
             ->get();

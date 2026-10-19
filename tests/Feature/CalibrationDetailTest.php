@@ -31,6 +31,7 @@ function createCalibrationDetailTestTables(): void
         $table->string('resolution_unit')->nullable();
         $table->string('brand')->nullable();
         $table->string('model')->nullable();
+        addInstrumentTypeIntervalColumn($table);
     });
 
     Schema::create('calibration', function (Blueprint $table): void {
@@ -48,6 +49,7 @@ function createCalibrationDetailTestTables(): void
         $table->date('action_date')->nullable();
         $table->text('resume')->nullable();
         $table->unsignedBigInteger('customer_id')->nullable();
+        addCalibrationSessionColumns($table);
     });
 
     Schema::create('calibration_scope', function (Blueprint $table): void {

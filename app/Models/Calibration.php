@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,12 +14,14 @@ use Illuminate\Support\Carbon;
 /**
  * @property int $calibration_id
  * @property int $instrument_id
+ * @property int|null $instrument_type_id
  * @property int $calibration_provider_id
  * @property string $calibration_number
  * @property Carbon|null $calibration_date
  * @property Carbon|null $calibration_due
  * @property string $calibration_method
  * @property string|null $calibration_result
+ * @property string $session_status
  * @property string|null $certificate_number
  * @property string|null $remarks
  * @property Carbon $created_at
@@ -30,13 +34,27 @@ use Illuminate\Support\Carbon;
  * @property-read Customer|null $customer
  * @property-read CalibrationEnvironment|null $environment
  * @property-read Instrument $instrument
+ * @property-read InstrumentType|null $instrumentType
  * @property-read Collection<int, CalibrationStandardUsage> $standardUsages
  */
 class Calibration extends Model
 {
+    public const STATUS_IN_PROGRESS = 'in_progress';
+
+    public const STATUS_COMPLETED = 'completed';
+
+    public const STATUS_CANCELLED = 'cancelled';
+
     protected $table = 'calibration';
 
     protected $primaryKey = 'calibration_id';
+
+    /**
+     * @var array<string, mixed>
+     */
+    protected $attributes = [
+        'session_status' => self::STATUS_COMPLETED,
+    ];
 
     /** @return HasMany<CalibrationScope, $this> */
     public function calibrationScopes(): HasMany
@@ -54,6 +72,39 @@ class Calibration extends Model
     public function instrument(): BelongsTo
     {
         return $this->belongsTo(Instrument::class, 'instrument_id', 'instrument_id');
+    }
+
+    /** @return BelongsTo<InstrumentType, $this> */
+    public function instrumentType(): BelongsTo
+    {
+        return $this->belongsTo(InstrumentType::class, 'instrument_type_id', 'instrument_type_id');
+    }
+
+    /**
+     * @param  Builder<Calibration>  $query
+     */
+    #[Scope]
+    protected function completed(Builder $query): void
+    {
+        $query->where($query->qualifyColumn('session_status'), self::STATUS_COMPLETED);
+    }
+
+    /**
+     * @param  Builder<Calibration>  $query
+     */
+    #[Scope]
+    protected function inProgress(Builder $query): void
+    {
+        $query->where($query->qualifyColumn('session_status'), self::STATUS_IN_PROGRESS);
+    }
+
+    /**
+     * @param  Builder<Calibration>  $query
+     */
+    #[Scope]
+    protected function cancelled(Builder $query): void
+    {
+        $query->where($query->qualifyColumn('session_status'), self::STATUS_CANCELLED);
     }
 
     /** @return HasOne<CalibrationEnvironment, $this> */

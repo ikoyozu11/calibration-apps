@@ -40,6 +40,42 @@ function createInstrumentDetailTestTables(bool $withVersioning = true): void
         $table->string('resolution_unit')->nullable();
         $table->string('brand')->nullable();
         $table->string('model')->nullable();
+        $table->integer('calibration_interval_months')->nullable();
+    });
+
+    Schema::create('standard_master', function (Blueprint $table): void {
+        $table->id('standard_id');
+        $table->string('standard_code', 20)->unique('uq_standard_master_code');
+        $table->string('instrument_name', 150);
+        $table->string('type_specification', 150)->nullable();
+        $table->string('serial_number', 150)->nullable();
+        $table->timestamps();
+    });
+
+    Schema::create('instrument_type_standard_assignment', function (Blueprint $table): void {
+        $table->id('instrument_type_standard_assignment_id');
+        $table->unsignedBigInteger('instrument_type_id');
+        $table->unsignedBigInteger('standard_id')->nullable();
+        $table->unsignedBigInteger('standard_instrument_id')->nullable();
+        $table->integer('assignment_order');
+        $table->string('standard_display_name', 255)->nullable();
+        $table->string('default_range', 150)->nullable();
+        $table->string('default_unit', 50)->nullable();
+        $table->timestamps();
+        $table->unique(['instrument_type_id', 'standard_id'], 'uq_instrument_type_standard_assignment_master');
+        $table->unique(['instrument_type_id', 'assignment_order'], 'uq_instrument_type_standard_assignment_order');
+        $table->foreign('instrument_type_id', 'fk_instrument_type_standard_assignment_type')
+            ->references('instrument_type_id')
+            ->on('instrument_type')
+            ->cascadeOnDelete();
+        $table->foreign('standard_id', 'fk_instrument_type_standard_assignment_master')
+            ->references('standard_id')
+            ->on('standard_master')
+            ->restrictOnDelete();
+        $table->foreign('standard_instrument_id', 'fk_instrument_type_standard_assignment_instrument')
+            ->references('instrument_id')
+            ->on('instrument')
+            ->restrictOnDelete();
     });
 
     Schema::create('test_profile', function (Blueprint $table): void {
@@ -50,6 +86,7 @@ function createInstrumentDetailTestTables(bool $withVersioning = true): void
         $table->unique(['instrument_type_id', 'profile_name']);
         $table->text('description')->nullable();
         $table->timestamp('created_at');
+        $table->timestamp('archived_at')->nullable();
     });
 
     if ($withVersioning) {
@@ -128,7 +165,19 @@ function createInstrumentDetailTestTables(bool $withVersioning = true): void
         $table->date('action_date')->nullable();
         $table->text('resume')->nullable();
         $table->unsignedBigInteger('customer_id')->nullable();
+        addCalibrationSessionColumns($table);
     });
+}
+
+function addCalibrationSessionColumns(Blueprint $table): void
+{
+    $table->string('session_status', 20)->default('completed');
+    $table->unsignedBigInteger('instrument_type_id')->nullable();
+}
+
+function addInstrumentTypeIntervalColumn(Blueprint $table): void
+{
+    $table->integer('calibration_interval_months')->nullable();
 }
 
 function insertInstrumentDetailSubject(): void
@@ -156,6 +205,19 @@ function insertInstrumentDetailSubject(): void
             'description' => null,
             'created_at' => '2026-10-07 09:17:33',
         ],
+    ]);
+}
+
+function insertStandardMaster(int $id, string $code, string $name, ?string $type = null, ?string $serial = null): void
+{
+    DB::table('standard_master')->insert([
+        'standard_id' => $id,
+        'standard_code' => $code,
+        'instrument_name' => $name,
+        'type_specification' => $type,
+        'serial_number' => $serial,
+        'created_at' => '2026-10-07 09:17:33',
+        'updated_at' => '2026-10-07 09:17:33',
     ]);
 }
 

@@ -43,6 +43,7 @@ function createCsvExportTestTables(): void
         $table->string('serial_number')->nullable();
         $table->string('brand')->nullable();
         $table->string('model')->nullable();
+        addInstrumentTypeIntervalColumn($table);
     });
 
     Schema::create('calibration', function (Blueprint $table): void {
@@ -61,6 +62,7 @@ function createCsvExportTestTables(): void
         $table->date('action_date')->nullable();
         $table->text('resume')->nullable();
         $table->unsignedBigInteger('customer_id')->nullable();
+        addCalibrationSessionColumns($table);
     });
 
     Schema::create('certificate', function (Blueprint $table): void {
@@ -623,6 +625,52 @@ it('neutralizes a leading line feed without changing stored identifiers', functi
         'calibration_id' => 1,
         'calibration_number' => 'CAL-KEEP',
     ]);
+});
+
+it('omits in-progress and cancelled sessions from calibration history csv', function () {
+    createCsvExportTestTables();
+
+    DB::table('instrument')->insert([
+        'instrument_id' => 3,
+        'instrument_name' => 'Sodiline',
+        'serial_number' => null,
+        'detail_location_id' => null,
+        'description' => null,
+        'created_at' => '2026-01-01 00:00:00',
+    ]);
+    insertCsvExportCalibration([
+        'calibration_id' => 1,
+        'instrument_id' => 3,
+        'instrument_type_id' => 10,
+        'calibration_number' => 'CAL-DONE',
+        'calibration_date' => '2026-01-01',
+        'calibration_due' => '2026-06-01',
+        'calibration_result' => 'PASS',
+        'session_status' => 'completed',
+    ]);
+    insertCsvExportCalibration([
+        'calibration_id' => 2,
+        'instrument_id' => 3,
+        'instrument_type_id' => 10,
+        'calibration_number' => 'CAL-OPEN',
+        'calibration_date' => '2026-08-01',
+        'session_status' => 'in_progress',
+    ]);
+    insertCsvExportCalibration([
+        'calibration_id' => 3,
+        'instrument_id' => 3,
+        'instrument_type_id' => 10,
+        'calibration_number' => 'CAL-STOP',
+        'calibration_date' => '2026-09-01',
+        'session_status' => 'cancelled',
+    ]);
+
+    $rows = csvExportRows($this->get(route('calibrations.export.csv'))->streamedContent());
+
+    expect($rows)->toHaveCount(2)
+        ->and($rows[1][0])->toBe('CAL-DONE')
+        ->and(collect($rows)->pluck(0)->all())->not->toContain('CAL-OPEN')
+        ->and(collect($rows)->pluck(0)->all())->not->toContain('CAL-STOP');
 });
 
 it('keeps the instrument list available without the export links', function () {

@@ -5,6 +5,7 @@ namespace App\Dashboard;
 use App\Models\Calibration;
 use App\Models\Instrument;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 final class InstrumentCalibrationOverview
 {
@@ -30,7 +31,16 @@ final class InstrumentCalibrationOverview
                 'created_at',
             ])
             ->with([
-                'calibrations:calibration_id,instrument_id,calibration_date,calibration_due',
+                'calibrations' => function (HasMany $query): void {
+                    $query
+                        ->completed()
+                        ->select([
+                            'calibration_id',
+                            'instrument_id',
+                            'calibration_date',
+                            'calibration_due',
+                        ]);
+                },
             ])
             ->orderByDesc('created_at')
             ->orderByDesc('instrument_id')

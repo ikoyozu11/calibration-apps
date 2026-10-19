@@ -33,6 +33,7 @@ function createServiceReportTestTables(): void
         $table->date('action_date')->nullable();
         $table->text('resume')->nullable();
         $table->unsignedBigInteger('customer_id')->nullable();
+        addCalibrationSessionColumns($table);
     });
 
     Schema::create('certificate', function (Blueprint $table): void {

@@ -37,6 +37,7 @@ function createDashboardTestTables(): void
         $table->string('brand')->nullable();
         $table->string('model')->nullable();
         $table->timestamp('created_at');
+        addInstrumentTypeIntervalColumn($table);
     });
 
     Schema::create('calibration', function (Blueprint $table): void {
@@ -46,6 +47,7 @@ function createDashboardTestTables(): void
         $table->date('calibration_due')->nullable();
         $table->string('calibration_result', 20)->nullable();
         $table->string('certificate_number', 100)->nullable();
+        addCalibrationSessionColumns($table);
     });
 
     Schema::create('calibration_scope', function (Blueprint $table): void {
@@ -225,4 +227,49 @@ it('filters the recent table by instrument name without changing the totals', fu
         ->assertSee('No instruments found.')
         ->assertDontSee('Gauge 12')
         ->assertSeeInOrder(['Total Instruments', '12']);
+});
+
+it('classifies standing from completed calibrations only', function () {
+    createDashboardTestTables();
+
+    insertDashboardInstrument(['instrument_id' => 1, 'instrument_name' => 'Open Gauge']);
+    insertDashboardInstrument(['instrument_id' => 2, 'instrument_name' => 'Cancelled Gauge']);
+    DB::table('instrument_type')->insert([
+        [
+            'instrument_type_id' => 1,
+            'instrument_id' => 1,
+            'type_name' => 'Weight',
+            'created_at' => '2026-01-01 00:00:00',
+        ],
+        [
+            'instrument_type_id' => 2,
+            'instrument_id' => 2,
+            'type_name' => 'Weight',
+            'created_at' => '2026-01-01 00:00:00',
+        ],
+    ]);
+    insertDashboardCalibration([
+        'calibration_id' => 1,
+        'instrument_id' => 1,
+        'instrument_type_id' => 1,
+        'session_status' => 'in_progress',
+        'calibration_due' => today()->subDay()->toDateString(),
+    ]);
+    insertDashboardCalibration([
+        'calibration_id' => 2,
+        'instrument_id' => 2,
+        'instrument_type_id' => 2,
+        'session_status' => 'cancelled',
+        'calibration_due' => today()->addDays(61)->toDateString(),
+    ]);
+
+    $response = $this->get(route('home'));
+
+    $response->assertOk();
+    $response->assertSeeInOrder(['Total Instruments', '2']);
+    $response->assertSeeInOrder(['On Track', '0']);
+    $response->assertSeeInOrder(['Overdue', '0']);
+    $response->assertSeeInOrder(['Not Calibrated', '2']);
+    $response->assertSeeInOrder(['Open Gauge', 'Not Calibrated']);
+    $response->assertSeeInOrder(['Cancelled Gauge', 'Not Calibrated']);
 });

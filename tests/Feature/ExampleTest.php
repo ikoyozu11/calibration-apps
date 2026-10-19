@@ -15,6 +15,7 @@ test('returns a successful response', function () {
         $table->unsignedBigInteger('instrument_type_id')->primary();
         $table->unsignedBigInteger('instrument_id');
         $table->string('serial_number')->nullable();
+        addInstrumentTypeIntervalColumn($table);
     });
 
     Schema::create('calibration', function (Blueprint $table): void {
@@ -22,6 +23,7 @@ test('returns a successful response', function () {
         $table->unsignedBigInteger('instrument_id');
         $table->date('calibration_date')->nullable();
         $table->date('calibration_due')->nullable();
+        addCalibrationSessionColumns($table);
     });
 
     $response = $this->get('/');

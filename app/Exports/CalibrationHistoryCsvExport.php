@@ -29,6 +29,7 @@ class CalibrationHistoryCsvExport
     public static function rows(): array
     {
         $calibrations = Calibration::query()
+            ->completed()
             ->select([
                 'calibration_id',
                 'instrument_id',

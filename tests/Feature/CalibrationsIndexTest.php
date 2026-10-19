@@ -23,6 +23,7 @@ function createCalibrationIndexTables(): void
         $table->string('asset_number')->nullable();
         $table->string('brand')->nullable();
         $table->string('model')->nullable();
+        addInstrumentTypeIntervalColumn($table);
     });
 
     Schema::create('calibration', function (Blueprint $table): void {
@@ -32,6 +33,7 @@ function createCalibrationIndexTables(): void
         $table->date('calibration_due')->nullable();
         $table->string('calibration_result', 20)->nullable();
         $table->string('certificate_number', 100)->nullable();
+        addCalibrationSessionColumns($table);
     });
 
     Schema::create('calibration_scope', function (Blueprint $table): void {
@@ -91,6 +93,8 @@ function insertCalibrationIndexRecord(array $attributes): void
     DB::table('calibration')->insert([
         'calibration_id' => $attributes['calibration_id'],
         'instrument_id' => $attributes['instrument_id'],
+        'instrument_type_id' => $attributes['instrument_type_id'] ?? null,
+        'session_status' => $attributes['session_status'] ?? 'completed',
         'calibration_date' => $attributes['calibration_date'] ?? null,
         'calibration_due' => $attributes['calibration_due'] ?? null,
         'calibration_result' => $attributes['calibration_result'] ?? null,
@@ -131,6 +135,7 @@ it('shows each instrument type with the latest calibration standing', function (
     insertCalibrationIndexRecord([
         'calibration_id' => 1,
         'instrument_id' => 3,
+        'instrument_type_id' => 1,
         'calibration_date' => '2026-09-01',
         'calibration_due' => '2026-10-11',
         'calibration_result' => 'PASS',
@@ -138,14 +143,25 @@ it('shows each instrument type with the latest calibration standing', function (
     insertCalibrationIndexRecord([
         'calibration_id' => 2,
         'instrument_id' => 3,
+        'instrument_type_id' => 1,
         'calibration_date' => '2026-10-01',
         'calibration_due' => '2026-12-12',
         'calibration_result' => 'FAIL',
         'certificate_number' => 'CERT-1',
     ]);
     insertCalibrationIndexRecord([
+        'calibration_id' => 6,
+        'instrument_id' => 3,
+        'instrument_type_id' => 2,
+        'calibration_date' => '2026-10-01',
+        'calibration_due' => '2026-12-12',
+        'calibration_result' => 'FAIL',
+        'certificate_number' => 'CERT-DIA',
+    ]);
+    insertCalibrationIndexRecord([
         'calibration_id' => 3,
         'instrument_id' => 4,
+        'instrument_type_id' => 3,
         'calibration_date' => '2026-10-12',
         'calibration_due' => '2026-10-12',
         'calibration_result' => 'PASS',
@@ -154,6 +170,7 @@ it('shows each instrument type with the latest calibration standing', function (
     insertCalibrationIndexRecord([
         'calibration_id' => 4,
         'instrument_id' => 5,
+        'instrument_type_id' => 4,
         'calibration_date' => '2026-09-15',
         'calibration_due' => '2026-10-11',
         'certificate_number' => 'CERT-2',
@@ -161,6 +178,7 @@ it('shows each instrument type with the latest calibration standing', function (
     insertCalibrationIndexRecord([
         'calibration_id' => 5,
         'instrument_id' => 7,
+        'instrument_type_id' => 6,
         'calibration_date' => '2026-10-02',
         'calibration_result' => 'PASS',
     ]);
@@ -186,7 +204,7 @@ it('shows each instrument type with the latest calibration standing', function (
             'Calibration Due',
             'Calibration Status',
         ])
-        ->assertSeeInOrder(['This month', '3', 'Pass / Fail', '3', '1', 'No certificate', '3'])
+        ->assertSeeInOrder(['This month', '4', 'Pass / Fail', '3', '2', 'No certificate', '3'])
         ->assertSeeInOrder(['Sodiline', 'Sodim', 'Weight', 'PDV - PD', 'WEIGHT-001', 'ASSET-9', '2026-10-01', '2026-12-12', 'On Track'])
         ->assertSeeInOrder(['Sodiline', 'Diameter', '2026-10-01', '2026-12-12', 'On Track'])
         ->assertSeeInOrder(['Due Today', '2026-10-12', '2026-10-12', 'Due Soon'])
@@ -211,6 +229,7 @@ it('opens the latest calibration that covers each instrument type', function () 
     insertCalibrationIndexRecord([
         'calibration_id' => 1,
         'instrument_id' => 3,
+        'instrument_type_id' => 1,
         'calibration_date' => '2026-08-01',
         'calibration_due' => '2026-09-01',
         'calibration_result' => 'PASS',
@@ -218,6 +237,7 @@ it('opens the latest calibration that covers each instrument type', function () 
     insertCalibrationIndexRecord([
         'calibration_id' => 2,
         'instrument_id' => 3,
+        'instrument_type_id' => 1,
         'calibration_date' => '2026-10-01',
         'calibration_due' => '2026-12-12',
         'calibration_result' => 'PASS',
@@ -226,6 +246,7 @@ it('opens the latest calibration that covers each instrument type', function () 
     insertCalibrationIndexRecord([
         'calibration_id' => 3,
         'instrument_id' => 3,
+        'instrument_type_id' => 2,
         'calibration_date' => '2026-09-15',
         'calibration_due' => '2026-10-11',
         'calibration_result' => 'FAIL',
@@ -266,6 +287,7 @@ it('keeps the calibration totals when the type list moves to the next page', fun
     insertCalibrationIndexRecord([
         'calibration_id' => 11,
         'instrument_id' => 11,
+        'instrument_type_id' => 11,
         'calibration_date' => '2026-10-03',
         'calibration_due' => '2026-12-12',
         'calibration_result' => 'PASS',
@@ -311,6 +333,7 @@ it('filters calibration rows by name brand type or model without changing the to
     insertCalibrationIndexRecord([
         'calibration_id' => 1,
         'instrument_id' => 2,
+        'instrument_type_id' => 3,
         'calibration_date' => '2026-10-12',
         'calibration_due' => '2026-12-12',
         'calibration_result' => 'PASS',
@@ -370,4 +393,50 @@ it('shows zero totals when no instruments exist', function () {
     $response
         ->assertSeeInOrder(['This month', '0', 'Pass / Fail', '0', '0', 'No certificate', '0'])
         ->assertSee('No instruments found.');
+});
+
+it('ignores in-progress and cancelled sessions in standing and summary cards', function () {
+    createCalibrationIndexTables();
+    $this->travelTo('2026-10-12');
+
+    insertCalibrationIndexInstrument(['instrument_id' => 3, 'instrument_name' => 'Sodiline']);
+    insertCalibrationIndexType(['instrument_type_id' => 1, 'instrument_id' => 3, 'type_name' => 'Weight']);
+    insertCalibrationIndexRecord([
+        'calibration_id' => 1,
+        'instrument_id' => 3,
+        'instrument_type_id' => 1,
+        'calibration_date' => '2026-09-01',
+        'calibration_due' => '2026-12-12',
+        'calibration_result' => 'PASS',
+        'certificate_number' => 'CERT-DONE',
+        'session_status' => 'completed',
+    ]);
+    insertCalibrationIndexRecord([
+        'calibration_id' => 2,
+        'instrument_id' => 3,
+        'instrument_type_id' => 1,
+        'calibration_date' => '2026-10-12',
+        'calibration_due' => '2026-10-12',
+        'calibration_result' => 'FAIL',
+        'session_status' => 'in_progress',
+    ]);
+    insertCalibrationIndexRecord([
+        'calibration_id' => 3,
+        'instrument_id' => 3,
+        'instrument_type_id' => 1,
+        'calibration_date' => '2026-10-11',
+        'calibration_due' => '2026-10-11',
+        'session_status' => 'cancelled',
+    ]);
+
+    $response = $this->get(route('calibrations.index'));
+
+    $response
+        ->assertSeeInOrder(['This month', '0', 'Pass / Fail', '1', '0', 'No certificate', '0'])
+        ->assertSeeInOrder(['Sodiline', 'Weight', '2026-09-01', '2026-12-12', 'On Track'])
+        ->assertDontSee('2026-10-12')
+        ->assertDontSee('2026-10-11')
+        ->assertSee('href="'.route('calibrations.show', 1).'"', false)
+        ->assertDontSee('href="'.route('calibrations.show', 2).'"', false)
+        ->assertDontSee('href="'.route('calibrations.show', 3).'"', false);
 });

@@ -39,14 +39,16 @@ new class extends Component
     {
         return [
             'month' => Calibration::query()
+                ->completed()
                 ->whereBetween('calibration_date', [
                     today()->startOfMonth()->toDateString(),
                     today()->endOfMonth()->toDateString(),
                 ])
                 ->count(),
-            'pass' => Calibration::query()->where('calibration_result', 'PASS')->count(),
-            'fail' => Calibration::query()->where('calibration_result', 'FAIL')->count(),
+            'pass' => Calibration::query()->completed()->where('calibration_result', 'PASS')->count(),
+            'fail' => Calibration::query()->completed()->where('calibration_result', 'FAIL')->count(),
             'missingCertificate' => Calibration::query()
+                ->completed()
                 ->where(function (Builder $query): void {
                     $query->whereNull('certificate_number')
                         ->orWhereRaw("trim(certificate_number) = ''");
@@ -119,17 +121,17 @@ new class extends Component
         $latest = [];
 
         Calibration::query()
+            ->completed()
             ->select([
                 'calibration.calibration_id',
                 'calibration.instrument_id',
+                'calibration.instrument_type_id',
                 'calibration.calibration_date',
                 'calibration.calibration_due',
-                'calibration_scope.instrument_type_id',
             ])
-            ->join('calibration_scope', 'calibration_scope.calibration_id', '=', 'calibration.calibration_id')
-            ->whereIn('calibration_scope.instrument_type_id', $typeIds)
+            ->whereIn('calibration.instrument_type_id', $typeIds)
             ->get()
-            ->groupBy(fn (Calibration $calibration): int => (int) $calibration->getAttribute('instrument_type_id'))
+            ->groupBy(fn (Calibration $calibration): int => (int) $calibration->instrument_type_id)
             ->each(function (Collection $calibrations, int|string $typeId) use (&$latest): void {
                 $calibration = $calibrations
                     ->sortByDesc(fn (Calibration $calibration): array => [
