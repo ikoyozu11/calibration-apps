@@ -2,6 +2,7 @@
     $items = [
         ['label' => 'Home', 'href' => route('home'), 'active' => request()->routeIs('home'), 'icon' => 'home'],
         ['label' => 'Instruments', 'href' => route('instruments.index'), 'active' => request()->routeIs('instruments.*'), 'icon' => 'instrument'],
+        ['label' => 'Standards', 'href' => route('standards.index'), 'active' => request()->routeIs('standards.*'), 'icon' => 'standard'],
         ['label' => 'Calibrations', 'href' => route('calibrations.index'), 'active' => request()->routeIs('calibrations.*'), 'icon' => 'calibration'],
     ];
 @endphp
@@ -24,6 +25,10 @@
             @elseif ($item['icon'] === 'instrument')
                 <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M8 3h8v4H8V3Zm0 4h8l1 14H7L8 7Z" />
+                </svg>
+            @elseif ($item['icon'] === 'standard')
+                <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h10M4 18h7M16 14l2 2 4-4" />
                 </svg>
             @else
                 <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">

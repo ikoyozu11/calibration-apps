@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Carbon;
 
 /**
@@ -20,6 +21,7 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, Calibration> $calibrations
  * @property-read DetailLocation|null $detailLocation
  * @property-read Collection<int, InstrumentType> $instrumentTypes
+ * @property-read Collection<int, InstrumentTypeStandardAssignment> $standardAssignments
  */
 class Instrument extends Model
 {
@@ -45,6 +47,12 @@ class Instrument extends Model
     public function instrumentTypes(): HasMany
     {
         return $this->hasMany(InstrumentType::class, 'instrument_id', 'instrument_id');
+    }
+
+    /** @return HasMany<InstrumentTypeStandardAssignment, $this> */
+    public function standardAssignments(): HasMany
+    {
+        return $this->hasMany(InstrumentTypeStandardAssignment::class, 'standard_instrument_id', 'instrument_id');
     }
 
     /**
@@ -82,6 +90,41 @@ class Instrument extends Model
                     $query->orWhereRaw($sql, [$pattern]);
                 }
             }
+        });
+    }
+
+    /**
+     * Limit a standard-candidate query to a name, serial, type, or asset number.
+     *
+     * @param  Builder<Instrument>  $query
+     */
+    #[Scope]
+    protected function whereStandardCandidateMatches(Builder $query, string $search): void
+    {
+        $needle = mb_substr(trim($search), 0, 100);
+
+        if ($needle === '') {
+            return;
+        }
+
+        $like = $query->getConnection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+        $pattern = '%'.addcslashes($needle, '\\%_').'%';
+
+        $query->where(function (Builder $query) use ($like, $pattern): void {
+            $query
+                ->whereRaw("instrument.instrument_name {$like} ? escape '\\'", [$pattern])
+                ->orWhereRaw("coalesce(instrument.serial_number, '') {$like} ? escape '\\'", [$pattern])
+                ->orWhereExists(function (QueryBuilder $subquery) use ($like, $pattern): void {
+                    $subquery
+                        ->selectRaw('1')
+                        ->from('instrument_type')
+                        ->whereColumn('instrument_type.instrument_id', 'instrument.instrument_id')
+                        ->where(function (QueryBuilder $typeQuery) use ($like, $pattern): void {
+                            $typeQuery
+                                ->whereRaw("instrument_type.type_name {$like} ? escape '\\'", [$pattern])
+                                ->orWhereRaw("coalesce(instrument_type.asset_number, '') {$like} ? escape '\\'", [$pattern]);
+                        });
+                });
         });
     }
 }

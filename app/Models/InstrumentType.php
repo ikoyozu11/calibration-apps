@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
@@ -20,6 +21,10 @@ use Illuminate\Support\Carbon;
  * @property string|null $resolution_unit
  * @property string|null $brand
  * @property string|null $model
+ * @property int|null $calibration_interval_months
+ * @property-read Collection<int, Calibration> $calibrations
+ * @property-read Instrument $instrument
+ * @property-read Collection<int, InstrumentTypeStandardAssignment> $standardAssignments
  * @property-read Collection<int, TestProfile> $testProfiles
  */
 class InstrumentType extends Model
@@ -29,6 +34,26 @@ class InstrumentType extends Model
     protected $table = 'instrument_type';
 
     protected $primaryKey = 'instrument_type_id';
+
+    /** @return BelongsTo<Instrument, $this> */
+    public function instrument(): BelongsTo
+    {
+        return $this->belongsTo(Instrument::class, 'instrument_id', 'instrument_id');
+    }
+
+    /** @return HasMany<Calibration, $this> */
+    public function calibrations(): HasMany
+    {
+        return $this->hasMany(Calibration::class, 'instrument_type_id', 'instrument_type_id');
+    }
+
+    /** @return HasMany<InstrumentTypeStandardAssignment, $this> */
+    public function standardAssignments(): HasMany
+    {
+        return $this->hasMany(InstrumentTypeStandardAssignment::class, 'instrument_type_id', 'instrument_type_id')
+            ->orderBy('assignment_order')
+            ->orderBy('instrument_type_standard_assignment_id');
+    }
 
     /** @return HasMany<TestProfile, $this> */
     public function testProfiles(): HasMany

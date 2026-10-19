@@ -4,7 +4,12 @@ use App\Livewire\Concerns\DisplaysTestComponents;
 use App\Models\Calibration;
 use App\Models\Instrument;
 use App\Models\InstrumentType;
+use App\Models\InstrumentTypeStandardAssignment;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\Schema;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
@@ -39,11 +44,13 @@ new class extends Component
         ]);
         $this->instrumentType = $instrumentType;
         $this->loadTestProfiles();
+        $this->loadStandardAssignments();
     }
 
     public function hydrate(): void
     {
         $this->loadTestProfiles();
+        $this->loadStandardAssignments();
     }
 
     /**
@@ -53,6 +60,7 @@ new class extends Component
     public function rendering(mixed $view = null, mixed $data = null): void
     {
         $this->loadTestProfiles();
+        $this->loadStandardAssignments();
     }
 
     /**
@@ -83,6 +91,7 @@ new class extends Component
     public function history(): LengthAwarePaginator
     {
         return $this->instrument->calibrations()
+            ->completed()
             ->select([
                 'calibration_id',
                 'instrument_id',
@@ -114,6 +123,76 @@ new class extends Component
         }
 
         return 'On Track';
+    }
+
+    /**
+     * @return Collection<int, InstrumentTypeStandardAssignment>
+     */
+    public function assignedStandards(): Collection
+    {
+        if ($this->instrumentType === null) {
+            return new Collection;
+        }
+
+        return $this->instrumentType->relationLoaded('standardAssignments')
+            ? $this->instrumentType->standardAssignments
+            : new Collection;
+    }
+
+    /**
+     * @return array{type: string, asset: string}
+     */
+    public function standardMeta(Instrument $instrument): array
+    {
+        $type = $instrument->instrumentTypes->sortBy('instrument_type_id')->first();
+
+        return [
+            'type' => filled($type?->type_name) ? (string) $type->type_name : '—',
+            'asset' => filled($type?->asset_number) ? (string) $type->asset_number : '—',
+        ];
+    }
+
+    public function defaultDisplay(?string $range, ?string $unit): string
+    {
+        $parts = array_values(array_filter([
+            filled($range) ? $range : null,
+            filled($unit) ? $unit : null,
+        ], fn (?string $part): bool => $part !== null));
+
+        return $parts === [] ? '—' : implode(' ', $parts);
+    }
+
+    private function loadStandardAssignments(): void
+    {
+        if ($this->instrumentType === null || ! Schema::hasTable('instrument_type_standard_assignment')) {
+            return;
+        }
+
+        $this->instrumentType->load([
+            'standardAssignments' => function (HasMany $query): void {
+                $query
+                    ->select([
+                        'instrument_type_standard_assignment_id',
+                        'instrument_type_id',
+                        'standard_id',
+                        'standard_instrument_id',
+                        'assignment_order',
+                        'default_range',
+                        'default_unit',
+                    ])
+                    ->orderBy('assignment_order')
+                    ->orderBy('instrument_type_standard_assignment_id');
+            },
+            'standardAssignments.standard' => function (BelongsTo $query): void {
+                $query->select([
+                    'standard_id',
+                    'standard_code',
+                    'instrument_name',
+                    'type_specification',
+                    'serial_number',
+                ]);
+            },
+        ]);
     }
 
     private function display(mixed $value): string
@@ -255,6 +334,44 @@ new class extends Component
                             @endif
                         </div>
                     @endforeach
+                </div>
+            @endif
+        </section>
+
+        <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="standards-used-heading">
+            <div class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <h2 id="standards-used-heading" class="text-base font-semibold tracking-tight text-navy">Standard(s) Used</h2>
+                @if ($instrumentType !== null)
+                    <a href="{{ route('instruments.types.standards', [$instrument, $instrumentType]) }}" class="ui-button-outline">
+                        Manage Standards
+                    </a>
+                @endif
+            </div>
+
+            @if ($this->assignedStandards()->isEmpty())
+                <p class="px-5 py-8 text-sm text-navy/70">No standards assigned.</p>
+            @else
+                <div class="overflow-x-auto">
+                    <table class="ui-table">
+                        <thead class="bg-navy text-xs font-medium text-white">
+                            <tr>
+                                <th scope="col" class="px-5 py-3 font-medium">No.</th>
+                                <th scope="col" class="px-5 py-3 font-medium">Instrument Name</th>
+                                <th scope="col" class="px-5 py-3 font-medium">Type / Specification</th>
+                                <th scope="col" class="px-5 py-3 font-medium">Serial Number</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-white/70">
+                            @foreach ($this->assignedStandards() as $assignment)
+                                <tr wire:key="detail-standard-{{ $assignment->instrument_type_standard_assignment_id }}" class="odd:bg-[#d6e4f0] even:bg-[#c5d8ec]">
+                                    <td class="px-5 py-3.5 tabular-nums text-navy">{{ $assignment->assignment_order }}</td>
+                                    <td class="px-5 py-3.5 font-medium text-navy">{{ filled($assignment->instrumentName()) ? $assignment->instrumentName() : '—' }}</td>
+                                    <td class="px-5 py-3.5 text-navy">{{ filled($assignment->typeSpecification()) ? $assignment->typeSpecification() : '—' }}</td>
+                                    <td class="px-5 py-3.5 text-navy">{{ filled($assignment->serialNumber()) ? $assignment->serialNumber() : '—' }}</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
                 </div>
             @endif
         </section>

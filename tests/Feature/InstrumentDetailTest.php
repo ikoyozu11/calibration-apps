@@ -333,6 +333,99 @@ it('shows five calibration history rows and continues on the next page', functio
         ->assertDontSee('History 6');
 });
 
+it('omits in-progress and cancelled sessions from calibration history', function () {
+    createInstrumentDetailTestTables();
+
+    DB::table('instrument')->insert([
+        'instrument_id' => 3,
+        'instrument_name' => 'Sodiline',
+        'detail_location_id' => null,
+        'description' => null,
+        'created_at' => '2026-10-07 09:17:33',
+    ]);
+    DB::table('instrument_type')->insert([
+        'instrument_type_id' => 31,
+        'instrument_id' => 3,
+        'type_name' => 'Weight',
+        'description' => null,
+        'created_at' => '2026-10-07 09:17:33',
+        'asset_number' => null,
+        'serial_number' => null,
+        'max_capacity' => null,
+        'max_capacity_unit' => null,
+        'resolution' => null,
+        'resolution_unit' => null,
+        'brand' => null,
+        'model' => null,
+    ]);
+    DB::table('calibration')->insert([
+        [
+            'calibration_id' => 301,
+            'instrument_id' => 3,
+            'instrument_type_id' => 31,
+            'calibration_provider_id' => 1,
+            'calibration_number' => 'CAL-DONE',
+            'calibration_date' => '2026-06-01',
+            'calibration_due' => '2027-06-01',
+            'calibration_method' => 'EXTERNAL',
+            'calibration_result' => 'PASS',
+            'certificate_number' => null,
+            'remarks' => 'Finished work',
+            'session_status' => 'completed',
+            'created_at' => '2026-06-01 09:00:00',
+            'updated_at' => '2026-06-01 09:00:00',
+            'action_date' => null,
+            'resume' => null,
+            'customer_id' => null,
+        ],
+        [
+            'calibration_id' => 302,
+            'instrument_id' => 3,
+            'instrument_type_id' => 31,
+            'calibration_provider_id' => 1,
+            'calibration_number' => 'CAL-OPEN',
+            'calibration_date' => '2026-10-01',
+            'calibration_due' => '2027-10-01',
+            'calibration_method' => 'EXTERNAL',
+            'calibration_result' => null,
+            'certificate_number' => null,
+            'remarks' => 'Open session',
+            'session_status' => 'in_progress',
+            'created_at' => '2026-10-01 09:00:00',
+            'updated_at' => '2026-10-01 09:00:00',
+            'action_date' => null,
+            'resume' => null,
+            'customer_id' => null,
+        ],
+        [
+            'calibration_id' => 303,
+            'instrument_id' => 3,
+            'instrument_type_id' => 31,
+            'calibration_provider_id' => 1,
+            'calibration_number' => 'CAL-STOP',
+            'calibration_date' => '2026-09-01',
+            'calibration_due' => '2027-09-01',
+            'calibration_method' => 'EXTERNAL',
+            'calibration_result' => null,
+            'certificate_number' => null,
+            'remarks' => 'Cancelled work',
+            'session_status' => 'cancelled',
+            'created_at' => '2026-09-01 09:00:00',
+            'updated_at' => '2026-09-01 09:00:00',
+            'action_date' => null,
+            'resume' => null,
+            'customer_id' => null,
+        ],
+    ]);
+
+    $response = $this->get(route('instruments.types.show', ['instrument' => 3, 'instrumentType' => 31]));
+
+    $response
+        ->assertSee('Finished work')
+        ->assertDontSee('Open session')
+        ->assertDontSee('Cancelled work');
+});
+
 it('returns not found when the type belongs to another instrument', function () {
     createInstrumentDetailTestTables();
 
@@ -617,6 +710,9 @@ it('shows an empty test component state without a profile', function () {
         ->assertDontSee('Weight measurement')
         ->assertSee('No test components found.')
         ->assertSee('Manage Test Components')
+        ->assertSee('Standard(s) Used')
+        ->assertSee('No standards assigned.')
+        ->assertSee('Manage Standards')
         ->assertSee('No calibration history found.')
         ->assertDontSee('Standards Used')
         ->assertDontSee('Add Test Table');
