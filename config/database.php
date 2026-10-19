@@ -20,6 +20,12 @@ return [
     'default' => env('DB_CONNECTION', 'sqlite'),
 
     /*
+    | Enable the read-only /__staging-preflight HTTP route for a local server
+    | process. Leave false in .env so production never exposes it.
+    */
+    'staging_preflight_http' => filter_var(env('STAGING_PREFLIGHT_HTTP', false), FILTER_VALIDATE_BOOL),
+
+    /*
     |--------------------------------------------------------------------------
     | Database Connections
     |--------------------------------------------------------------------------
