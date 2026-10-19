@@ -52,6 +52,10 @@ class TestTableVersioning
 
     public function canMutate(TestProfile $profile): bool
     {
+        if ($profile->isArchived()) {
+            return false;
+        }
+
         if (! $this->enabled()) {
             return true;
         }
@@ -61,6 +65,17 @@ class TestTableVersioning
         }
 
         return ! $this->hasVersions($profile);
+    }
+
+    public function hasRetired(TestProfile $profile): bool
+    {
+        if (! $this->enabled()) {
+            return false;
+        }
+
+        return $this->versions($profile)->contains(
+            fn (TestProfileVersion $version): bool => $version->status === TestProfileVersion::STATUS_RETIRED,
+        );
     }
 
     public function showsUnpublishedNotice(TestProfile $profile): bool
@@ -79,6 +94,10 @@ class TestTableVersioning
         }
 
         $label = ucfirst($version->status).' · v'.$version->version_number;
+
+        if ($profile->isArchived()) {
+            return $label.' · archived';
+        }
 
         if ($purpose === self::PURPOSE_MANAGE && ! $this->canMutate($profile)) {
             return $label.' · read-only';

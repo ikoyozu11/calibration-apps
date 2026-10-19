@@ -105,6 +105,10 @@ class TestTableVersionGuard
             throw new TestTableVersionWriteException('This test table could not be found.');
         }
 
+        if ($profile->isArchived()) {
+            throw new TestTableVersionWriteException('Archived test tables cannot be changed.');
+        }
+
         return $profile;
     }
 }

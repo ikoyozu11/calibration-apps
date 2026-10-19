@@ -114,11 +114,12 @@ new class extends Component
                     <p class="ui-alert mx-5 mb-4" role="status">{{ $testTableStatus }}</p>
                 @endif
 
-                @if ($instrumentType->testProfiles->isEmpty())
+                @if ($this->activeTestProfiles()->isEmpty() && $this->archivedTestProfiles()->isEmpty())
                     <p class="px-5 py-8 text-sm text-navy/70">No test tables yet.</p>
             @else
+                    @if ($this->activeTestProfiles()->isNotEmpty())
                     <ul class="flex flex-col gap-1 px-3 pb-5">
-                        @foreach ($instrumentType->testProfiles as $sidebarProfile)
+                        @foreach ($this->activeTestProfiles() as $sidebarProfile)
                             <li wire:key="sidebar-profile-{{ $sidebarProfile->test_profile_id }}">
                                 <button
                                     type="button"
@@ -129,20 +130,47 @@ new class extends Component
                                         'text-navy/80 hover:bg-white/70' => (int) $selectedProfileId !== (int) $sidebarProfile->test_profile_id,
                                     ])
                                 >
-                                    <span class="text-sm font-semibold">{{ $sidebarProfile->profile_name }}</span>
+                                    <span class="text-sm font-semibold">{{ $this->testTableProfileName($sidebarProfile) }}</span>
                                     <span class="mt-1 text-xs text-muted">
                                         {{ $sidebarProfile->testColumns->count() }} columns · {{ $sidebarProfile->testPoints->count() }} rows
                                     </span>
                                     @if ($this->testTableVersionCaption($sidebarProfile) !== null)
                                         <span class="mt-1 text-xs text-muted">{{ $this->testTableVersionCaption($sidebarProfile) }}</span>
                                     @endif
-                                    @if (filled($sidebarProfile->display_title))
-                                        <span class="mt-1 text-xs text-muted">{{ $sidebarProfile->display_title }}</span>
+                                    @if (filled($this->testTableDisplayTitle($sidebarProfile)))
+                                        <span class="mt-1 text-xs text-muted">{{ $this->testTableDisplayTitle($sidebarProfile) }}</span>
                                 @endif
                                 </button>
                             </li>
                         @endforeach
                     </ul>
+                    @endif
+                    @if ($this->archivedTestProfiles()->isNotEmpty())
+                        <div class="border-t border-white/70 px-5 pt-4 pb-5">
+                            <h3 class="text-sm font-semibold tracking-tight text-navy">Archived Test Tables</h3>
+                            <ul class="mt-3 flex flex-col gap-1">
+                                @foreach ($this->archivedTestProfiles() as $sidebarProfile)
+                                    <li wire:key="sidebar-archived-profile-{{ $sidebarProfile->test_profile_id }}">
+                                        <button
+                                            type="button"
+                                            wire:click="selectProfile({{ $sidebarProfile->test_profile_id }})"
+                                            @class([
+                                                'flex w-full flex-col rounded-xl px-3 py-3 text-left transition',
+                                                'bg-white text-navy shadow-sm' => (int) $selectedProfileId === (int) $sidebarProfile->test_profile_id,
+                                                'text-navy/80 hover:bg-white/70' => (int) $selectedProfileId !== (int) $sidebarProfile->test_profile_id,
+                                            ])
+                                        >
+                                            <span class="text-sm font-semibold">{{ $this->testTableProfileName($sidebarProfile) }}</span>
+                                            <span class="mt-1 text-xs text-muted">Archived</span>
+                                            @if ($this->testTableVersionCaption($sidebarProfile) !== null)
+                                                <span class="mt-1 text-xs text-muted">{{ $this->testTableVersionCaption($sidebarProfile) }}</span>
+                                            @endif
+                                        </button>
+                                    </li>
+                                @endforeach
+                            </ul>
+                        </div>
+                    @endif
                 @endif
             </aside>
 
@@ -154,22 +182,76 @@ new class extends Component
                 @else
                     <div class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                         <div>
-                            <h3 class="text-base font-semibold tracking-tight text-navy">{{ $profile->profile_name }}</h3>
-                            @if (filled($profile->display_title))
-                                <p class="mt-1 text-sm text-muted">{{ $profile->display_title }}</p>
+                            <h3 class="text-base font-semibold tracking-tight text-navy">{{ $this->testTableProfileName($profile) }}</h3>
+                            @if (filled($this->testTableDisplayTitle($profile)))
+                                <p class="mt-1 text-sm text-muted">{{ $this->testTableDisplayTitle($profile) }}</p>
                             @endif
                             @if ($this->testTableVersionCaption($profile) !== null)
                                 <p class="mt-1 text-sm text-muted">{{ $this->testTableVersionCaption($profile) }}</p>
                             @endif
-                            @unless ($this->canEditTestTable($profile))
+                            @if ($profile->isArchived())
+                                <p class="mt-1 text-sm text-muted">This test table is archived and read-only.</p>
+                            @elseif (! $this->canEditTestTable($profile))
                                 <p class="mt-1 text-sm text-muted">This published test table is read-only.</p>
-                            @endunless
+                            @endif
                             @error('testTable')
                                 <p class="ui-error mt-1">{{ $message }}</p>
                             @enderror
                         </div>
-                        @if ($this->canPublishTestTable($profile) || $this->canForkTestTable($profile) || $this->canEditTestTable($profile))
+                        @if ($this->canPublishTestTable($profile) || $this->canForkTestTable($profile) || $this->canEditTestTable($profile) || $this->canPermanentlyDeleteTestTable($profile) || $this->canArchiveTestTable($profile) || $this->canRestoreTestTable($profile))
                         <div class="flex flex-wrap gap-2">
+                                    @if ((int) $editingProfileId === (int) $profile->test_profile_id)
+                                        <form wire:submit="saveEditedTestTable({{ $profile->test_profile_id }})" class="flex flex-col gap-3">
+                                            <div>
+                                                <label for="edit-profile-name" class="ui-label">Profile name</label>
+                                                <input id="edit-profile-name" type="text" wire:model="profileName" maxlength="150" required class="ui-input">
+                                                @error('profileName')
+                                                    <p class="ui-error">{{ $message }}</p>
+                                                @enderror
+                                            </div>
+                                            <div>
+                                                <label for="edit-display-title" class="ui-label">
+                                                    Table title
+                                                    @if ($this->activeTestProfiles()->count() < 2)
+                                                        <span class="font-normal text-muted">(optional)</span>
+                                                    @endif
+                                                </label>
+                                                <input id="edit-display-title" type="text" wire:model="displayTitle" maxlength="255" @if ($this->activeTestProfiles()->count() > 1) required @endif class="ui-input">
+                                                @error('displayTitle')
+                                                    <p class="ui-error">{{ $message }}</p>
+                                                @enderror
+                                            </div>
+                                            <div class="flex flex-wrap gap-2">
+                                                <button type="submit" class="ui-button-primary" wire:loading.attr="disabled" wire:target="saveEditedTestTable">Save</button>
+                                                <button type="button" wire:click="cancelEditingTestTable" class="ui-button-secondary">Cancel</button>
+                                            </div>
+                                        </form>
+                                    @elseif ((int) $deletingProfileId === (int) $profile->test_profile_id)
+                                        <div class="flex flex-col gap-2">
+                                            <p class="text-sm text-navy">Delete {{ $this->testTableProfileName($profile) }}? This cannot be undone.</p>
+                                            <div class="flex flex-wrap gap-2">
+                                                <button type="button" wire:click="deleteTestTable({{ $profile->test_profile_id }})" class="ui-button-danger" wire:loading.attr="disabled" wire:target="deleteTestTable">Delete Table</button>
+                                                <button type="button" wire:click="cancelDeletingTestTable" class="ui-button-secondary">Cancel</button>
+                                            </div>
+                                        </div>
+                                    @elseif ((int) $archivingProfileId === (int) $profile->test_profile_id)
+                                        <div class="flex flex-col gap-2">
+                                            <p class="text-sm text-navy">Archive {{ $this->testTableProfileName($profile) }}? Historical calibrations stay unchanged.</p>
+                                            <div class="flex flex-wrap gap-2">
+                                                <button type="button" wire:click="archiveTestTable({{ $profile->test_profile_id }})" class="ui-button-primary" wire:loading.attr="disabled" wire:target="archiveTestTable">Archive Table</button>
+                                                <button type="button" wire:click="cancelArchivingTestTable" class="ui-button-secondary">Cancel</button>
+                                            </div>
+                                        </div>
+                                    @elseif ((int) $restoringProfileId === (int) $profile->test_profile_id)
+                                        <div class="flex flex-col gap-2">
+                                            <p class="text-sm font-semibold text-navy">Restore Test Table?</p>
+                                            <p class="text-sm text-navy">Restore "{{ $this->testTableProfileName($profile) }}" to Test Tables? Its existing versions, columns, rows, and formulas will be preserved.</p>
+                                            <div class="flex flex-wrap gap-2">
+                                                <button type="button" wire:click="restoreTestTable({{ $profile->test_profile_id }})" class="ui-button-primary" wire:loading.attr="disabled" wire:target="restoreTestTable">Restore Table</button>
+                                                <button type="button" wire:click="cancelRestoringTestTable" class="ui-button-secondary">Cancel</button>
+                                            </div>
+                                        </div>
+                                    @else
                                     @if ($this->canPublishTestTable($profile))
                                         @if ((int) $publishingProfileId === (int) $profile->test_profile_id)
                                             <div class="flex flex-col gap-2">
@@ -190,6 +272,11 @@ new class extends Component
                                             Fork Draft
                                         </button>
                                     @endif
+                                    @if ($this->canRenameTestTable($profile))
+                                        <button type="button" wire:click="startEditingTestTable({{ $profile->test_profile_id }})" class="ui-button-outline">
+                                            Edit Table
+                                        </button>
+                                    @endif
                                     @if ($this->canEditTestTable($profile))
                                     <button type="button" wire:click="startManagingColumns({{ $profile->test_profile_id }})" class="ui-button-outline">
                                         Manage Columns
@@ -197,6 +284,21 @@ new class extends Component
                                     @if ($profile->testColumns->isNotEmpty())
                                         <button type="button" wire:click="startAddingRow({{ $profile->test_profile_id }})" class="ui-button-outline">
                                             Add Row
+                                        </button>
+                                    @endif
+                                    @endif
+                                    @if ($this->canPermanentlyDeleteTestTable($profile))
+                                        <button type="button" wire:click="askToDeleteTestTable({{ $profile->test_profile_id }})" class="ui-button-danger">
+                                            Delete Table
+                                        </button>
+                                    @elseif ($this->canArchiveTestTable($profile))
+                                        <button type="button" wire:click="askToArchiveTestTable({{ $profile->test_profile_id }})" class="ui-button-outline">
+                                            Archive Table
+                                        </button>
+                                    @endif
+                                    @if ($this->canRestoreTestTable($profile))
+                                        <button type="button" wire:click="askToRestoreTestTable({{ $profile->test_profile_id }})" class="ui-button-outline">
+                                            Restore Table
                                         </button>
                                     @endif
                                     @endif

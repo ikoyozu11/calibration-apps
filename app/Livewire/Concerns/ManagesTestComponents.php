@@ -7,6 +7,7 @@ use App\Models\TestColumn;
 use App\Models\TestPoint;
 use App\Models\TestPointValue;
 use App\Models\TestProfile;
+use App\Models\TestProfileVersion;
 use App\TestColumns\ColumnDefinition;
 use App\TestColumns\ColumnFormula;
 use App\TestColumns\ColumnKey;
@@ -16,6 +17,8 @@ use App\TestColumns\TestColumnWriter;
 use App\TestColumns\TestPointValueConstraintMessage;
 use App\TestColumns\TestPointValueWriteException;
 use App\TestColumns\TestPointValueWriter;
+use App\TestColumns\TestProfileLifecycle;
+use App\TestColumns\TestProfileLifecycleException;
 use App\TestColumns\TestTableVersioning;
 use App\TestColumns\TestTableVersionWriteException;
 use App\TestColumns\TestTableVersionWriter;
@@ -90,6 +93,14 @@ trait ManagesTestComponents
 
     public ?int $publishingProfileId = null;
 
+    public ?int $editingProfileId = null;
+
+    public ?int $deletingProfileId = null;
+
+    public ?int $archivingProfileId = null;
+
+    public ?int $restoringProfileId = null;
+
     public function selectProfile(int $profileId): void
     {
         $this->profileForColumns($profileId);
@@ -104,6 +115,10 @@ trait ManagesTestComponents
         $this->rowStatus = null;
         $this->rowStatusProfileId = null;
         $this->publishingProfileId = null;
+        $this->editingProfileId = null;
+        $this->deletingProfileId = null;
+        $this->archivingProfileId = null;
+        $this->restoringProfileId = null;
         $this->selectedProfileId = $profileId;
     }
 
@@ -122,11 +137,16 @@ trait ManagesTestComponents
         $this->rowStatus = null;
         $this->rowStatusProfileId = null;
         $this->publishingProfileId = null;
+        $this->editingProfileId = null;
+        $this->deletingProfileId = null;
+        $this->archivingProfileId = null;
+        $this->restoringProfileId = null;
         $this->reset('profileName', 'displayTitle', 'existingDisplayTitle');
         $this->reloadManagedProfiles();
 
-        $onlyProfile = $this->instrumentType->testProfiles->count() === 1
-            ? $this->instrumentType->testProfiles->first()
+        $activeProfiles = $this->activeTestProfiles();
+        $onlyProfile = $activeProfiles->count() === 1
+            ? $activeProfiles->first()
             : null;
         $this->existingDisplayTitle = trim((string) ($onlyProfile?->display_title ?? ''));
         $this->addingTestTable = true;
@@ -154,6 +174,10 @@ trait ManagesTestComponents
                     ->orderBy('test_profile_id')
                     ->lockForUpdate()
                     ->get();
+                $existing->load('versions');
+                $activeProfiles = $existing
+                    ->reject(fn (TestProfile $profile): bool => $profile->isArchived())
+                    ->values();
 
                 $validated = validator([
                     'profileName' => $this->profileName,
@@ -161,8 +185,8 @@ trait ManagesTestComponents
                     'existingDisplayTitle' => $this->existingDisplayTitle,
                 ], [
                     'profileName' => ['required', 'string', 'max:150'],
-                    'displayTitle' => [$existing->isNotEmpty() ? 'required' : 'nullable', 'string', 'max:255'],
-                    'existingDisplayTitle' => [$existing->count() === 1 ? 'required' : 'nullable', 'string', 'max:255'],
+                    'displayTitle' => [$activeProfiles->isNotEmpty() ? 'required' : 'nullable', 'string', 'max:255'],
+                    'existingDisplayTitle' => [$activeProfiles->count() === 1 ? 'required' : 'nullable', 'string', 'max:255'],
                 ], [
                     'profileName.required' => 'Enter a profile name.',
                     'profileName.max' => 'The profile name must be 150 characters or fewer.',
@@ -188,7 +212,7 @@ trait ManagesTestComponents
 
                 $newTitle = $this->blankToNull($validated['displayTitle'] ?? null);
 
-                if ($existing->count() === 1) {
+                if ($activeProfiles->count() === 1) {
                     $firstTitle = $this->blankToNull($validated['existingDisplayTitle'] ?? null);
 
                     if ($firstTitle === null) {
@@ -209,9 +233,9 @@ trait ManagesTestComponents
                         ]);
                     }
 
-                    $existing->first()->update(['display_title' => $firstTitle]);
-                } elseif ($existing->isNotEmpty() && $newTitle !== null) {
-                    $duplicate = $existing->contains(function (TestProfile $profile) use ($newTitle): bool {
+                    $activeProfiles->first()->update(['display_title' => $firstTitle]);
+                } elseif ($activeProfiles->isNotEmpty() && $newTitle !== null) {
+                    $duplicate = $activeProfiles->contains(function (TestProfile $profile) use ($newTitle): bool {
                         return filled($profile->display_title) && $this->titlesMatch((string) $profile->display_title, $newTitle);
                     });
 
@@ -250,19 +274,21 @@ trait ManagesTestComponents
 
     public function tableTitleRequired(): bool
     {
-        return ($this->instrumentType?->testProfiles->count() ?? 0) > 0;
+        return $this->activeTestProfiles()->isNotEmpty();
     }
 
     public function needsExistingTableTitle(): bool
     {
-        return $this->instrumentType?->testProfiles->count() === 1;
+        return $this->activeTestProfiles()->count() === 1;
     }
 
     public function canPublishTestTable(TestProfile $profile): bool
     {
         $versioning = app(TestTableVersioning::class);
 
-        return $versioning->enabled() && $versioning->draft($profile) !== null;
+        return $versioning->enabled()
+            && ! $profile->isArchived()
+            && $versioning->draft($profile) !== null;
     }
 
     public function canForkTestTable(TestProfile $profile): bool
@@ -270,8 +296,517 @@ trait ManagesTestComponents
         $versioning = app(TestTableVersioning::class);
 
         return $versioning->enabled()
+            && ! $profile->isArchived()
             && $versioning->active($profile) !== null
             && $versioning->draft($profile) === null;
+    }
+
+    public function canRenameTestTable(TestProfile $profile): bool
+    {
+        return $this->canEditTestTable($profile);
+    }
+
+    public function canPermanentlyDeleteTestTable(TestProfile $profile): bool
+    {
+        if ($profile->isArchived()) {
+            return false;
+        }
+
+        if (app(TestTableVersioning::class)->hasRetired($profile)) {
+            return false;
+        }
+
+        return ! app(TestProfileLifecycle::class)->isUsedInCalibration((int) $profile->test_profile_id);
+    }
+
+    public function canArchiveTestTable(TestProfile $profile): bool
+    {
+        if ($profile->isArchived()) {
+            return false;
+        }
+
+        if (app(TestTableVersioning::class)->hasRetired($profile)) {
+            return true;
+        }
+
+        return app(TestProfileLifecycle::class)->isUsedInCalibration((int) $profile->test_profile_id);
+    }
+
+    public function canRestoreTestTable(TestProfile $profile): bool
+    {
+        return $profile->isArchived();
+    }
+
+    public function startEditingTestTable(int $profileId): void
+    {
+        $profile = $this->profileForColumns($profileId);
+
+        if ($profile->isArchived()) {
+            throw ValidationException::withMessages([
+                'testTable' => 'Archived test tables cannot be edited.',
+            ]);
+        }
+
+        if (! $this->canRenameTestTable($profile)) {
+            throw ValidationException::withMessages([
+                'testTable' => 'Fork a draft before renaming this published test table.',
+            ]);
+        }
+
+        $this->resetErrorBag();
+        $this->addingTestTable = false;
+        $this->publishingProfileId = null;
+        $this->deletingProfileId = null;
+        $this->archivingProfileId = null;
+        $this->restoringProfileId = null;
+        $this->managingColumnsProfileId = null;
+        $this->resetColumnForm();
+        $this->resetRowForm();
+        $this->profileName = $this->testTableProfileName($profile);
+        $this->displayTitle = (string) ($this->testTableDisplayTitle($profile) ?? '');
+        $this->editingProfileId = $profileId;
+        $this->selectedProfileId = $profileId;
+        $this->testTableStatus = null;
+    }
+
+    public function cancelEditingTestTable(): void
+    {
+        $this->editingProfileId = null;
+        $this->resetErrorBag();
+        $this->reset('profileName', 'displayTitle');
+    }
+
+    public function saveEditedTestTable(int $profileId): void
+    {
+        if ($this->instrumentType === null) {
+            abort(404);
+        }
+
+        $typeId = $this->instrumentType->instrument_type_id;
+
+        try {
+            DB::transaction(function () use ($typeId, $profileId): void {
+                $existing = TestProfile::query()
+                    ->where('instrument_type_id', $typeId)
+                    ->orderBy('test_profile_id')
+                    ->lockForUpdate()
+                    ->get();
+                $existing->load('versions');
+
+                $profile = $existing->first(
+                    fn (TestProfile $item): bool => (int) $item->test_profile_id === $profileId,
+                );
+
+                if ($profile === null) {
+                    abort(404);
+                }
+
+                if ($profile->isArchived()) {
+                    throw ValidationException::withMessages([
+                        'profileName' => 'Archived test tables cannot be edited.',
+                    ]);
+                }
+
+                $versioning = app(TestTableVersioning::class);
+
+                if (! $versioning->canMutate($profile)) {
+                    throw ValidationException::withMessages([
+                        'profileName' => 'Fork a draft before renaming this published test table.',
+                    ]);
+                }
+
+                $activeProfiles = $existing
+                    ->reject(fn (TestProfile $item): bool => $item->isArchived())
+                    ->values();
+                $titleRequired = $activeProfiles->count() > 1;
+
+                $validated = validator([
+                    'profileName' => $this->profileName,
+                    'displayTitle' => $this->displayTitle,
+                ], [
+                    'profileName' => ['required', 'string', 'max:150'],
+                    'displayTitle' => [$titleRequired ? 'required' : 'nullable', 'string', 'max:255'],
+                ], [
+                    'profileName.required' => 'Enter a profile name.',
+                    'profileName.max' => 'The profile name must be 150 characters or fewer.',
+                    'displayTitle.required' => 'Enter a table title.',
+                    'displayTitle.max' => 'The table title must be 255 characters or fewer.',
+                ])->validate();
+
+                $name = trim($validated['profileName']);
+
+                if ($name === '') {
+                    throw ValidationException::withMessages([
+                        'profileName' => 'Enter a profile name.',
+                    ]);
+                }
+
+                $newTitle = $this->blankToNull($validated['displayTitle'] ?? null);
+
+                if ($titleRequired && $newTitle === null) {
+                    throw ValidationException::withMessages([
+                        'displayTitle' => 'Enter a table title.',
+                    ]);
+                }
+
+                foreach ($existing as $other) {
+                    if ((int) $other->test_profile_id === $profileId) {
+                        continue;
+                    }
+
+                    if ($other->profile_name === $name) {
+                        throw ValidationException::withMessages([
+                            'profileName' => 'A test table with this profile name already exists for this type.',
+                        ]);
+                    }
+
+                    $otherDraft = $versioning->draft($other);
+
+                    if ($otherDraft !== null && $otherDraft->profile_name === $name) {
+                        throw ValidationException::withMessages([
+                            'profileName' => 'A test table with this profile name already exists for this type.',
+                        ]);
+                    }
+                }
+
+                if ($newTitle !== null) {
+                    foreach ($activeProfiles as $other) {
+                        if ((int) $other->test_profile_id === $profileId) {
+                            continue;
+                        }
+
+                        $otherTitle = $this->editableTitle($other, $versioning);
+
+                        if (filled($otherTitle) && $this->titlesMatch((string) $otherTitle, $newTitle)) {
+                            throw ValidationException::withMessages([
+                                'displayTitle' => 'Table titles must be different.',
+                            ]);
+                        }
+                    }
+                }
+
+                $draft = $versioning->draft($profile);
+                $active = $versioning->active($profile);
+
+                if ($draft !== null) {
+                    $lockedDraft = TestProfileVersion::query()
+                        ->where('test_profile_version_id', $draft->test_profile_version_id)
+                        ->where('status', TestProfileVersion::STATUS_DRAFT)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if ($lockedDraft === null) {
+                        throw ValidationException::withMessages([
+                            'profileName' => 'Fork a draft before renaming this published test table.',
+                        ]);
+                    }
+
+                    $lockedDraft->update([
+                        'profile_name' => $name,
+                        'display_title' => $newTitle,
+                    ]);
+                }
+
+                if ($active === null) {
+                    $profile->update([
+                        'profile_name' => $name,
+                        'display_title' => $newTitle,
+                    ]);
+                }
+            });
+        } catch (UniqueConstraintViolationException) {
+            throw ValidationException::withMessages([
+                'profileName' => 'A test table with this profile name already exists for this type.',
+            ]);
+        }
+
+        $this->editingProfileId = null;
+        $this->reset('profileName', 'displayTitle');
+        $this->reloadManagedProfiles();
+        $this->selectProfile($profileId);
+        $this->testTableStatus = 'Test table updated.';
+    }
+
+    public function askToDeleteTestTable(int $profileId): void
+    {
+        $profile = $this->profileForColumns($profileId);
+
+        if (! $this->canPermanentlyDeleteTestTable($profile)) {
+            throw ValidationException::withMessages([
+                'testTable' => 'This test table cannot be deleted. Archive it instead.',
+            ]);
+        }
+
+        $this->resetErrorBag();
+        $this->addingTestTable = false;
+        $this->publishingProfileId = null;
+        $this->editingProfileId = null;
+        $this->archivingProfileId = null;
+        $this->restoringProfileId = null;
+        $this->deletingProfileId = $profileId;
+        $this->selectedProfileId = $profileId;
+        $this->testTableStatus = null;
+    }
+
+    public function cancelDeletingTestTable(): void
+    {
+        $this->deletingProfileId = null;
+    }
+
+    public function deleteTestTable(int $profileId, TestProfileLifecycle $lifecycle): void
+    {
+        if ($this->instrumentType === null) {
+            abort(404);
+        }
+
+        $typeId = $this->instrumentType->instrument_type_id;
+
+        try {
+            DB::transaction(function () use ($typeId, $profileId, $lifecycle): void {
+                $existing = TestProfile::query()
+                    ->where('instrument_type_id', $typeId)
+                    ->orderBy('test_profile_id')
+                    ->lockForUpdate()
+                    ->get();
+                $existing->load('versions');
+
+                $profile = $existing->first(
+                    fn (TestProfile $item): bool => (int) $item->test_profile_id === $profileId,
+                );
+
+                if ($profile === null) {
+                    abort(404);
+                }
+
+                if (! $this->canPermanentlyDeleteTestTable($profile)) {
+                    throw ValidationException::withMessages([
+                        'testTable' => 'This test table cannot be deleted. Archive it instead.',
+                    ]);
+                }
+
+                $lifecycle->deleteUnused((int) $profile->test_profile_id);
+            });
+        } catch (TestProfileLifecycleException $exception) {
+            throw ValidationException::withMessages([
+                $exception->field => $exception->getMessage(),
+            ]);
+        } catch (QueryException $exception) {
+            throw ValidationException::withMessages([
+                'testTable' => 'This test table cannot be deleted. Archive it instead.',
+            ]);
+        }
+
+        $this->deletingProfileId = null;
+        $this->reloadManagedProfiles();
+        $this->testTableStatus = 'Test table deleted.';
+    }
+
+    public function askToArchiveTestTable(int $profileId): void
+    {
+        $profile = $this->profileForColumns($profileId);
+
+        if (! $this->canArchiveTestTable($profile)) {
+            throw ValidationException::withMessages([
+                'testTable' => 'This test table cannot be archived.',
+            ]);
+        }
+
+        $this->resetErrorBag();
+        $this->addingTestTable = false;
+        $this->publishingProfileId = null;
+        $this->editingProfileId = null;
+        $this->deletingProfileId = null;
+        $this->restoringProfileId = null;
+        $this->archivingProfileId = $profileId;
+        $this->selectedProfileId = $profileId;
+        $this->testTableStatus = null;
+    }
+
+    public function cancelArchivingTestTable(): void
+    {
+        $this->archivingProfileId = null;
+    }
+
+    public function archiveTestTable(int $profileId, TestProfileLifecycle $lifecycle): void
+    {
+        if ($this->instrumentType === null) {
+            abort(404);
+        }
+
+        $typeId = $this->instrumentType->instrument_type_id;
+
+        try {
+            DB::transaction(function () use ($typeId, $profileId, $lifecycle): void {
+                $existing = TestProfile::query()
+                    ->where('instrument_type_id', $typeId)
+                    ->orderBy('test_profile_id')
+                    ->lockForUpdate()
+                    ->get();
+                $existing->load('versions');
+
+                $profile = $existing->first(
+                    fn (TestProfile $item): bool => (int) $item->test_profile_id === $profileId,
+                );
+
+                if ($profile === null) {
+                    abort(404);
+                }
+
+                if (! $this->canArchiveTestTable($profile)) {
+                    throw ValidationException::withMessages([
+                        'testTable' => 'This test table cannot be archived.',
+                    ]);
+                }
+
+                $lifecycle->archive((int) $profile->test_profile_id);
+            });
+        } catch (TestProfileLifecycleException $exception) {
+            throw ValidationException::withMessages([
+                $exception->field => $exception->getMessage(),
+            ]);
+        } catch (QueryException $exception) {
+            throw ValidationException::withMessages([
+                'testTable' => 'This test table could not be archived. Refresh the page and try again.',
+            ]);
+        }
+
+        $this->archivingProfileId = null;
+        $this->reloadManagedProfiles();
+        $this->selectProfile($profileId);
+        $this->testTableStatus = 'Test table archived.';
+    }
+
+    public function askToRestoreTestTable(int $profileId): void
+    {
+        $profile = $this->profileForColumns($profileId);
+
+        if (! $this->canRestoreTestTable($profile)) {
+            throw ValidationException::withMessages([
+                'testTable' => 'This test table is not archived.',
+            ]);
+        }
+
+        $this->resetErrorBag();
+        $this->addingTestTable = false;
+        $this->publishingProfileId = null;
+        $this->editingProfileId = null;
+        $this->deletingProfileId = null;
+        $this->archivingProfileId = null;
+        $this->restoringProfileId = $profileId;
+        $this->selectedProfileId = $profileId;
+        $this->testTableStatus = null;
+    }
+
+    public function cancelRestoringTestTable(): void
+    {
+        $this->restoringProfileId = null;
+    }
+
+    public function restoreTestTable(int $profileId, TestProfileLifecycle $lifecycle): void
+    {
+        if ($this->instrumentType === null) {
+            abort(404);
+        }
+
+        $typeId = $this->instrumentType->instrument_type_id;
+
+        try {
+            DB::transaction(function () use ($typeId, $profileId, $lifecycle): void {
+                $existing = TestProfile::query()
+                    ->where('instrument_type_id', $typeId)
+                    ->orderBy('test_profile_id')
+                    ->lockForUpdate()
+                    ->get();
+                $existing->load('versions');
+
+                $profile = $existing->first(
+                    fn (TestProfile $item): bool => (int) $item->test_profile_id === $profileId,
+                );
+
+                if ($profile === null) {
+                    abort(404);
+                }
+
+                if (! $this->canRestoreTestTable($profile)) {
+                    throw ValidationException::withMessages([
+                        'testTable' => 'This test table is not archived.',
+                    ]);
+                }
+
+                $this->assertRestoreDoesNotConflict($profile, $existing);
+
+                $lifecycle->restore((int) $profile->test_profile_id);
+            });
+        } catch (TestProfileLifecycleException $exception) {
+            throw ValidationException::withMessages([
+                $exception->field => $exception->getMessage(),
+            ]);
+        } catch (QueryException $exception) {
+            throw ValidationException::withMessages([
+                'testTable' => 'This test table could not be restored. Refresh the page and try again.',
+            ]);
+        }
+
+        $this->restoringProfileId = null;
+        $this->reloadManagedProfiles();
+        $this->selectProfile($profileId);
+        $this->testTableStatus = 'Test table restored.';
+    }
+
+    /**
+     * @param  Collection<int, TestProfile>  $existing
+     */
+    private function assertRestoreDoesNotConflict(TestProfile $profile, Collection $existing): void
+    {
+        $versioning = app(TestTableVersioning::class);
+        $liveProfiles = $existing
+            ->reject(fn (TestProfile $item): bool => $item->isArchived() || (int) $item->test_profile_id === (int) $profile->test_profile_id)
+            ->values();
+
+        $restoredName = $this->editableName($profile, $versioning);
+        $restoredTitle = $this->editableTitle($profile, $versioning);
+
+        foreach ($liveProfiles as $other) {
+            if ($other->profile_name === $restoredName) {
+                throw ValidationException::withMessages([
+                    'testTable' => 'A test table with this profile name already exists for this type.',
+                ]);
+            }
+
+            $otherDraft = $versioning->draft($other);
+
+            if ($otherDraft !== null && $otherDraft->profile_name === $restoredName) {
+                throw ValidationException::withMessages([
+                    'testTable' => 'A test table with this profile name already exists for this type.',
+                ]);
+            }
+
+            if ($profile->profile_name !== $restoredName && $other->profile_name === $profile->profile_name) {
+                throw ValidationException::withMessages([
+                    'testTable' => 'A test table with this profile name already exists for this type.',
+                ]);
+            }
+        }
+
+        if ($liveProfiles->isNotEmpty() && $restoredTitle === null) {
+            throw ValidationException::withMessages([
+                'testTable' => 'Enter a table title before restoring this test table.',
+            ]);
+        }
+
+        if ($restoredTitle === null) {
+            return;
+        }
+
+        foreach ($liveProfiles as $other) {
+            $otherTitle = $this->editableTitle($other, $versioning);
+
+            if (filled($otherTitle) && $this->titlesMatch((string) $otherTitle, $restoredTitle)) {
+                throw ValidationException::withMessages([
+                    'testTable' => 'Table titles must be different.',
+                ]);
+            }
+        }
     }
 
     public function askToPublishVersion(int $profileId): void
@@ -360,15 +895,19 @@ trait ManagesTestComponents
             return;
         }
 
-        $ids = $this->instrumentType->testProfiles
+        $activeIds = $this->activeTestProfiles()
             ->map(fn (TestProfile $profile): int => (int) $profile->test_profile_id)
             ->all();
+        $archivedIds = $this->archivedTestProfiles()
+            ->map(fn (TestProfile $profile): int => (int) $profile->test_profile_id)
+            ->all();
+        $ids = array_merge($activeIds, $archivedIds);
 
         if ($this->selectedProfileId !== null && in_array((int) $this->selectedProfileId, $ids, true)) {
             return;
         }
 
-        $this->selectedProfileId = $ids[0] ?? null;
+        $this->selectedProfileId = $activeIds[0] ?? $archivedIds[0] ?? null;
     }
 
     public function updatedDataType(string $value): void
@@ -1301,6 +1840,12 @@ trait ManagesTestComponents
 
     private function assertCanMutateTestTable(TestProfile $profile): void
     {
+        if ($profile->isArchived()) {
+            throw ValidationException::withMessages([
+                'testTable' => 'Archived test tables are read-only.',
+            ]);
+        }
+
         if (app(TestTableVersioning::class)->canMutate($profile)) {
             return;
         }
@@ -1308,6 +1853,28 @@ trait ManagesTestComponents
         throw ValidationException::withMessages([
             'testTable' => 'This published test table is read-only.',
         ]);
+    }
+
+    private function editableName(TestProfile $profile, TestTableVersioning $versioning): string
+    {
+        $draft = $versioning->draft($profile);
+
+        if ($draft !== null) {
+            return $draft->profile_name;
+        }
+
+        return $profile->profile_name;
+    }
+
+    private function editableTitle(TestProfile $profile, TestTableVersioning $versioning): ?string
+    {
+        $draft = $versioning->draft($profile);
+
+        if ($draft !== null) {
+            return $draft->display_title;
+        }
+
+        return $profile->display_title;
     }
 
     private function resetRowForm(): void

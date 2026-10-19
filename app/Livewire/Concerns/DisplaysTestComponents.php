@@ -10,7 +10,9 @@ use App\Models\TestProfile;
 use App\TestColumns\DurationValue;
 use App\TestColumns\NumericDisplay;
 use App\TestColumns\TestTableVersioning;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Read-only Test Components loading for instrument pages.
@@ -29,15 +31,14 @@ trait DisplaysTestComponents
         $purpose = $this->testTableViewPurpose();
 
         $this->instrumentType->load([
-            'testProfiles' => function (HasMany $query) use ($versioning): void {
+            'testProfiles' => function (HasMany $query) use ($versioning, $purpose): void {
                 $query
-                    ->select([
-                        'test_profile_id',
-                        'instrument_type_id',
-                        'profile_name',
-                        'display_title',
-                    ])
+                    ->select($this->testProfileSelect())
                     ->orderBy('test_profile_id');
+
+                if ($purpose !== TestTableVersioning::PURPOSE_MANAGE) {
+                    $query->notArchived();
+                }
 
                 if ($versioning->enabled()) {
                     $query->with([
@@ -94,6 +95,52 @@ trait DisplaysTestComponents
         return app(TestTableVersioning::class)->canMutate($profile);
     }
 
+    /**
+     * @return Collection<int, TestProfile>
+     */
+    public function activeTestProfiles(): Collection
+    {
+        return $this->typedProfiles()->reject(
+            fn (TestProfile $profile): bool => $profile->isArchived(),
+        )->values();
+    }
+
+    /**
+     * @return Collection<int, TestProfile>
+     */
+    public function archivedTestProfiles(): Collection
+    {
+        return $this->typedProfiles()->filter(
+            fn (TestProfile $profile): bool => $profile->isArchived(),
+        )->values();
+    }
+
+    public function testTableProfileName(TestProfile $profile): string
+    {
+        if ($this->testTableViewPurpose() === TestTableVersioning::PURPOSE_MANAGE) {
+            $draft = app(TestTableVersioning::class)->draft($profile);
+
+            if ($draft !== null) {
+                return $draft->profile_name;
+            }
+        }
+
+        return $profile->profile_name;
+    }
+
+    public function testTableDisplayTitle(TestProfile $profile): ?string
+    {
+        if ($this->testTableViewPurpose() === TestTableVersioning::PURPOSE_MANAGE) {
+            $draft = app(TestTableVersioning::class)->draft($profile);
+
+            if ($draft !== null) {
+                return $draft->display_title;
+            }
+        }
+
+        return $profile->display_title;
+    }
+
     public function testTableVersionCaption(TestProfile $profile): ?string
     {
         return app(TestTableVersioning::class)->caption($profile, $this->testTableViewPurpose());
@@ -144,15 +191,51 @@ trait DisplaysTestComponents
      */
     private function profileHeading(TestProfile $profile): ?array
     {
-        if ($this->instrumentType === null || $this->instrumentType->testProfiles->count() < 2) {
+        if ($this->instrumentType === null || $this->activeTestProfiles()->count() < 2) {
             return null;
         }
 
-        if (! filled($profile->display_title)) {
+        $title = $this->testTableDisplayTitle($profile);
+
+        if (! filled($title)) {
             return ['text' => 'Title not set', 'missing' => true];
         }
 
-        return ['text' => (string) $profile->display_title, 'missing' => false];
+        return ['text' => (string) $title, 'missing' => false];
+    }
+
+    /**
+     * @return Collection<int, TestProfile>
+     */
+    private function typedProfiles(): Collection
+    {
+        if ($this->instrumentType === null) {
+            return new Collection;
+        }
+
+        /** @var Collection<int, TestProfile> $profiles */
+        $profiles = $this->instrumentType->testProfiles;
+
+        return $profiles;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function testProfileSelect(): array
+    {
+        $columns = [
+            'test_profile_id',
+            'instrument_type_id',
+            'profile_name',
+            'display_title',
+        ];
+
+        if (Schema::hasColumn((new TestProfile)->getTable(), 'archived_at')) {
+            $columns[] = 'archived_at';
+        }
+
+        return $columns;
     }
 
     /**

@@ -4,12 +4,15 @@ namespace App\Providers;
 
 use App\TestColumns\PostgresTestColumnWriter;
 use App\TestColumns\PostgresTestPointValueWriter;
+use App\TestColumns\PostgresTestProfileLifecycle;
 use App\TestColumns\PostgresTestTableVersionWriter;
 use App\TestColumns\SqliteTestColumnWriter;
 use App\TestColumns\SqliteTestPointValueWriter;
+use App\TestColumns\SqliteTestProfileLifecycle;
 use App\TestColumns\SqliteTestTableVersionWriter;
 use App\TestColumns\TestColumnWriter;
 use App\TestColumns\TestPointValueWriter;
+use App\TestColumns\TestProfileLifecycle;
 use App\TestColumns\TestTableVersionGuard;
 use App\TestColumns\TestTableVersioning;
 use App\TestColumns\TestTableVersionWriter;
@@ -46,6 +49,12 @@ class AppServiceProvider extends ServiceProvider
             return DB::connection()->getDriverName() === 'pgsql'
                 ? new PostgresTestTableVersionWriter($guard)
                 : new SqliteTestTableVersionWriter($guard);
+        });
+
+        $this->app->bind(TestProfileLifecycle::class, function (): TestProfileLifecycle {
+            return DB::connection()->getDriverName() === 'pgsql'
+                ? new PostgresTestProfileLifecycle
+                : new SqliteTestProfileLifecycle;
         });
     }
 
