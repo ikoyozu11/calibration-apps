@@ -2,6 +2,9 @@
 
 namespace App\Providers;
 
+use App\CalibrationSessions\CalibrationNumberAllocator;
+use App\CalibrationSessions\PostgresCalibrationNumberAllocator;
+use App\Database\DestructiveCommandGuard;
 use App\TestColumns\PostgresTestColumnWriter;
 use App\TestColumns\PostgresTestPointValueWriter;
 use App\TestColumns\PostgresTestProfileLifecycle;
@@ -29,6 +32,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        $this->app->singleton(CalibrationNumberAllocator::class, PostgresCalibrationNumberAllocator::class);
+
         $this->app->singleton(TestTableVersioning::class);
 
         $this->app->bind(TestColumnWriter::class, function (): TestColumnWriter {
@@ -74,7 +79,11 @@ class AppServiceProvider extends ServiceProvider
         Date::use(CarbonImmutable::class);
 
         DB::prohibitDestructiveCommands(
-            app()->isProduction(),
+            DestructiveCommandGuard::shouldProhibitConfiguredConnections(
+                $this->app->make('config'),
+                app()->isProduction(),
+                app()->environment('testing'),
+            ),
         );
 
         Password::defaults(fn (): ?Password => app()->isProduction()
