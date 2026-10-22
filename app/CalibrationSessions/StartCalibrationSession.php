@@ -150,12 +150,12 @@ class StartCalibrationSession
      *     snapshot_max_capacity_unit: ?string,
      *     snapshot_resolution: mixed,
      *     snapshot_resolution_unit: ?string,
-     *     snapshot_location_id: ?int,
-     *     snapshot_detail_location_id: ?int,
-     *     snapshot_location_code: ?string,
-     *     snapshot_location_name: ?string,
-     *     snapshot_detail_location_code: ?string,
-     *     snapshot_detail_location_name: ?string
+     *     snapshot_location_id: int,
+     *     snapshot_detail_location_id: int,
+     *     snapshot_location_code: string,
+     *     snapshot_location_name: string,
+     *     snapshot_detail_location_code: string,
+     *     snapshot_detail_location_name: string
      * }
      */
     private function identitySnapshotAttributes(Instrument $instrument, InstrumentType $instrumentType): array
@@ -163,13 +163,43 @@ class StartCalibrationSession
         $detailLocation = $instrument->detailLocation;
         $location = $detailLocation?->location;
 
-        if ($instrument->detail_location_id !== null && ($detailLocation === null || $location === null)) {
+        if ($instrument->detail_location_id === null) {
+            throw StartCalibrationException::incompleteLocation();
+        }
+
+        if ($detailLocation === null || $location === null) {
             throw StartCalibrationException::locationMissing();
         }
 
+        if ($location->location_id === null || $detailLocation->detail_location_id === null) {
+            throw StartCalibrationException::incompleteLocation();
+        }
+
+        $locationCode = $location->location_code;
+        $locationName = $location->location_name;
+        $detailLocationCode = $detailLocation->detail_location_code;
+        $detailLocationName = $detailLocation->detail_location_name;
+
+        foreach ([$locationCode, $locationName, $detailLocationCode, $detailLocationName] as $text) {
+            if (! is_string($text) || trim($text) === '') {
+                throw StartCalibrationException::incompleteLocation();
+            }
+        }
+
+        $instrumentName = $instrument->instrument_name;
+        $typeName = $instrumentType->type_name;
+
+        if (! is_string($instrumentName) || trim($instrumentName) === '') {
+            throw StartCalibrationException::incompleteInstrumentName();
+        }
+
+        if (! is_string($typeName) || trim($typeName) === '') {
+            throw StartCalibrationException::incompleteTypeName();
+        }
+
         return [
-            'snapshot_instrument_name' => $instrument->instrument_name,
-            'snapshot_instrument_type_name' => $instrumentType->type_name,
+            'snapshot_instrument_name' => $instrumentName,
+            'snapshot_instrument_type_name' => $typeName,
             'snapshot_brand' => $instrumentType->brand,
             'snapshot_model' => $instrumentType->model,
             'snapshot_serial_number' => $instrument->serial_number,
@@ -178,12 +208,12 @@ class StartCalibrationSession
             'snapshot_max_capacity_unit' => $instrumentType->max_capacity_unit,
             'snapshot_resolution' => $instrumentType->resolution,
             'snapshot_resolution_unit' => $instrumentType->resolution_unit,
-            'snapshot_location_id' => $location === null ? null : (int) $location->location_id,
-            'snapshot_detail_location_id' => $detailLocation === null ? null : (int) $detailLocation->detail_location_id,
-            'snapshot_location_code' => $location?->location_code,
-            'snapshot_location_name' => $location?->location_name,
-            'snapshot_detail_location_code' => $detailLocation?->detail_location_code,
-            'snapshot_detail_location_name' => $detailLocation?->detail_location_name,
+            'snapshot_location_id' => (int) $location->location_id,
+            'snapshot_detail_location_id' => (int) $detailLocation->detail_location_id,
+            'snapshot_location_code' => $locationCode,
+            'snapshot_location_name' => $locationName,
+            'snapshot_detail_location_code' => $detailLocationCode,
+            'snapshot_detail_location_name' => $detailLocationName,
         ];
     }
 

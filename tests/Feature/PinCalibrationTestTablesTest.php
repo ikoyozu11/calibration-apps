@@ -336,6 +336,43 @@ function pinSql(Connection $connection): string
     return strtolower(implode("\n", array_column($connection->getQueryLog(), 'query')));
 }
 
+function pinConfigureTemplate(Connection $connection, int $versionId, string $dataType, string $completionRule): void
+{
+    $connection->table('test_column')
+        ->where('test_column_id', ($versionId * 10) + 1)
+        ->update([
+            'data_type' => $dataType,
+            'completion_rule' => $completionRule,
+        ]);
+}
+
+function pinReplaceTemplateValues(
+    Connection $connection,
+    int $profileId,
+    int $versionId,
+    ?string $numericValue,
+    ?string $textValue,
+    ?string $unit,
+): void {
+    $connection->table('test_point_value')
+        ->where('test_profile_version_id', $versionId)
+        ->delete();
+
+    foreach ([1, 2] as $offset) {
+        $connection->table('test_point_value')->insert([
+            'test_point_value_id' => ($versionId * 10) + $offset,
+            'test_profile_id' => $profileId,
+            'test_profile_version_id' => $versionId,
+            'test_point_id' => ($versionId * 10) + $offset,
+            'test_column_id' => ($versionId * 10) + 1,
+            'numeric_value' => $numericValue,
+            'text_value' => $textValue,
+            'unit' => $unit,
+            'created_at' => '2026-10-22 07:00:00',
+        ]);
+    }
+}
+
 it('pins every active test table for an in-progress internal session', function (string $frozenMode) {
     $connection = pinTestTablesConnection();
     seedPinSession($connection);
@@ -829,6 +866,460 @@ it('pins through the supplied connection when its name is empty or unregistered'
     'empty name' => '',
     'unregistered name' => 'unowned-pin-test-tables',
 ]);
+
+it('pins a required numeric template value exactly as the builder froze it', function () {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    pinConfigureTemplate($connection, 100, 'numeric', 'required');
+    pinReplaceTemplateValues($connection, 10, 100, '100.5', null, 'kPa');
+
+    pinTables($connection);
+
+    $snapshot = pinSnapshot(pinScopes($connection)->sole());
+
+    expect($snapshot['columns'][0]['completion_rule'])->toBe('required')
+        ->and($snapshot['columns'][0]['data_type'])->toBe('numeric')
+        ->and($snapshot['rows'][0]['template_values']['standard_value']['numeric_value'])->toBe('100.5')
+        ->and($snapshot['rows'][1]['template_values']['standard_value']['numeric_value'])->toBe('100.5')
+        ->and($snapshot['rows'][0]['template_values']['standard_value']['unit'])->toBe('kPa')
+        ->and($connection->table('calibration')->value('session_status'))->toBe('in_progress')
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('pins a required text template and preserves the frozen text', function () {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    pinConfigureTemplate($connection, 100, 'text', 'required');
+    pinReplaceTemplateValues($connection, 10, 100, null, 'PASS', null);
+    $connection->table('test_point_value')->where('test_point_id', 1002)->update(['text_value' => '  PASS  ']);
+
+    pinTables($connection);
+
+    $values = pinSnapshot(pinScopes($connection)->sole())['rows'];
+
+    expect($values[0]['template_values']['standard_value']['text_value'])->toBe('PASS')
+        ->and($values[1]['template_values']['standard_value']['text_value'])->toBe('  PASS  ')
+        ->and($values[0]['template_values']['standard_value']['numeric_value'])->toBeNull()
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('pins a required duration template of whole seconds', function () {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    pinConfigureTemplate($connection, 100, 'duration', 'required');
+    pinReplaceTemplateValues($connection, 10, 100, '30', null, 's');
+    $connection->table('test_point_value')->where('test_point_id', 1002)->update(['numeric_value' => '120']);
+
+    pinTables($connection);
+
+    $values = pinSnapshot(pinScopes($connection)->sole())['rows'];
+
+    expect($values[0]['template_values']['standard_value']['numeric_value'])->toBe('30')
+        ->and($values[1]['template_values']['standard_value']['numeric_value'])->toBe('120')
+        ->and($values[0]['template_values']['standard_value']['unit'])->toBe('s')
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('pins a required numeric template of zero', function () {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    pinConfigureTemplate($connection, 100, 'numeric', 'required');
+    pinReplaceTemplateValues($connection, 10, 100, '0', null, 'kPa');
+
+    pinTables($connection);
+
+    expect(pinSnapshot(pinScopes($connection)->sole())['rows'][0]['template_values']['standard_value']['numeric_value'])->toBe('0')
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('pins a required text template of 0', function () {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    pinConfigureTemplate($connection, 100, 'text', 'required');
+    pinReplaceTemplateValues($connection, 10, 100, null, '0', null);
+
+    pinTables($connection);
+
+    expect(pinSnapshot(pinScopes($connection)->sole())['rows'][0]['template_values']['standard_value']['text_value'])->toBe('0')
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('pins a required duration template of zero seconds', function () {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    pinConfigureTemplate($connection, 100, 'duration', 'required');
+    pinReplaceTemplateValues($connection, 10, 100, '0', null, 's');
+
+    pinTables($connection);
+
+    expect(pinSnapshot(pinScopes($connection)->sole())['rows'][0]['template_values']['standard_value']['numeric_value'])->toBe('0')
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('rejects a required template column when the template cell is absent', function () {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    pinConfigureTemplate($connection, 100, 'numeric', 'required');
+    $connection->table('test_point_value')->where('test_profile_version_id', 100)->delete();
+
+    expect(fn () => pinTables($connection))
+        ->toThrow(PinCalibrationTestTablesException::class, 'A required template value is missing.');
+
+    expect(pinScopes($connection))->toBeEmpty()
+        ->and($connection->table('test_point_value')->count())->toBe(0)
+        ->and($connection->table('test_column')->where('test_column_id', 1001)->value('completion_rule'))->toBe('required')
+        ->and($connection->table('calibration')->value('session_status'))->toBe('in_progress')
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('rejects a required template column when the frozen numeric value is null', function () {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    pinConfigureTemplate($connection, 100, 'numeric', 'required');
+    pinReplaceTemplateValues($connection, 10, 100, null, null, 'kPa');
+
+    expect(fn () => pinTables($connection))
+        ->toThrow(PinCalibrationTestTablesException::class, 'A required template value is missing.');
+
+    expect(pinScopes($connection))->toBeEmpty()
+        ->and($connection->table('test_point_value')->where('test_point_id', 1001)->value('numeric_value'))->toBeNull()
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('rejects a required numeric template when the master value is blank', function (string $value) {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    pinConfigureTemplate($connection, 100, 'numeric', 'required');
+    pinReplaceTemplateValues($connection, 10, 100, $value, null, 'kPa');
+
+    expect(fn () => pinTables($connection))
+        ->toThrow(PinCalibrationTestTablesException::class, 'A required template value is missing.');
+
+    expect(pinScopes($connection))->toBeEmpty()
+        ->and($connection->table('test_point_value')->where('test_point_id', 1001)->value('numeric_value'))->toBe($value)
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+})->with([
+    'empty' => '',
+    'whitespace' => '   ',
+]);
+
+it('rejects a required text template when the master text is blank', function (string $text) {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    pinConfigureTemplate($connection, 100, 'text', 'required');
+    pinReplaceTemplateValues($connection, 10, 100, null, $text, null);
+
+    expect(fn () => pinTables($connection))
+        ->toThrow(PinCalibrationTestTablesException::class, 'A required template value is missing.');
+
+    expect(pinScopes($connection))->toBeEmpty()
+        ->and($connection->table('test_point_value')->where('test_point_id', 1001)->value('text_value'))->toBe($text)
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+})->with([
+    'empty' => '',
+    'whitespace' => '   ',
+]);
+
+it('rejects a required numeric template token preserved by the snapshot builder', function (string $token) {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    pinConfigureTemplate($connection, 100, 'numeric', 'required');
+    pinReplaceTemplateValues($connection, 10, 100, $token, null, 'kPa');
+
+    expect(fn () => pinTables($connection))
+        ->toThrow(PinCalibrationTestTablesException::class, 'The frozen template value is invalid.');
+
+    expect(pinScopes($connection))->toBeEmpty()
+        ->and($connection->table('test_point_value')->where('test_point_id', 1001)->value('numeric_value'))->toBe($token)
+        ->and($connection->table('calibration')->value('session_status'))->toBe('in_progress')
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+})->with([
+    'letters' => 'abc',
+    'leading plus' => '+1',
+    'exponent' => '1e2',
+]);
+
+it('pins a required negative numeric template value', function () {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    pinConfigureTemplate($connection, 100, 'numeric', 'required');
+    pinReplaceTemplateValues($connection, 10, 100, '-2.5', null, 'kPa');
+
+    pinTables($connection);
+
+    expect(pinSnapshot(pinScopes($connection)->sole())['rows'][0]['template_values']['standard_value']['numeric_value'])->toBe('-2.5')
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('rejects a negative duration template value', function () {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    pinConfigureTemplate($connection, 100, 'duration', 'required');
+    pinReplaceTemplateValues($connection, 10, 100, '-1', null, 's');
+
+    expect(fn () => pinTables($connection))
+        ->toThrow(PinCalibrationTestTablesException::class, 'The frozen template value is invalid.');
+
+    expect(pinScopes($connection))->toBeEmpty()
+        ->and($connection->table('test_point_value')->where('test_point_id', 1001)->value('numeric_value'))->toBe('-1')
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('rejects an invalid duration token with the snapshot builder exception', function () {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    pinConfigureTemplate($connection, 100, 'duration', 'required');
+    pinReplaceTemplateValues($connection, 10, 100, 'abc', null, 's');
+
+    expect(fn () => pinTables($connection))
+        ->toThrow(TestTableSnapshotException::class, 'Duration template values must be whole seconds.');
+
+    expect(pinScopes($connection))->toBeEmpty()
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('pins a required template value when the unit is null', function () {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    pinConfigureTemplate($connection, 100, 'numeric', 'required');
+    pinReplaceTemplateValues($connection, 10, 100, '10', null, null);
+
+    pinTables($connection);
+
+    expect(pinSnapshot(pinScopes($connection)->sole())['rows'][0]['template_values']['standard_value']['unit'])->toBeNull()
+        ->and($connection->table('test_point_value')->where('test_point_id', 1001)->value('unit'))->toBeNull()
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('pins a required template value when the builder normalizes a blank unit to null', function (string $unit) {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    pinConfigureTemplate($connection, 100, 'numeric', 'required');
+    pinReplaceTemplateValues($connection, 10, 100, '10', null, $unit);
+
+    pinTables($connection);
+
+    expect(pinSnapshot(pinScopes($connection)->sole())['rows'][0]['template_values']['standard_value']['unit'])->toBeNull()
+        ->and($connection->table('test_point_value')->where('test_point_id', 1001)->value('unit'))->toBe($unit)
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+})->with([
+    'empty' => '',
+    'whitespace' => '   ',
+]);
+
+it('rejects a required template value when the frozen unit is longer than 50 characters', function () {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    $unit = str_repeat('m', 51);
+    pinConfigureTemplate($connection, 100, 'numeric', 'required');
+    pinReplaceTemplateValues($connection, 10, 100, '10', null, $unit);
+
+    expect(fn () => pinTables($connection))
+        ->toThrow(PinCalibrationTestTablesException::class, 'The frozen template value is invalid.');
+
+    expect(pinScopes($connection))->toBeEmpty()
+        ->and($connection->table('test_point_value')->where('test_point_id', 1001)->value('unit'))->toBe($unit)
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('rejects a not configured template column before inserting a scope', function () {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    $connection->table('test_column')->where('test_column_id', 1001)->update(['completion_rule' => 'not_configured']);
+
+    expect(fn () => pinTables($connection))
+        ->toThrow(PinCalibrationTestTablesException::class, 'A not-configured test component cannot be pinned.');
+
+    expect(pinScopes($connection))->toBeEmpty()
+        ->and($connection->table('test_column')->where('test_column_id', 1001)->value('completion_rule'))->toBe('not_configured')
+        ->and($connection->table('test_point_value')->where('test_point_id', 1001)->value('numeric_value'))->toBe('10')
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('rejects a not configured engineer column before inserting a scope', function () {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    $connection->table('test_column')->where('test_column_id', 1002)->update(['completion_rule' => 'not_configured']);
+
+    expect(fn () => pinTables($connection))
+        ->toThrow(PinCalibrationTestTablesException::class, 'A not-configured test component cannot be pinned.');
+
+    expect(pinScopes($connection))->toBeEmpty()
+        ->and($connection->table('test_column')->where('test_column_id', 1002)->value('completion_rule'))->toBe('not_configured')
+        ->and($connection->table('test_column')->where('test_column_id', 1002)->value('value_source'))->toBe('engineer')
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('rejects a not configured calculated column before inserting a scope', function () {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    $connection->table('test_column')->where('test_column_id', 1003)->update(['completion_rule' => 'not_configured']);
+
+    expect(fn () => pinTables($connection))
+        ->toThrow(PinCalibrationTestTablesException::class, 'A not-configured test component cannot be pinned.');
+
+    expect(pinScopes($connection))->toBeEmpty()
+        ->and($connection->table('test_column')->where('test_column_id', 1003)->value('completion_rule'))->toBe('not_configured')
+        ->and($connection->table('test_column')->where('test_column_id', 1003)->value('value_source'))->toBe('calculated')
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('pins an optional template column that has no value', function () {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    $connection->table('test_point_value')->where('test_profile_version_id', 100)->delete();
+
+    pinTables($connection);
+
+    $snapshot = pinSnapshot(pinScopes($connection)->sole());
+
+    expect($snapshot['columns'][0]['completion_rule'])->toBe('optional')
+        ->and($snapshot['rows'][0]['template_values']['standard_value']['numeric_value'])->toBeNull()
+        ->and($snapshot['rows'][1]['template_values']['standard_value']['numeric_value'])->toBeNull()
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('rejects an optional template column when the frozen value is invalid', function () {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    pinReplaceTemplateValues($connection, 10, 100, 'abc', null, 'kPa');
+
+    expect(fn () => pinTables($connection))
+        ->toThrow(PinCalibrationTestTablesException::class, 'The frozen template value is invalid.');
+
+    expect(pinScopes($connection))->toBeEmpty()
+        ->and($connection->table('test_column')->where('test_column_id', 1001)->value('completion_rule'))->toBe('optional')
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('pins required engineer and optional calculated columns that have no prefilled value', function () {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+
+    pinTables($connection);
+
+    $snapshot = pinSnapshot(pinScopes($connection)->sole());
+
+    expect($snapshot['columns'][1]['value_source'])->toBe('engineer')
+        ->and($snapshot['columns'][1]['completion_rule'])->toBe('required')
+        ->and($snapshot['columns'][2]['value_source'])->toBe('calculated')
+        ->and($snapshot['columns'][2]['completion_rule'])->toBe('optional')
+        ->and(array_keys($snapshot['rows'][0]['template_values']))->toBe(['standard_value'])
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('pins an optional engineer column and a required calculated column that have no prefilled value', function () {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    $connection->table('test_column')->where('test_column_id', 1002)->update(['completion_rule' => 'optional']);
+    $connection->table('test_column')->where('test_column_id', 1003)->update(['completion_rule' => 'required']);
+
+    pinTables($connection);
+
+    $snapshot = pinSnapshot(pinScopes($connection)->sole());
+
+    expect($snapshot['columns'][1]['completion_rule'])->toBe('optional')
+        ->and($snapshot['columns'][1]['value_source'])->toBe('engineer')
+        ->and($snapshot['columns'][2]['completion_rule'])->toBe('required')
+        ->and($snapshot['columns'][2]['value_source'])->toBe('calculated')
+        ->and(array_keys($snapshot['rows'][0]['template_values']))->toBe(['standard_value'])
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('inserts no scopes when a later active table cannot be completed', function () {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    seedActivePinTable($connection, 20, 200);
+    $connection->table('test_column')->where('test_column_id', 2001)->update(['completion_rule' => 'required']);
+    $connection->table('test_point_value')->where('test_profile_version_id', 200)->delete();
+    $connection->flushQueryLog();
+    $connection->enableQueryLog();
+
+    expect(fn () => pinTables($connection))
+        ->toThrow(PinCalibrationTestTablesException::class, 'A required template value is missing.');
+
+    expect(pinScopes($connection))->toBeEmpty()
+        ->and(pinSql($connection))->not->toContain('insert into "calibration_scope"')
+        ->and($connection->table('calibration')->value('session_status'))->toBe('in_progress')
+        ->and($connection->table('calibration')->value('calibration_date'))->toBe('2026-10-22')
+        ->and($connection->table('test_column')->where('test_column_id', 2001)->value('completion_rule'))->toBe('required')
+        ->and($connection->table('test_profile_version')->whereIn('test_profile_version_id', [100, 200])->pluck('status')->unique()->all())->toBe(['active'])
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('does not rebuild a pinned snapshot after the master column becomes not configured', function () {
+    $connection = pinTestTablesConnection();
+    seedPinSession($connection);
+    seedPinRequirement($connection);
+    seedActivePinTable($connection, 10, 100);
+    pinTables($connection);
+    $first = pinScopes($connection)->sole();
+    $snapshot = (string) $first->test_table_snapshot;
+    $connection->table('test_column')->where('test_column_id', 1001)->update(['completion_rule' => 'not_configured']);
+    $connection->table('test_point_value')->where('test_column_id', 1001)->update(['numeric_value' => null]);
+
+    pinTables($connection);
+
+    $second = pinScopes($connection)->sole();
+
+    expect($second->calibration_scope_id)->toBe($first->calibration_scope_id)
+        ->and($second->test_profile_version_id)->toBe(100)
+        ->and((string) $second->test_table_snapshot)->toBe($snapshot)
+        ->and($second->remarks)->toBeNull()
+        ->and($connection->table('test_column')->where('test_column_id', 1001)->value('completion_rule'))->toBe('not_configured')
+        ->and(pinSnapshot($second)['columns'][0]['completion_rule'])->toBe('optional')
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
 
 /**
  * @return array<string, mixed>

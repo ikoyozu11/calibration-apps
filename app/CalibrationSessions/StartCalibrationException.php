@@ -49,6 +49,21 @@ class StartCalibrationException extends RuntimeException implements ShouldntRepo
         return new self('The instrument location does not exist.', 'instrument');
     }
 
+    public static function incompleteLocation(): self
+    {
+        return new self('The instrument location is incomplete.', 'instrument');
+    }
+
+    public static function incompleteInstrumentName(): self
+    {
+        return new self('The instrument name is incomplete.', 'instrument');
+    }
+
+    public static function incompleteTypeName(): self
+    {
+        return new self('The instrument type name is incomplete.', 'instrument_type');
+    }
+
     public static function productionDatabase(): self
     {
         return new self('Refusing to start a calibration session on the production database.', 'database');

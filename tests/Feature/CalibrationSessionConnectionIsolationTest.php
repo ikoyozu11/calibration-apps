@@ -13,6 +13,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\Support\FakeCalibrationNumberAllocator;
+use Tests\TestRefusingPostgresConnector;
 
 const ISOLATION_SESSION_CONNECTION = 'session_sqlite';
 
@@ -38,6 +39,21 @@ function isolationConnection(string $name = ISOLATION_SESSION_CONNECTION)
 function isolationCreateSessionTables(string $connectionName): void
 {
     $schema = Schema::connection($connectionName);
+
+    $schema->create('location', function (Blueprint $table): void {
+        $table->unsignedBigInteger('location_id')->primary();
+        $table->string('location_code', 50);
+        $table->string('location_name', 100);
+        $table->timestamp('created_at');
+    });
+
+    $schema->create('detail_location', function (Blueprint $table): void {
+        $table->unsignedBigInteger('detail_location_id')->primary();
+        $table->unsignedBigInteger('location_id');
+        $table->string('detail_location_code', 50);
+        $table->string('detail_location_name', 100);
+        $table->timestamp('created_at');
+    });
 
     $schema->create('instrument', function (Blueprint $table): void {
         $table->unsignedBigInteger('instrument_id')->primary();
@@ -252,9 +268,23 @@ function isolationSeedStartMasters(string $connectionName): void
 {
     $db = DB::connection($connectionName);
 
+    $db->table('location')->insert([
+        'location_id' => 4,
+        'location_code' => 'FMD',
+        'location_name' => 'Filling Hall',
+        'created_at' => '2026-10-20 09:00:00',
+    ]);
+    $db->table('detail_location')->insert([
+        'detail_location_id' => 8,
+        'location_id' => 4,
+        'detail_location_code' => 'FM05-06',
+        'detail_location_name' => 'Line 2',
+        'created_at' => '2026-10-20 09:00:00',
+    ]);
     $db->table('instrument')->insert([
         'instrument_id' => 1,
         'instrument_name' => 'Gauge',
+        'detail_location_id' => 8,
         'created_at' => '2026-10-20 09:00:00',
     ]);
     $db->table('instrument_type')->insert([
@@ -525,7 +555,8 @@ it('starts a calibration only on the explicit session connection', function () {
         ->and(DB::connection(ISOLATION_SESSION_CONNECTION)->table('calibration_requirement_snapshot')->count())->toBe(4)
         ->and(DB::table('calibration')->count())->toBe(1)
         ->and(DB::table('calibration')->value('calibration_number'))->toBe('CAL-DECOY')
-        ->and(DB::table('calibration_requirement_snapshot')->count())->toBe(0);
+        ->and(DB::table('calibration_requirement_snapshot')->count())->toBe(0)
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
 });
 
 it('rolls back start on the session connection without writing to the default connection', function () {
@@ -553,6 +584,10 @@ it('rolls back start on the session connection without writing to the default co
 
     expect(DB::connection(ISOLATION_SESSION_CONNECTION)->table('calibration')->count())->toBe(0)
         ->and(DB::connection(ISOLATION_SESSION_CONNECTION)->table('calibration_requirement_snapshot')->count())->toBe(0)
+        ->and(DB::connection(ISOLATION_SESSION_CONNECTION)->table('calibration_environment_parameter_snapshot')->count())->toBe(0)
         ->and(DB::table('calibration')->count())->toBe(1)
-        ->and(DB::table('calibration')->value('calibration_number'))->toBe('CAL-DECOY');
+        ->and(DB::table('calibration')->value('calibration_number'))->toBe('CAL-DECOY')
+        ->and(DB::table('calibration_requirement_snapshot')->count())->toBe(0)
+        ->and(DB::table('calibration_environment_parameter_snapshot')->count())->toBe(0)
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
 });

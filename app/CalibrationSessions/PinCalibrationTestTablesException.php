@@ -66,4 +66,19 @@ class PinCalibrationTestTablesException extends RuntimeException implements Shou
     {
         return new self('Existing pinned test tables conflict with this calibration.');
     }
+
+    public static function unconfiguredColumn(): self
+    {
+        return new self('A not-configured test component cannot be pinned.');
+    }
+
+    public static function missingRequiredTemplateValue(): self
+    {
+        return new self('A required template value is missing.');
+    }
+
+    public static function invalidTemplateValue(): self
+    {
+        return new self('The frozen template value is invalid.');
+    }
 }

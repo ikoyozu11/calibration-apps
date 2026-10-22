@@ -16,8 +16,10 @@ use ReflectionProperty;
  *
  * The instrument type comes from the locked calibration. Each eligible profile
  * contributes one scope with its Active version id and a schema-version 2
- * snapshot from TestTableSnapshotBuilder. A later Active version does not
- * replace a consistent frozen pin. Effective mode comes from
+ * snapshot from TestTableSnapshotBuilder. A not-configured column, a missing
+ * required template value, or an invalid template value rejects the pin before
+ * any scope is inserted. A later Active version does not replace a consistent
+ * frozen pin, and an existing pin is not revalidated. Effective mode comes from
  * CalibrationSessionCompleteness::effectiveMode only. This service does not
  * call CalibrationScopePinning, Model::on(), auth(), or the complete checks.
  * It does not calculate Average or Deviation. SQLite compiles lockForUpdate()
@@ -224,14 +226,29 @@ class PinCalibrationTestTables
      */
     private function insertScopes(Connection $connection, int $calibrationId, int $typeId, array $versions): void
     {
+        /** @var list<array{version: object, snapshot: array<string, mixed>}> $prepared */
+        $prepared = [];
+
+        foreach ($versions as $version) {
+            $prepared[] = [
+                'version' => $version,
+                'snapshot' => $this->snapshot($connection, (int) $version->test_profile_version_id),
+            ];
+        }
+
+        foreach ($prepared as $item) {
+            $this->assertCompletableSnapshot($item['snapshot']);
+        }
+
         $baseOrder = (int) $connection->table('calibration_scope')
             ->where('calibration_id', $calibrationId)
             ->max('scope_order');
         $nextScopeId = (int) $connection->table('calibration_scope')->max('calibration_scope_id');
         $scopeOrder = 1;
 
-        foreach ($versions as $version) {
-            $snapshot = $this->snapshot($connection, (int) $version->test_profile_version_id);
+        foreach ($prepared as $item) {
+            $version = $item['version'];
+            $snapshot = $item['snapshot'];
             $nextScopeId++;
             $payload = [
                 'calibration_id' => $calibrationId,
@@ -250,6 +267,177 @@ class PinCalibrationTestTables
 
             $connection->table('calibration_scope')->insert($payload);
             $scopeOrder++;
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     */
+    private function assertCompletableSnapshot(array $snapshot): void
+    {
+        $columns = $snapshot['columns'] ?? null;
+        $rows = $snapshot['rows'] ?? null;
+
+        if (! is_array($columns) || ! is_array($rows)) {
+            throw PinCalibrationTestTablesException::invalidTemplateValue();
+        }
+
+        foreach ($columns as $column) {
+            if (! is_array($column)) {
+                throw PinCalibrationTestTablesException::invalidTemplateValue();
+            }
+
+            $rule = $column['completion_rule'] ?? null;
+
+            if ($rule === InstrumentTypeRequirement::MODE_NOT_CONFIGURED) {
+                throw PinCalibrationTestTablesException::unconfiguredColumn();
+            }
+
+            if (($column['value_source'] ?? null) !== 'template') {
+                continue;
+            }
+
+            $columnKey = $column['column_key'] ?? null;
+            $dataType = $column['data_type'] ?? null;
+
+            if (! is_string($columnKey)
+                || ! in_array($dataType, ['numeric', 'text', 'duration'], true)
+                || ! in_array($rule, [
+                    InstrumentTypeRequirement::MODE_REQUIRED,
+                    InstrumentTypeRequirement::MODE_OPTIONAL,
+                ], true)) {
+                throw PinCalibrationTestTablesException::invalidTemplateValue();
+            }
+
+            foreach ($rows as $row) {
+                if (! is_array($row)) {
+                    throw PinCalibrationTestTablesException::invalidTemplateValue();
+                }
+
+                $this->assertTemplateCell(
+                    $row,
+                    $columnKey,
+                    $dataType,
+                    $rule === InstrumentTypeRequirement::MODE_REQUIRED,
+                );
+            }
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function assertTemplateCell(array $row, string $columnKey, string $dataType, bool $required): void
+    {
+        $values = $row['template_values'] ?? null;
+
+        if (is_object($values)) {
+            $values = (array) $values;
+        }
+
+        if (! is_array($values)) {
+            throw PinCalibrationTestTablesException::invalidTemplateValue();
+        }
+
+        if (! array_key_exists($columnKey, $values) || $values[$columnKey] === null) {
+            if ($required) {
+                throw PinCalibrationTestTablesException::missingRequiredTemplateValue();
+            }
+
+            return;
+        }
+
+        $entry = $values[$columnKey];
+
+        if (! is_array($entry) || array_is_list($entry)) {
+            throw PinCalibrationTestTablesException::invalidTemplateValue();
+        }
+
+        $this->assertTemplateValue($dataType, $entry, $required);
+    }
+
+    /**
+     * @param  array<string, mixed>  $entry
+     */
+    private function assertTemplateValue(string $dataType, array $entry, bool $required): void
+    {
+        $numeric = $entry['numeric_value'] ?? null;
+        $text = $entry['text_value'] ?? null;
+
+        if ($numeric !== null && $text !== null) {
+            throw PinCalibrationTestTablesException::invalidTemplateValue();
+        }
+
+        if ($dataType === 'text') {
+            if ($numeric !== null) {
+                throw PinCalibrationTestTablesException::invalidTemplateValue();
+            }
+
+            if ($text === null || (is_string($text) && trim($text) === '')) {
+                if ($required && $text !== null) {
+                    throw PinCalibrationTestTablesException::invalidTemplateValue();
+                }
+
+                if ($required) {
+                    throw PinCalibrationTestTablesException::missingRequiredTemplateValue();
+                }
+
+                return;
+            }
+
+            if (! is_string($text)) {
+                throw PinCalibrationTestTablesException::invalidTemplateValue();
+            }
+
+            $this->assertTemplateUnit($entry);
+
+            return;
+        }
+
+        if ($text !== null) {
+            throw PinCalibrationTestTablesException::invalidTemplateValue();
+        }
+
+        if ($numeric === null) {
+            if ($required) {
+                throw PinCalibrationTestTablesException::missingRequiredTemplateValue();
+            }
+
+            return;
+        }
+
+        if (! is_string($numeric)) {
+            throw PinCalibrationTestTablesException::invalidTemplateValue();
+        }
+
+        if ($dataType === 'duration') {
+            if (preg_match('/^\d+$/', $numeric) !== 1) {
+                throw PinCalibrationTestTablesException::invalidTemplateValue();
+            }
+
+            $this->assertTemplateUnit($entry);
+
+            return;
+        }
+
+        if (preg_match('/^-?\d+(?:\.\d+)?$/', $numeric) !== 1) {
+            throw PinCalibrationTestTablesException::invalidTemplateValue();
+        }
+
+        $this->assertTemplateUnit($entry);
+    }
+
+    /**
+     * @param  array<string, mixed>  $entry
+     */
+    private function assertTemplateUnit(array $entry): void
+    {
+        if (! array_key_exists('unit', $entry) || $entry['unit'] === null) {
+            return;
+        }
+
+        if (! is_string($entry['unit']) || trim($entry['unit']) === '' || mb_strlen($entry['unit']) > 50) {
+            throw PinCalibrationTestTablesException::invalidTemplateValue();
         }
     }
 
