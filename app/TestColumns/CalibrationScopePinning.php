@@ -2,13 +2,14 @@
 
 namespace App\TestColumns;
 
+use App\CalibrationSessions\CalibrationSessionConnection;
 use App\Models\Calibration;
 use App\Models\CalibrationScope;
 use App\Models\InstrumentType;
 use App\Models\TestProfile;
 use App\Models\TestProfileVersion;
+use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Pins Active Test Tables onto an existing calibration as frozen scopes.
@@ -29,15 +30,22 @@ class CalibrationScopePinning
 {
     public function __construct(
         private ActiveTestTableScopeResolver $resolver,
+        private CalibrationSessionConnection $sessionConnection,
     ) {}
 
     /**
      * @return Collection<int, CalibrationScope>
      */
-    public function pin(Calibration $calibration, InstrumentType $instrumentType): Collection
-    {
-        return DB::transaction(function () use ($calibration, $instrumentType): Collection {
-            $calibration = Calibration::query()
+    public function pin(
+        Calibration $calibration,
+        InstrumentType $instrumentType,
+        ?Connection $connection = null,
+    ): Collection {
+        $connection = $this->sessionConnection->resolve($connection);
+        $connectionName = $connection->getName();
+
+        return $connection->transaction(function () use ($connection, $connectionName, $calibration, $instrumentType): Collection {
+            $calibration = Calibration::on($connectionName)
                 ->whereKey($calibration->getKey())
                 ->lockForUpdate()
                 ->first();
@@ -46,7 +54,7 @@ class CalibrationScopePinning
                 throw new CalibrationScopePinException('The calibration does not exist.');
             }
 
-            $instrumentType = InstrumentType::query()
+            $instrumentType = InstrumentType::on($connectionName)
                 ->whereKey($instrumentType->getKey())
                 ->first();
 
@@ -60,9 +68,9 @@ class CalibrationScopePinning
 
             $typeId = (int) $instrumentType->instrument_type_id;
 
-            $this->lockTablesForType($typeId);
+            $this->lockTablesForType($connectionName, $typeId);
 
-            $existing = $this->scopesForType((int) $calibration->calibration_id, $typeId);
+            $existing = $this->scopesForType($connectionName, (int) $calibration->calibration_id, $typeId);
 
             if ($existing->isNotEmpty()) {
                 if ($this->allPinned($existing)) {
@@ -72,21 +80,21 @@ class CalibrationScopePinning
                 throw new CalibrationScopePinException('This calibration already has unpinned scopes for this instrument type.');
             }
 
-            $plan = $this->resolver->resolve($instrumentType);
+            $plan = $this->resolver->resolve($instrumentType, $connection);
 
             if (! $plan->hasReadyTemplates()) {
                 throw new CalibrationScopePinException('No active Test Table is available for this instrument type.');
             }
 
-            $this->insertCandidates($calibration, $plan);
+            $this->insertCandidates($connection, $calibration, $plan);
 
-            return $this->scopesForType((int) $calibration->calibration_id, $typeId);
+            return $this->scopesForType($connectionName, (int) $calibration->calibration_id, $typeId);
         });
     }
 
-    private function lockTablesForType(int $typeId): void
+    private function lockTablesForType(string $connectionName, int $typeId): void
     {
-        $profileIds = TestProfile::query()
+        $profileIds = TestProfile::on($connectionName)
             ->where('instrument_type_id', $typeId)
             ->orderBy('test_profile_id')
             ->lockForUpdate()
@@ -98,7 +106,7 @@ class CalibrationScopePinning
             return;
         }
 
-        TestProfileVersion::query()
+        TestProfileVersion::on($connectionName)
             ->whereIn('test_profile_id', $profileIds)
             ->orderBy('test_profile_id')
             ->orderBy('test_profile_version_id')
@@ -109,9 +117,9 @@ class CalibrationScopePinning
     /**
      * @return Collection<int, CalibrationScope>
      */
-    private function scopesForType(int $calibrationId, int $typeId): Collection
+    private function scopesForType(string $connectionName, int $calibrationId, int $typeId): Collection
     {
-        return CalibrationScope::query()
+        return CalibrationScope::on($connectionName)
             ->where('calibration_id', $calibrationId)
             ->where('instrument_type_id', $typeId)
             ->orderBy('scope_order')
@@ -132,9 +140,9 @@ class CalibrationScopePinning
         );
     }
 
-    private function insertCandidates(Calibration $calibration, ActiveTestTableScopePlan $plan): void
+    private function insertCandidates(Connection $connection, Calibration $calibration, ActiveTestTableScopePlan $plan): void
     {
-        $baseOrder = (int) CalibrationScope::query()
+        $baseOrder = (int) $connection->table('calibration_scope')
             ->where('calibration_id', $calibration->calibration_id)
             ->max('scope_order');
 
@@ -150,11 +158,11 @@ class CalibrationScopePinning
                 'created_at' => now(),
             ];
 
-            if (DB::getDriverName() !== 'pgsql') {
-                $payload['calibration_scope_id'] = ((int) DB::table('calibration_scope')->max('calibration_scope_id')) + 1;
+            if ($connection->getDriverName() !== 'pgsql') {
+                $payload['calibration_scope_id'] = ((int) $connection->table('calibration_scope')->max('calibration_scope_id')) + 1;
             }
 
-            DB::table('calibration_scope')->insert($payload);
+            $connection->table('calibration_scope')->insert($payload);
         }
     }
 }

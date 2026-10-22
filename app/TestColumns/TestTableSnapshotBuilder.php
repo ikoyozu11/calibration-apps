@@ -6,21 +6,23 @@ use App\Models\TestColumn;
 use App\Models\TestPoint;
 use App\Models\TestPointValue;
 use App\Models\TestProfileVersion;
+use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Collection;
 use stdClass;
 
 class TestTableSnapshotBuilder
 {
-    public const SCHEMA_VERSION = 1;
+    public const SCHEMA_VERSION = 2;
 
     public const DURATION_FORMAT = 'hh:mm:ss';
 
     /**
-     * Frozen Test Table configuration for one calibration scope (schema_version 1).
+     * Frozen Test Table configuration for one calibration scope (schema_version 2).
+     * Historical schema_version 1 snapshots remain readable and are not rewritten.
      *
      * @return array{
-     *     schema_version: 1,
+     *     schema_version: 2,
      *     captured_at: string,
      *     test_profile_id: int,
      *     test_profile_version_id: int,
@@ -38,7 +40,8 @@ class TestTableSnapshotBuilder
      *         unit: ?string,
      *         display_scale: ?int,
      *         formula_code: ?string,
-     *         formula_inputs: list<string>
+     *         formula_inputs: list<string>,
+     *         completion_rule: 'required'|'optional'|'not_configured'
      *     }>,
      *     rows: list<array{
      *         test_point_id: int,
@@ -52,9 +55,11 @@ class TestTableSnapshotBuilder
      *     }>
      * }
      */
-    public function build(TestProfileVersion $version): array
+    public function build(TestProfileVersion $version, ?Connection $connection = null): array
     {
-        $version = TestProfileVersion::query()->whereKey($version->getKey())->first();
+        $connectionName = $this->connectionName($connection, $version);
+
+        $version = TestProfileVersion::on($connectionName)->whereKey($version->getKey())->first();
 
         if ($version === null) {
             throw new TestTableSnapshotException('The Test Table version does not exist.');
@@ -119,13 +124,15 @@ class TestTableSnapshotBuilder
     }
 
     /**
-     * Mirrors public.test_table_snapshot_wellformed for schema_version 1.
+     * Mirrors public.test_table_snapshot_wellformed for schema_version 1 and 2.
      *
      * @param  array<string, mixed>  $snapshot
      */
     public static function isWellformed(array $snapshot): bool
     {
-        if ((string) ($snapshot['schema_version'] ?? '') !== (string) self::SCHEMA_VERSION) {
+        $schemaVersion = (string) ($snapshot['schema_version'] ?? '');
+
+        if (! in_array($schemaVersion, ['1', '2'], true)) {
             return false;
         }
 
@@ -168,6 +175,11 @@ class TestTableSnapshotBuilder
                 return false;
             }
 
+            if ($schemaVersion === '2'
+                && ! in_array($column['completion_rule'] ?? null, ['required', 'optional', 'not_configured'], true)) {
+                return false;
+            }
+
             $seenKeys[] = $columnKey;
         }
 
@@ -193,7 +205,8 @@ class TestTableSnapshotBuilder
      *     unit: ?string,
      *     display_scale: ?int,
      *     formula_code: ?string,
-     *     formula_inputs: list<string>
+     *     formula_inputs: list<string>,
+     *     completion_rule: 'required'|'optional'|'not_configured'
      * }
      */
     private function column(TestColumn $column): array
@@ -208,7 +221,18 @@ class TestTableSnapshotBuilder
             'display_scale' => $column->display_scale === null ? null : (int) $column->display_scale,
             'formula_code' => filled($column->formula_code) ? (string) $column->formula_code : null,
             'formula_inputs' => $column->inputKeys(),
+            'completion_rule' => $this->completionRule($column),
         ];
+    }
+
+    /**
+     * @return 'required'|'optional'|'not_configured'
+     */
+    private function completionRule(TestColumn $column): string
+    {
+        $rule = trim((string) $column->completion_rule);
+
+        return $rule === '' ? 'not_configured' : $rule;
     }
 
     /**
@@ -310,6 +334,19 @@ class TestTableSnapshotBuilder
         }
 
         return $text;
+    }
+
+    private function connectionName(?Connection $connection, TestProfileVersion $version): string
+    {
+        $name = $connection?->getName();
+
+        if (is_string($name) && $name !== '') {
+            return $name;
+        }
+
+        $name = $version->getConnectionName();
+
+        return is_string($name) && $name !== '' ? $name : (string) config('database.default');
     }
 
     private function durationSecondsString(mixed $value): ?string

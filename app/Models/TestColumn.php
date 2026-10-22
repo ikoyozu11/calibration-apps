@@ -21,6 +21,7 @@ use Illuminate\Support\Carbon;
  * @property int|null $display_scale
  * @property string|null $formula_code
  * @property string|array<int, string>|null $formula_inputs
+ * @property string $completion_rule
  * @property Carbon $created_at
  * @property-read TestProfile $testProfile
  * @property-read TestProfileVersion|null $version
@@ -33,6 +34,13 @@ class TestColumn extends Model
     protected $table = 'test_column';
 
     protected $primaryKey = 'test_column_id';
+
+    /**
+     * @var array<string, mixed>
+     */
+    protected $attributes = [
+        'completion_rule' => 'not_configured',
+    ];
 
     /** @return BelongsTo<TestProfile, $this> */
     public function testProfile(): BelongsTo

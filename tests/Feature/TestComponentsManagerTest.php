@@ -722,9 +722,9 @@ it('shows numeric template values with trailing zeros and leaves the stored valu
     ]);
     DB::table('test_point_value')->insert([
         'test_point_value_id' => 1,
-        'test_profile_id' => 1,
+            'test_profile_id' => 1,
         'test_profile_version_id' => 1,
-        'test_point_id' => 1,
+            'test_point_id' => 1,
         'test_column_id' => 1,
         'numeric_value' => 8,
         'text_value' => null,
@@ -798,9 +798,9 @@ it('stores correction formulas against column keys for numeric and duration colu
     insertColumnManagerFixture();
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
-    ])
+            'instrument' => Instrument::query()->findOrFail(3),
+            'instrumentType' => InstrumentType::query()->findOrFail(31),
+        ])
         ->call('startManagingColumns', 1)
         ->set('columnLabel', 'Standard Value')
         ->set('dataType', 'numeric')
@@ -935,12 +935,12 @@ it('still edits a test table when the versioning catalog is not installed', func
     insertInstrumentDetailSubject();
 
     DB::table('test_profile')->insert([
-        'test_profile_id' => 1,
-        'instrument_type_id' => 31,
+            'test_profile_id' => 1,
+            'instrument_type_id' => 31,
         'profile_name' => 'Main Test',
         'display_title' => null,
-        'description' => null,
-        'created_at' => '2026-10-14 09:00:00',
+            'description' => null,
+            'created_at' => '2026-10-14 09:00:00',
     ]);
 
     Livewire::test('pages::instruments.test-components', [

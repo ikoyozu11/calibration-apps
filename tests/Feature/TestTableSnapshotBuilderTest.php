@@ -63,6 +63,7 @@ function insertSnapshotBuilderFixture(): void
             'display_scale' => null,
             'formula_code' => null,
             'formula_inputs' => '[]',
+            'completion_rule' => 'not_configured',
             'created_at' => '2026-10-14 09:00:00',
         ],
         [
@@ -78,6 +79,7 @@ function insertSnapshotBuilderFixture(): void
             'display_scale' => 2,
             'formula_code' => null,
             'formula_inputs' => '[]',
+            'completion_rule' => 'required',
             'created_at' => '2026-10-14 09:00:00',
         ],
         [
@@ -93,6 +95,7 @@ function insertSnapshotBuilderFixture(): void
             'display_scale' => null,
             'formula_code' => null,
             'formula_inputs' => '[]',
+            'completion_rule' => 'optional',
             'created_at' => '2026-10-14 09:00:00',
         ],
         [
@@ -108,6 +111,7 @@ function insertSnapshotBuilderFixture(): void
             'display_scale' => 3,
             'formula_code' => null,
             'formula_inputs' => '[]',
+            'completion_rule' => 'required',
             'created_at' => '2026-10-14 09:00:00',
         ],
         [
@@ -123,6 +127,7 @@ function insertSnapshotBuilderFixture(): void
             'display_scale' => 3,
             'formula_code' => 'standard_minus_reading',
             'formula_inputs' => '["standard_value","reading"]',
+            'completion_rule' => 'optional',
             'created_at' => '2026-10-14 09:00:00',
         ],
         [
@@ -138,6 +143,7 @@ function insertSnapshotBuilderFixture(): void
             'display_scale' => null,
             'formula_code' => null,
             'formula_inputs' => '[]',
+            'completion_rule' => 'not_configured',
             'created_at' => '2026-10-14 09:00:00',
         ],
         [
@@ -153,6 +159,7 @@ function insertSnapshotBuilderFixture(): void
             'display_scale' => null,
             'formula_code' => null,
             'formula_inputs' => '[]',
+            'completion_rule' => 'not_configured',
             'created_at' => '2026-10-13 09:00:00',
         ],
     ]);
@@ -278,7 +285,7 @@ function insertSnapshotBuilderFixture(): void
     ]);
 }
 
-it('builds a schema version 1 snapshot from an active version', function () {
+it('builds a schema version 2 snapshot from an active version', function () {
     createInstrumentDetailTestTables();
     insertSnapshotBuilderFixture();
     $this->travelTo('2026-10-15 04:00:00');
@@ -288,7 +295,7 @@ it('builds a schema version 1 snapshot from an active version', function () {
     );
 
     expect(TestTableSnapshotBuilder::isWellformed($snapshot))->toBeTrue()
-        ->and($snapshot['schema_version'])->toBe(1)
+        ->and($snapshot['schema_version'])->toBe(2)
         ->and($snapshot['captured_at'])->toBe('2026-10-15T04:00:00Z')
         ->and($snapshot['test_profile_id'])->toBe(1)
         ->and($snapshot['test_profile_version_id'])->toBe(11)
@@ -296,7 +303,65 @@ it('builds a schema version 1 snapshot from an active version', function () {
         ->and($snapshot['profile_name'])->toBe('Main Test')
         ->and($snapshot['display_title'])->toBe('Voltage table')
         ->and($snapshot['description'])->toBe('Correction tolerance ±0.1 g')
-        ->and($snapshot['duration_format'])->toBe('hh:mm:ss');
+        ->and($snapshot['duration_format'])->toBe('hh:mm:ss')
+        ->and(array_column($snapshot['columns'], 'completion_rule', 'column_key'))->toBe([
+            'standard_value' => 'required',
+            'note' => 'optional',
+            'soak_time' => 'not_configured',
+            'reading' => 'required',
+            'correction' => 'optional',
+        ]);
+});
+
+it('still accepts a historical schema version 1 snapshot without completion rules', function () {
+    $snapshot = [
+        'schema_version' => 1,
+        'duration_format' => 'hh:mm:ss',
+        'test_profile_id' => 1,
+        'test_profile_version_id' => 11,
+        'version_number' => 2,
+        'profile_name' => 'Main Test',
+        'columns' => [[
+            'column_key' => 'standard_value',
+            'column_label' => 'Standard Value',
+            'column_order' => 1,
+            'data_type' => 'numeric',
+            'value_source' => 'engineer',
+            'formula_inputs' => [],
+        ]],
+        'rows' => [[
+            'point_order' => 1,
+            'template_values' => [],
+        ]],
+    ];
+
+    expect(TestTableSnapshotBuilder::isWellformed($snapshot))->toBeTrue();
+});
+
+it('rejects a schema version 2 snapshot whose completion rule is invalid', function () {
+    $snapshot = [
+        'schema_version' => 2,
+        'duration_format' => 'hh:mm:ss',
+        'test_profile_id' => 1,
+        'test_profile_version_id' => 11,
+        'version_number' => 2,
+        'profile_name' => 'Main Test',
+        'columns' => [[
+            'column_key' => 'standard_value',
+            'column_label' => 'Standard Value',
+            'column_order' => 1,
+            'data_type' => 'numeric',
+            'value_source' => 'engineer',
+            'formula_inputs' => [],
+            'completion_rule' => 'mandatory',
+        ]],
+        'rows' => [[
+            'point_order' => 1,
+            'template_values' => [],
+        ]],
+    ];
+
+    expect(TestTableSnapshotBuilder::isWellformed($snapshot))->toBeFalse();
 });
 
 it('rejects a draft version as the source of a new snapshot', function () {

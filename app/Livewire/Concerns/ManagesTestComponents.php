@@ -268,7 +268,7 @@ trait ManagesTestComponents
         $created = $this->instrumentType?->testProfiles->last();
         if ($created !== null) {
             $this->selectProfile((int) $created->test_profile_id);
-            $this->testTableStatus = 'Test table added.';
+        $this->testTableStatus = 'Test table added.';
         }
     }
 

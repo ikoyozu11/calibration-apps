@@ -10,7 +10,7 @@ readonly class ActiveTestTableScopeCandidate
      * A planned calibration scope. Not a persisted CalibrationScope row.
      *
      * @param  array{
-     *     schema_version: 1,
+     *     schema_version: 2,
      *     captured_at: string,
      *     test_profile_id: int,
      *     test_profile_version_id: int,

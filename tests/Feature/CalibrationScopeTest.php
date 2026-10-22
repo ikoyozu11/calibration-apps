@@ -82,7 +82,7 @@ it('maps a pinned version and json snapshot without changing legacy relations', 
     expect($scope->test_profile_id)->toBe(1)
         ->and($scope->test_profile_version_id)->toBe(11)
         ->and($scope->test_table_snapshot)->toBeArray()
-        ->and($scope->test_table_snapshot['schema_version'])->toBe(1)
+        ->and($scope->test_table_snapshot['schema_version'])->toBe(2)
         ->and($scope->test_table_snapshot['test_profile_version_id'])->toBe(11)
         ->and($scope->instrumentType?->type_name)->toBe('Weight')
         ->and($scope->testProfile?->profile_name)->toBe('Main Test')

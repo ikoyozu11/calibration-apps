@@ -172,7 +172,9 @@ it('pins one active test table as one calibration scope', function () {
         ->and($scopes->first()?->test_profile_id)->toBe(1)
         ->and($scopes->first()?->test_profile_version_id)->toBe(11)
         ->and($scopes->first()?->scope_order)->toBe(1)
+        ->and($scopes->first()?->test_table_snapshot['schema_version'])->toBe(2)
         ->and($scopes->first()?->test_table_snapshot['test_profile_version_id'])->toBe(11)
+        ->and($scopes->first()?->test_table_snapshot['columns'][0]['completion_rule'])->toBe('not_configured')
         ->and($scopes->first()?->test_table_snapshot['rows'][0]['template_values']['main_cell']['text_value'])->toBe('main-100');
 });
 

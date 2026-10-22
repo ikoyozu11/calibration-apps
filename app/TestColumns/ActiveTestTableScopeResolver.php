@@ -5,6 +5,8 @@ namespace App\TestColumns;
 use App\Models\InstrumentType;
 use App\Models\TestProfile;
 use App\Models\TestProfileVersion;
+use Illuminate\Database\Connection;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
@@ -21,9 +23,11 @@ class ActiveTestTableScopeResolver
         private TestTableSnapshotBuilder $snapshots,
     ) {}
 
-    public function resolve(InstrumentType $instrumentType): ActiveTestTableScopePlan
+    public function resolve(InstrumentType $instrumentType, ?Connection $connection = null): ActiveTestTableScopePlan
     {
-        $instrumentType = InstrumentType::query()->whereKey($instrumentType->getKey())->first();
+        $connectionName = $this->connectionName($connection, $instrumentType);
+
+        $instrumentType = InstrumentType::on($connectionName)->whereKey($instrumentType->getKey())->first();
 
         if ($instrumentType === null) {
             throw new TestTableSnapshotException('The instrument type does not exist.');
@@ -31,7 +35,7 @@ class ActiveTestTableScopeResolver
 
         $typeId = (int) $instrumentType->instrument_type_id;
 
-        $profiles = TestProfile::query()
+        $profiles = TestProfile::on($connectionName)
             ->where('instrument_type_id', $typeId)
             ->notArchived()
             ->orderBy('test_profile_id')
@@ -55,7 +59,7 @@ class ActiveTestTableScopeResolver
                 continue;
             }
 
-            $snapshot = $this->snapshots->build($active);
+            $snapshot = $this->snapshots->build($active, $connection);
 
             $candidates[] = new ActiveTestTableScopeCandidate(
                 scopeOrder: $scopeOrder,
@@ -76,5 +80,18 @@ class ActiveTestTableScopeResolver
             instrumentTypeId: $typeId,
             candidates: $candidates,
         );
+    }
+
+    private function connectionName(?Connection $connection, Model $model): string
+    {
+        $name = $connection?->getName();
+
+        if (is_string($name) && $name !== '') {
+            return $name;
+        }
+
+        $name = $model->getConnectionName();
+
+        return is_string($name) && $name !== '' ? $name : (string) config('database.default');
     }
 }
