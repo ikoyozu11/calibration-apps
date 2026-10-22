@@ -33,7 +33,7 @@ function createCalibrationSessionConstraintTables(): void
             calibration_id INTEGER PRIMARY KEY,
             instrument_id INTEGER NOT NULL,
             instrument_type_id INTEGER,
-            calibration_provider_id INTEGER NOT NULL,
+            calibration_provider_id INTEGER,
             calibration_number VARCHAR NOT NULL UNIQUE,
             calibration_date DATE,
             calibration_due DATE,
@@ -317,6 +317,26 @@ it('does not let a cancelled session block a later in-progress session', functio
 
     expect(Calibration::query()->cancelled()->count())->toBe(1)
         ->and(Calibration::query()->inProgress()->count())->toBe(1);
+});
+
+it('accepts an in-progress draft without a provider or dates', function () {
+    createCalibrationSessionConstraintTables();
+    insertSessionInstrument(['instrument_id' => 1]);
+    insertSessionType(['instrument_type_id' => 11, 'instrument_id' => 1]);
+
+    DB::table('calibration')->insert(sessionCalibrationAttributes([
+        'calibration_id' => 1,
+        'instrument_id' => 1,
+        'instrument_type_id' => 11,
+        'calibration_provider_id' => null,
+        'calibration_date' => null,
+        'calibration_due' => null,
+        'calibration_number' => 'CAL.VT0001/10/26',
+        'session_status' => Calibration::STATUS_IN_PROGRESS,
+    ]));
+
+    expect(Calibration::query()->findOrFail(1)->calibration_provider_id)->toBeNull()
+        ->and(Calibration::query()->findOrFail(1)->calibration_date)->toBeNull();
 });
 
 it('rejects an in-progress session without an instrument type', function () {

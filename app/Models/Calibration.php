@@ -15,7 +15,7 @@ use Illuminate\Support\Carbon;
  * @property int $calibration_id
  * @property int $instrument_id
  * @property int|null $instrument_type_id
- * @property int $calibration_provider_id
+ * @property int|null $calibration_provider_id
  * @property string $calibration_number
  * @property Carbon|null $calibration_date
  * @property Carbon|null $calibration_due
@@ -29,6 +29,26 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $action_date
  * @property string|null $resume
  * @property int|null $customer_id
+ * @property Carbon|null $completed_at
+ * @property Carbon|null $cancelled_at
+ * @property string|null $cancelled_reason
+ * @property int|null $cancelled_by_user_id
+ * @property string|null $snapshot_instrument_name
+ * @property string|null $snapshot_instrument_type_name
+ * @property string|null $snapshot_brand
+ * @property string|null $snapshot_model
+ * @property string|null $snapshot_serial_number
+ * @property string|null $snapshot_asset_number
+ * @property string|null $snapshot_max_capacity
+ * @property string|null $snapshot_max_capacity_unit
+ * @property string|null $snapshot_resolution
+ * @property string|null $snapshot_resolution_unit
+ * @property int|null $snapshot_location_id
+ * @property int|null $snapshot_detail_location_id
+ * @property string|null $snapshot_location_code
+ * @property string|null $snapshot_location_name
+ * @property string|null $snapshot_detail_location_code
+ * @property string|null $snapshot_detail_location_name
  * @property-read Collection<int, CalibrationActivity> $activities
  * @property-read Collection<int, CalibrationScope> $calibrationScopes
  * @property-read Customer|null $customer
@@ -36,6 +56,14 @@ use Illuminate\Support\Carbon;
  * @property-read Instrument $instrument
  * @property-read InstrumentType|null $instrumentType
  * @property-read Collection<int, CalibrationStandardUsage> $standardUsages
+ * @property-read Collection<int, CalibrationRequirementSnapshot> $requirementSnapshots
+ * @property-read Collection<int, CalibrationEnvironmentParameterSnapshot> $environmentParameterSnapshots
+ * @property-read Collection<int, CalibrationEnvironmentValue> $environmentValues
+ * @property-read Collection<int, CalibrationExternalDocument> $externalDocuments
+ * @property-read CalibrationExternalDocument|null $activeExternalDocument
+ * @property-read Collection<int, CalibrationTestProfileRevision> $testProfileRevisions
+ * @property-read Location|null $snapshotLocation
+ * @property-read DetailLocation|null $snapshotDetailLocation
  */
 class Calibration extends Model
 {
@@ -45,11 +73,20 @@ class Calibration extends Model
 
     public const STATUS_CANCELLED = 'cancelled';
 
+    public const METHOD_INTERNAL = 'INTERNAL';
+
+    public const METHOD_EXTERNAL = 'EXTERNAL';
+
     protected $table = 'calibration';
 
     protected $primaryKey = 'calibration_id';
 
     /**
+     * Historical Calibration History rows omit session_status. The database
+     * column and this model default remain completed so those inserts stay
+     * compatible. Phase 2B Start Calibration must assign session_status =
+     * in_progress explicitly. Do not allocate calibration_number here.
+     *
      * @var array<string, mixed>
      */
     protected $attributes = [
@@ -107,7 +144,11 @@ class Calibration extends Model
         $query->where($query->qualifyColumn('session_status'), self::STATUS_CANCELLED);
     }
 
-    /** @return HasOne<CalibrationEnvironment, $this> */
+    /**
+     * Legacy certificate Temperature/RH row. Canonical values are environmentValues().
+     *
+     * @return HasOne<CalibrationEnvironment, $this>
+     */
     public function environment(): HasOne
     {
         return $this->hasOne(CalibrationEnvironment::class, 'calibration_id', 'calibration_id');
@@ -125,6 +166,61 @@ class Calibration extends Model
         return $this->hasMany(CalibrationStandardUsage::class, 'calibration_id', 'calibration_id');
     }
 
+    /** @return HasMany<CalibrationRequirementSnapshot, $this> */
+    public function requirementSnapshots(): HasMany
+    {
+        return $this->hasMany(CalibrationRequirementSnapshot::class, 'calibration_id', 'calibration_id');
+    }
+
+    /** @return HasMany<CalibrationEnvironmentParameterSnapshot, $this> */
+    public function environmentParameterSnapshots(): HasMany
+    {
+        return $this->hasMany(CalibrationEnvironmentParameterSnapshot::class, 'calibration_id', 'calibration_id')
+            ->orderBy('display_order')
+            ->orderBy('parameter_id');
+    }
+
+    /** @return HasMany<CalibrationEnvironmentValue, $this> */
+    public function environmentValues(): HasMany
+    {
+        return $this->hasMany(CalibrationEnvironmentValue::class, 'calibration_id', 'calibration_id');
+    }
+
+    /** @return HasMany<CalibrationExternalDocument, $this> */
+    public function externalDocuments(): HasMany
+    {
+        return $this->hasMany(CalibrationExternalDocument::class, 'calibration_id', 'calibration_id')
+            ->orderBy('uploaded_at')
+            ->orderBy('document_id');
+    }
+
+    /** @return HasOne<CalibrationExternalDocument, $this> */
+    public function activeExternalDocument(): HasOne
+    {
+        return $this->hasOne(CalibrationExternalDocument::class, 'calibration_id', 'calibration_id')
+            ->where('is_active', true);
+    }
+
+    /** @return HasMany<CalibrationTestProfileRevision, $this> */
+    public function testProfileRevisions(): HasMany
+    {
+        return $this->hasMany(CalibrationTestProfileRevision::class, 'calibration_id', 'calibration_id')
+            ->orderBy('revised_at')
+            ->orderBy('revision_id');
+    }
+
+    /** @return BelongsTo<Location, $this> */
+    public function snapshotLocation(): BelongsTo
+    {
+        return $this->belongsTo(Location::class, 'snapshot_location_id', 'location_id');
+    }
+
+    /** @return BelongsTo<DetailLocation, $this> */
+    public function snapshotDetailLocation(): BelongsTo
+    {
+        return $this->belongsTo(DetailLocation::class, 'snapshot_detail_location_id', 'detail_location_id');
+    }
+
     /**
      * @return array<string, string>
      */
@@ -134,6 +230,8 @@ class Calibration extends Model
             'calibration_date' => 'date',
             'calibration_due' => 'date',
             'action_date' => 'date',
+            'completed_at' => 'datetime',
+            'cancelled_at' => 'datetime',
         ];
     }
 }

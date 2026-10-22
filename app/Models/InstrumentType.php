@@ -26,6 +26,8 @@ use Illuminate\Support\Carbon;
  * @property-read Instrument $instrument
  * @property-read Collection<int, InstrumentTypeStandardAssignment> $standardAssignments
  * @property-read Collection<int, TestProfile> $testProfiles
+ * @property-read Collection<int, InstrumentTypeRequirement> $requirements
+ * @property-read Collection<int, InstrumentTypeEnvironmentParameter> $environmentParameters
  */
 class InstrumentType extends Model
 {
@@ -59,5 +61,19 @@ class InstrumentType extends Model
     public function testProfiles(): HasMany
     {
         return $this->hasMany(TestProfile::class, 'instrument_type_id', 'instrument_type_id');
+    }
+
+    /** @return HasMany<InstrumentTypeRequirement, $this> */
+    public function requirements(): HasMany
+    {
+        return $this->hasMany(InstrumentTypeRequirement::class, 'instrument_type_id', 'instrument_type_id');
+    }
+
+    /** @return HasMany<InstrumentTypeEnvironmentParameter, $this> */
+    public function environmentParameters(): HasMany
+    {
+        return $this->hasMany(InstrumentTypeEnvironmentParameter::class, 'instrument_type_id', 'instrument_type_id')
+            ->orderBy('display_order')
+            ->orderBy('parameter_id');
     }
 }

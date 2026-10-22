@@ -7,6 +7,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
 /**
+ * Legacy certificate Temperature/RH row. Canonical session values are stored
+ * on calibration_environment_value and projected here by PostgreSQL.
+ *
  * @property int $calibration_environment_id
  * @property int $calibration_id
  * @property string|null $temperature_value

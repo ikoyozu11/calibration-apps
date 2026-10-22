@@ -20,6 +20,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon $created_at
  * @property-read Calibration $calibration
  * @property-read Collection<int, CalibrationTestResult> $calibrationTestResults
+ * @property-read Collection<int, CalibrationTestProfileRevision> $testProfileRevisions
  * @property-read InstrumentType $instrumentType
  * @property-read TestProfile|null $testProfile
  * @property-read TestProfileVersion|null $testProfileVersion
@@ -60,6 +61,14 @@ class CalibrationScope extends Model
     public function calibrationTestResults(): HasMany
     {
         return $this->hasMany(CalibrationTestResult::class, 'calibration_scope_id', 'calibration_scope_id');
+    }
+
+    /** @return HasMany<CalibrationTestProfileRevision, $this> */
+    public function testProfileRevisions(): HasMany
+    {
+        return $this->hasMany(CalibrationTestProfileRevision::class, 'calibration_scope_id', 'calibration_scope_id')
+            ->orderBy('revised_at')
+            ->orderBy('revision_id');
     }
 
     /**

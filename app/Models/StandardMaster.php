@@ -18,6 +18,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon $created_at
  * @property Carbon $updated_at
  * @property-read Collection<int, InstrumentTypeStandardAssignment> $assignments
+ * @property-read Collection<int, CalibrationStandardUsage> $calibrationUsages
  */
 class StandardMaster extends Model
 {
@@ -41,6 +42,12 @@ class StandardMaster extends Model
         return $this->hasMany(InstrumentTypeStandardAssignment::class, 'standard_id', 'standard_id')
             ->orderBy('assignment_order')
             ->orderBy('instrument_type_standard_assignment_id');
+    }
+
+    /** @return HasMany<CalibrationStandardUsage, $this> */
+    public function calibrationUsages(): HasMany
+    {
+        return $this->hasMany(CalibrationStandardUsage::class, 'standard_id', 'standard_id');
     }
 
     /**

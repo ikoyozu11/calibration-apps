@@ -9,15 +9,21 @@ use Illuminate\Support\Carbon;
 /**
  * @property int $calibration_standard_usage_id
  * @property int $calibration_id
- * @property int $standard_instrument_id
+ * @property int|null $standard_instrument_id
+ * @property int|null $standard_id
  * @property int $usage_order
  * @property string|null $usage_purpose
  * @property string|null $remarks
  * @property Carbon $created_at
  * @property string|null $standard_range
  * @property string|null $standard_unit
+ * @property string|null $snapshot_standard_code
+ * @property string|null $snapshot_instrument_name
+ * @property string|null $snapshot_type_specification
+ * @property string|null $snapshot_serial_number
  * @property-read Calibration $calibration
- * @property-read Instrument $instrument
+ * @property-read Instrument|null $instrument
+ * @property-read StandardMaster|null $standardMaster
  */
 class CalibrationStandardUsage extends Model
 {
@@ -37,5 +43,11 @@ class CalibrationStandardUsage extends Model
     public function instrument(): BelongsTo
     {
         return $this->belongsTo(Instrument::class, 'standard_instrument_id', 'instrument_id');
+    }
+
+    /** @return BelongsTo<StandardMaster, $this> */
+    public function standardMaster(): BelongsTo
+    {
+        return $this->belongsTo(StandardMaster::class, 'standard_id', 'standard_id');
     }
 }
