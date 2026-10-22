@@ -105,6 +105,27 @@ return [
             'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
 
+        /*
+         | Named Calibration Session staging connection. The database name is a
+         | literal so env('DB_DATABASE'), env('DB_URL'), and env('DATABASE_URL')
+         | cannot retarget it. url is null so Laravel URL parsing cannot override
+         | the database. Do not add read/write hosts; those merge over database.
+         */
+        'pgsql_staging' => [
+            'driver' => 'pgsql',
+            'url' => null,
+            'host' => env('DB_HOST', '127.0.0.1'),
+            'port' => env('DB_PORT', '5432'),
+            'database' => 'calibration_staging_db',
+            'username' => env('DB_USERNAME', 'root'),
+            'password' => env('DB_PASSWORD', ''),
+            'charset' => env('DB_CHARSET', 'utf8'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'search_path' => 'public',
+            'sslmode' => env('DB_SSLMODE', 'prefer'),
+        ],
+
         'sqlsrv' => [
             'driver' => 'sqlsrv',
             'url' => env('DB_URL'),
