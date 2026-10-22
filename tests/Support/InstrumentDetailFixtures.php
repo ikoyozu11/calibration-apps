@@ -52,6 +52,24 @@ function createInstrumentDetailTestTables(bool $withVersioning = true): void
         $table->timestamps();
     });
 
+    Schema::create('calibration_activity_master', function (Blueprint $table): void {
+        $table->id('activity_id');
+        $table->string('activity_code', 30)->unique('uq_calibration_activity_master_code');
+        $table->string('activity_name', 255);
+        $table->boolean('is_active')->default(true);
+        $table->timestamps();
+    });
+
+    Schema::create('calibration_activity', function (Blueprint $table): void {
+        $table->unsignedBigInteger('calibration_activity_id')->primary();
+        $table->unsignedBigInteger('calibration_id');
+        $table->string('activity_type', 100);
+        $table->text('activity_description')->nullable();
+        $table->string('activity_result', 100)->nullable();
+        $table->integer('activity_order');
+        $table->timestamp('created_at');
+    });
+
     Schema::create('instrument_type_standard_assignment', function (Blueprint $table): void {
         $table->id('instrument_type_standard_assignment_id');
         $table->unsignedBigInteger('instrument_type_id');
@@ -133,6 +151,7 @@ function createInstrumentDetailTestTables(bool $withVersioning = true): void
         $table->unsignedSmallInteger('display_scale')->nullable();
         $table->string('formula_code', 20)->nullable();
         $table->text('formula_inputs')->nullable();
+        $table->string('completion_rule', 20)->default('not_configured');
         $table->timestamp('created_at');
     });
 
@@ -153,7 +172,7 @@ function createInstrumentDetailTestTables(bool $withVersioning = true): void
     Schema::create('calibration', function (Blueprint $table): void {
         $table->unsignedBigInteger('calibration_id')->primary();
         $table->unsignedBigInteger('instrument_id');
-        $table->unsignedBigInteger('calibration_provider_id');
+        $table->unsignedBigInteger('calibration_provider_id')->nullable();
         $table->string('calibration_number', 100);
         $table->date('calibration_date')->nullable();
         $table->date('calibration_due')->nullable();
@@ -216,6 +235,18 @@ function insertStandardMaster(int $id, string $code, string $name, ?string $type
         'instrument_name' => $name,
         'type_specification' => $type,
         'serial_number' => $serial,
+        'created_at' => '2026-10-07 09:17:33',
+        'updated_at' => '2026-10-07 09:17:33',
+    ]);
+}
+
+function insertCalibrationActivityMaster(int $id, string $code, string $name, bool $active = true): void
+{
+    DB::table('calibration_activity_master')->insert([
+        'activity_id' => $id,
+        'activity_code' => $code,
+        'activity_name' => $name,
+        'is_active' => $active,
         'created_at' => '2026-10-07 09:17:33',
         'updated_at' => '2026-10-07 09:17:33',
     ]);

@@ -25,7 +25,8 @@ it('reports missing staging schema columns', function () {
         ->and($report['schema_ok'])->toBeFalse()
         ->and($report['ok'])->toBeFalse()
         ->and($report['schema']['calibration.session_status'])->toBeFalse()
-        ->and($report['schema']['test_profile_version'])->toBeFalse();
+        ->and($report['schema']['test_profile_version'])->toBeFalse()
+        ->and($report['schema']['calibration_activity_master'])->toBeFalse();
 });
 
 it('detects the session schema when the tables exist', function () {
@@ -56,6 +57,9 @@ it('detects the session schema when the tables exist', function () {
     Schema::create('standard_master', function (Blueprint $table): void {
         $table->unsignedBigInteger('standard_id')->primary();
     });
+    Schema::create('calibration_activity_master', function (Blueprint $table): void {
+        $table->unsignedBigInteger('activity_id')->primary();
+    });
 
     $report = app(StagingPreflight::class)->inspect();
 
@@ -71,5 +75,6 @@ it('detects the session schema when the tables exist', function () {
         ->and($report['schema']['instrument_type_standard_assignment'])->toBeTrue()
         ->and($report['schema']['instrument_type_standard_assignment.standard_display_name'])->toBeTrue()
         ->and($report['schema']['standard_master'])->toBeTrue()
-        ->and($report['schema']['instrument_type_standard_assignment.standard_id'])->toBeTrue();
+        ->and($report['schema']['instrument_type_standard_assignment.standard_id'])->toBeTrue()
+        ->and($report['schema']['calibration_activity_master'])->toBeTrue();
 });

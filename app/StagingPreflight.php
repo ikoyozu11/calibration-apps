@@ -70,6 +70,7 @@ class StagingPreflight
             'instrument_type_standard_assignment.standard_display_name' => Schema::hasColumn('instrument_type_standard_assignment', 'standard_display_name'),
             'standard_master' => Schema::hasTable('standard_master'),
             'instrument_type_standard_assignment.standard_id' => Schema::hasColumn('instrument_type_standard_assignment', 'standard_id'),
+            'calibration_activity_master' => Schema::hasTable('calibration_activity_master'),
         ];
     }
 }
