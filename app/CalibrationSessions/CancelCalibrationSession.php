@@ -8,19 +8,27 @@ use Illuminate\Database\Connection;
 /**
  * Cancels one in-progress calibration session, once.
  *
- * The caller passes a Laravel users.id. This service stores the app_user_id
- * returned by ResolveDomainActor and does not accept an actor id of its own.
- * It updates only the cancellation columns on that calibration row. It does
- * not call auth(), check completeness, delete related records, or change
- * masters, due dates, or certificates. Staging acquisition stays outside this
- * service and outside Pest. SQLite compiles lockForUpdate() without the
- * PostgreSQL terminal trigger or a real row lock.
+ * Trust boundary: $laravelUserId must be a trusted server-side identity
+ * (future HTTP/Livewire: (int) auth()->id() after auth middleware). This
+ * service does not call auth() and cannot prove that a caller-supplied
+ * integer is the authenticated user — that remains an HTTP-layer duty.
+ *
+ * Authorization (fail-closed, owner-aware):
+ * - ResolveDomainActor on the session Connection → cancelling app_user_id
+ * - ResolveApplicationRole on the Laravel auth DB → Administrator | Engineer | deny
+ * - Engineer may cancel only when started_by_app_user_id matches the actor
+ * - Administrator may cancel any in_progress session (including NULL owner)
+ * - Viewer / roleless / invalid role → forbidden
+ *
+ * Does not accept role strings, isAdmin flags, or browser-supplied owner IDs.
+ * Does not change started_by_app_user_id. Does not grant global session.cancel.
  */
 class CancelCalibrationSession
 {
     public function __construct(
         private CalibrationSessionConnection $sessionConnection,
         private ResolveDomainActor $actors,
+        private AuthorizeCalibrationSessionCancel $authorizeCancel,
     ) {}
 
     public function cancel(
@@ -49,7 +57,15 @@ class CancelCalibrationSession
 
             $this->assertCancellable($calibration);
 
-            $appUserId = $this->actors->resolve($laravelUserId, $connection);
+            $actorAppUserId = $this->actors->resolve($laravelUserId, $connection);
+
+            $startedByAppUserId = $this->nullablePositiveInt($calibration->started_by_app_user_id ?? null);
+
+            $this->authorizeCancel->assertAllowed(
+                $laravelUserId,
+                $startedByAppUserId,
+                $actorAppUserId,
+            );
 
             $updated = $connection->table('calibration')
                 ->where('calibration_id', $calibrationId)
@@ -61,7 +77,7 @@ class CancelCalibrationSession
                     'session_status' => Calibration::STATUS_CANCELLED,
                     'cancelled_at' => now(),
                     'cancelled_reason' => $reason,
-                    'cancelled_by_user_id' => $appUserId,
+                    'cancelled_by_user_id' => $actorAppUserId,
                 ]);
 
             if ($updated !== 1) {
@@ -100,5 +116,22 @@ class CancelCalibrationSession
                 throw CancelCalibrationSessionException::inconsistentCancellation();
             }
         }
+    }
+
+    private function nullablePositiveInt(mixed $value): ?int
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (is_int($value) && $value > 0) {
+            return $value;
+        }
+
+        if (is_string($value) && preg_match('/\A[1-9][0-9]*\z/', $value) === 1) {
+            return (int) $value;
+        }
+
+        return null;
     }
 }

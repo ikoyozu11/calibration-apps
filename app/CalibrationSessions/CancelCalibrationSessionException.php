@@ -36,4 +36,9 @@ class CancelCalibrationSessionException extends RuntimeException implements Shou
     {
         return new self('Cancellation audit data is partially recorded and cannot be repaired.');
     }
+
+    public static function forbidden(): self
+    {
+        return new self('You are not allowed to cancel this calibration session.');
+    }
 }

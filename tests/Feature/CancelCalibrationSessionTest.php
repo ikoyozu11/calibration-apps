@@ -1,10 +1,15 @@
 <?php
 
+use App\Authorization\ApplicationRoleName;
+use App\Authorization\AssignApplicationRole;
 use App\CalibrationSessions\CalibrationSessionConnectionException;
 use App\CalibrationSessions\CancelCalibrationSession;
 use App\CalibrationSessions\CancelCalibrationSessionException;
 use App\CalibrationSessions\ResolveDomainActorException;
 use App\Models\Calibration;
+use App\Models\Role;
+use App\Models\User;
+use App\Models\UserRole;
 use Illuminate\Database\Connection;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -78,6 +83,7 @@ function sessionCancellationConnection(bool $withCalibration = true): Connection
                 cancelled_at TEXT NULL,
                 cancelled_reason TEXT NULL,
                 cancelled_by_user_id INTEGER NULL,
+                started_by_app_user_id INTEGER NULL,
                 snapshot_instrument_name TEXT NULL,
                 snapshot_instrument_type_name TEXT NULL
             )
@@ -93,31 +99,91 @@ function sessionCanceller(): CancelCalibrationSession
 }
 
 /**
- * @param  array{laravel_user_id?: int, app_user_id?: int, status?: string, inactivated_at?: string|null, is_active?: int, map_id?: int}  $actor
+ * Seeds a Laravel auth identity (default connection) plus domain actor mapping
+ * on the session Connection. Returns the trusted laravel users.id for Cancel.
+ *
+ * @param  array{app_user_id?: int, status?: string, inactivated_at?: string|null, is_active?: int, map_id?: int}  $actor
+ * @return array{laravel_user_id: int, app_user_id: int}
  */
-function seedCancellationActor(Connection $connection, array $actor = []): void
-{
-    $connection->table('users')->insert(['id' => $actor['laravel_user_id'] ?? 5]);
-    $connection->table('app_user')->insert([
-        'app_user_id' => $actor['app_user_id'] ?? 90,
-        'is_active' => $actor['is_active'] ?? 1,
-    ]);
+function seedCancellationActor(
+    Connection $connection,
+    array $actor = [],
+    ?ApplicationRoleName $role = ApplicationRoleName::Engineer,
+): array {
+    $user = User::factory()->create();
+    $laravelUserId = (int) $user->id;
+    $appUserId = $actor['app_user_id'] ?? 90;
+
+    if ($role !== null) {
+        app(AssignApplicationRole::class)->assign($laravelUserId, $role);
+    }
+
+    $connection->table('users')->insert(['id' => $laravelUserId]);
+
+    if (! $connection->table('app_user')->where('app_user_id', $appUserId)->exists()) {
+        $connection->table('app_user')->insert([
+            'app_user_id' => $appUserId,
+            'is_active' => $actor['is_active'] ?? 1,
+        ]);
+    } elseif (array_key_exists('is_active', $actor)) {
+        $connection->table('app_user')->where('app_user_id', $appUserId)->update([
+            'is_active' => $actor['is_active'],
+        ]);
+    }
+
     $connection->table('user_app_user_map')->insert([
-        'user_app_user_map_id' => $actor['map_id'] ?? 1,
-        'laravel_user_id' => $actor['laravel_user_id'] ?? 5,
-        'app_user_id' => $actor['app_user_id'] ?? 90,
+        'user_app_user_map_id' => $actor['map_id'] ?? $laravelUserId,
+        'laravel_user_id' => $laravelUserId,
+        'app_user_id' => $appUserId,
         'status' => $actor['status'] ?? 'active',
         'created_at' => '2026-10-21 07:00:00',
         'inactivated_at' => $actor['inactivated_at'] ?? null,
     ]);
+
+    return [
+        'laravel_user_id' => $laravelUserId,
+        'app_user_id' => $appUserId,
+    ];
 }
 
 /**
  * @param  array<string, mixed>  $overrides
+ * @return array{laravel_user_id: int, app_user_id: int}
  */
-function seedCancellableSession(Connection $connection, array $overrides = []): void
-{
-    seedCancellationActor($connection);
+function seedCancellableSession(
+    Connection $connection,
+    array $overrides = [],
+    ?ApplicationRoleName $role = ApplicationRoleName::Engineer,
+): array {
+    $ownerAppUserId = array_key_exists('started_by_app_user_id', $overrides)
+        ? $overrides['started_by_app_user_id']
+        : ($overrides['owner_app_user_id'] ?? 90);
+
+    unset($overrides['owner_app_user_id']);
+
+    $identity = seedCancellationActor(
+        $connection,
+        [
+            'app_user_id' => is_int($ownerAppUserId) ? $ownerAppUserId : 90,
+            'is_active' => $overrides['actor_is_active'] ?? 1,
+            'status' => $overrides['actor_status'] ?? 'active',
+            'inactivated_at' => $overrides['actor_inactivated_at'] ?? null,
+            'map_id' => $overrides['actor_map_id'] ?? null,
+        ],
+        $role,
+    );
+
+    unset(
+        $overrides['actor_is_active'],
+        $overrides['actor_status'],
+        $overrides['actor_inactivated_at'],
+        $overrides['actor_map_id'],
+    );
+
+    if (! array_key_exists('started_by_app_user_id', $overrides)) {
+        $overrides['started_by_app_user_id'] = $identity['app_user_id'];
+    }
+
     $connection->table('calibration')->insert(array_merge([
         'calibration_id' => 40,
         'session_status' => Calibration::STATUS_IN_PROGRESS,
@@ -134,6 +200,8 @@ function seedCancellableSession(Connection $connection, array $overrides = []): 
         'snapshot_instrument_name' => 'Gauge A',
         'snapshot_instrument_type_name' => 'Pressure',
     ], $overrides));
+
+    return $identity;
 }
 
 function cancellationRow(Connection $connection): ?object
@@ -146,7 +214,7 @@ function cancellationSql(Connection $connection): string
     return strtolower(implode("\n", array_column($connection->getQueryLog(), 'query')));
 }
 
-function cancelCalibration(Connection $connection, string $reason = 'instrument withdrawn', int $laravelUserId = 5): void
+function cancelCalibration(Connection $connection, string $reason, int $laravelUserId): void
 {
     sessionCanceller()->cancel(40, $reason, $laravelUserId, $connection);
 }
@@ -347,9 +415,17 @@ function seedCancellationChildren(Connection $connection): void
     ]);
 }
 
+/*
+ * Caller-ID authenticity is a separate trusted-boundary requirement:
+ * CancelCalibrationSession trusts $laravelUserId as already authenticated
+ * server-side identity. These tests seed User::factory() IDs and pass them
+ * directly — they do not prove an HTTP layer cannot spoof request payloads.
+ * Future HTTP/Livewire must use (int) auth()->id() after auth middleware.
+ */
+
 it('cancels an incomplete internal session and stores the domain actor', function () {
     $connection = sessionCancellationConnection();
-    seedCancellableSession($connection);
+    $identity = seedCancellableSession($connection);
     $default = DB::connection();
     $connection->flushQueryLog();
     $connection->enableQueryLog();
@@ -357,7 +433,7 @@ it('cancels an incomplete internal session and stores the domain actor', functio
     $default->enableQueryLog();
     $reason = str_repeat('withdrawn ', 40);
 
-    cancelCalibration($connection, '  '.$reason.'  ');
+    cancelCalibration($connection, '  '.$reason.'  ', $identity['laravel_user_id']);
 
     $row = cancellationRow($connection);
     $sql = cancellationSql($connection);
@@ -374,7 +450,8 @@ it('cancels an incomplete internal session and stores the domain actor', functio
         ->and($row->session_status)->toBe('cancelled')
         ->and($row->cancelled_at)->not->toBeNull()
         ->and($row->cancelled_reason)->toBe(trim($reason))
-        ->and($row->cancelled_by_user_id)->toBe(90)
+        ->and($row->cancelled_by_user_id)->toBe($identity['app_user_id'])
+        ->and($row->started_by_app_user_id)->toBe($identity['app_user_id'])
         ->and($row->calibration_number)->toBe('CAL.VT0007/10/26')
         ->and($row->calibration_method)->toBe('INTERNAL')
         ->and($row->instrument_type_id)->toBe(12)
@@ -396,13 +473,15 @@ it('cancels an incomplete internal session and stores the domain actor', functio
         ->and(strtolower($updates[0]['query']))->not->toContain('calibration_number')
         ->and(strtolower($updates[0]['query']))->not->toContain('certificate_number')
         ->and(strtolower($updates[0]['query']))->not->toContain('completed_at')
+        ->and(strtolower($updates[0]['query']))->not->toContain('started_by_app_user_id')
         ->and($sql)->not->toContain('insert')
         ->and($sql)->not->toContain('delete')
         ->and($sql)->not->toContain('certificate')
         ->and($sql)->not->toContain('notification_log')
         ->and($sql)->not->toContain('from "instrument"')
         ->and($sql)->not->toContain('from "instrument_type"')
-        ->and(cancellationSql($default))->not->toContain('calibration')
+        ->and(cancellationSql($default))->not->toContain('from "calibration"')
+        ->and(cancellationSql($default))->not->toContain('user_app_user_map')
         ->and(Schema::connection('sqlite')->hasTable('calibration'))->toBeFalse()
         ->and(config('database.default'))->toBe('sqlite')
         ->and(DB::getDefaultConnection())->toBe('sqlite')
@@ -411,29 +490,30 @@ it('cancels an incomplete internal session and stores the domain actor', functio
 
 it('cancels an external session without a vendor document', function () {
     $connection = sessionCancellationConnection();
-    seedCancellableSession($connection, [
+    $identity = seedCancellableSession($connection, [
         'calibration_method' => Calibration::METHOD_EXTERNAL,
     ]);
 
-    cancelCalibration($connection, 'vendor work stopped');
+    cancelCalibration($connection, 'vendor work stopped', $identity['laravel_user_id']);
 
     $row = cancellationRow($connection);
 
     expect($row->session_status)->toBe('cancelled')
         ->and($row->calibration_method)->toBe('EXTERNAL')
         ->and($row->cancelled_reason)->toBe('vendor work stopped')
-        ->and($row->cancelled_by_user_id)->toBe(90)
+        ->and($row->cancelled_by_user_id)->toBe($identity['app_user_id'])
+        ->and($row->started_by_app_user_id)->toBe($identity['app_user_id'])
         ->and($row->completed_at)->toBeNull();
 });
 
 it('leaves related records unchanged when an incomplete session is cancelled', function () {
     $connection = sessionCancellationConnection();
-    seedCancellableSession($connection);
+    $identity = seedCancellableSession($connection);
     seedCancellationChildren($connection);
     $connection->flushQueryLog();
     $connection->enableQueryLog();
 
-    cancelCalibration($connection, 'requirements were never finished');
+    cancelCalibration($connection, 'requirements were never finished', $identity['laravel_user_id']);
 
     $sql = cancellationSql($connection);
 
@@ -471,12 +551,203 @@ it('leaves related records unchanged when an incomplete session is cancelled', f
         ->and($sql)->not->toContain('from "instrument_type"');
 });
 
+it('allows an Administrator to cancel their own in-progress session', function () {
+    $connection = sessionCancellationConnection();
+    $identity = seedCancellableSession($connection, [], ApplicationRoleName::Administrator);
+
+    cancelCalibration($connection, 'admin own cancel', $identity['laravel_user_id']);
+
+    $row = cancellationRow($connection);
+
+    expect($row->session_status)->toBe('cancelled')
+        ->and($row->cancelled_by_user_id)->toBe($identity['app_user_id'])
+        ->and($row->started_by_app_user_id)->toBe($identity['app_user_id'])
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('allows an Administrator to cancel another actor owned session', function () {
+    $connection = sessionCancellationConnection();
+    $owner = seedCancellationActor($connection, ['app_user_id' => 90], ApplicationRoleName::Engineer);
+    $admin = seedCancellationActor($connection, ['app_user_id' => 91], ApplicationRoleName::Administrator);
+    $connection->table('calibration')->insert([
+        'calibration_id' => 40,
+        'session_status' => Calibration::STATUS_IN_PROGRESS,
+        'calibration_number' => 'CAL.VT0007/10/26',
+        'calibration_method' => Calibration::METHOD_INTERNAL,
+        'instrument_type_id' => 12,
+        'calibration_date' => '2026-10-22',
+        'calibration_due' => '2027-10-22',
+        'completed_at' => null,
+        'certificate_number' => 'CERT-KEEP',
+        'cancelled_at' => null,
+        'cancelled_reason' => null,
+        'cancelled_by_user_id' => null,
+        'started_by_app_user_id' => $owner['app_user_id'],
+        'snapshot_instrument_name' => 'Gauge A',
+        'snapshot_instrument_type_name' => 'Pressure',
+    ]);
+
+    cancelCalibration($connection, 'admin cancels other', $admin['laravel_user_id']);
+
+    $row = cancellationRow($connection);
+
+    expect($row->session_status)->toBe('cancelled')
+        ->and($row->cancelled_by_user_id)->toBe($admin['app_user_id'])
+        ->and($row->started_by_app_user_id)->toBe($owner['app_user_id']);
+});
+
+it('allows an Administrator to cancel a legacy NULL-owner session', function () {
+    $connection = sessionCancellationConnection();
+    $admin = seedCancellableSession($connection, [
+        'started_by_app_user_id' => null,
+    ], ApplicationRoleName::Administrator);
+
+    cancelCalibration($connection, 'admin legacy cancel', $admin['laravel_user_id']);
+
+    $row = cancellationRow($connection);
+
+    expect($row->session_status)->toBe('cancelled')
+        ->and($row->cancelled_by_user_id)->toBe($admin['app_user_id'])
+        ->and($row->started_by_app_user_id)->toBeNull();
+});
+
+it('allows an Engineer to cancel their own in-progress session', function () {
+    $connection = sessionCancellationConnection();
+    $identity = seedCancellableSession($connection, [], ApplicationRoleName::Engineer);
+
+    cancelCalibration($connection, 'engineer own cancel', $identity['laravel_user_id']);
+
+    $row = cancellationRow($connection);
+
+    expect($row->session_status)->toBe('cancelled')
+        ->and($row->cancelled_by_user_id)->toBe($identity['app_user_id'])
+        ->and($row->started_by_app_user_id)->toBe($identity['app_user_id']);
+});
+
+it('denies an Engineer cancelling another Engineer owned session', function () {
+    $connection = sessionCancellationConnection();
+    $owner = seedCancellationActor($connection, ['app_user_id' => 90], ApplicationRoleName::Engineer);
+    $other = seedCancellationActor($connection, ['app_user_id' => 91], ApplicationRoleName::Engineer);
+    $connection->table('calibration')->insert([
+        'calibration_id' => 40,
+        'session_status' => Calibration::STATUS_IN_PROGRESS,
+        'calibration_number' => 'CAL.VT0007/10/26',
+        'calibration_method' => Calibration::METHOD_INTERNAL,
+        'instrument_type_id' => 12,
+        'calibration_date' => '2026-10-22',
+        'calibration_due' => '2027-10-22',
+        'completed_at' => null,
+        'certificate_number' => 'CERT-KEEP',
+        'cancelled_at' => null,
+        'cancelled_reason' => null,
+        'cancelled_by_user_id' => null,
+        'started_by_app_user_id' => $owner['app_user_id'],
+        'snapshot_instrument_name' => 'Gauge A',
+        'snapshot_instrument_type_name' => 'Pressure',
+    ]);
+
+    expect(fn () => cancelCalibration($connection, 'not my session', $other['laravel_user_id']))
+        ->toThrow(CancelCalibrationSessionException::class, 'You are not allowed to cancel this calibration session.');
+
+    $row = cancellationRow($connection);
+
+    expect($row->session_status)->toBe('in_progress')
+        ->and($row->cancelled_at)->toBeNull()
+        ->and($row->cancelled_reason)->toBeNull()
+        ->and($row->cancelled_by_user_id)->toBeNull()
+        ->and($row->started_by_app_user_id)->toBe($owner['app_user_id']);
+});
+
+it('denies an Engineer cancelling an Administrator-owned session', function () {
+    $connection = sessionCancellationConnection();
+    $admin = seedCancellationActor($connection, ['app_user_id' => 90], ApplicationRoleName::Administrator);
+    $engineer = seedCancellationActor($connection, ['app_user_id' => 91], ApplicationRoleName::Engineer);
+    $connection->table('calibration')->insert([
+        'calibration_id' => 40,
+        'session_status' => Calibration::STATUS_IN_PROGRESS,
+        'calibration_number' => 'CAL.VT0007/10/26',
+        'calibration_method' => Calibration::METHOD_INTERNAL,
+        'instrument_type_id' => 12,
+        'calibration_date' => '2026-10-22',
+        'calibration_due' => '2027-10-22',
+        'completed_at' => null,
+        'certificate_number' => 'CERT-KEEP',
+        'cancelled_at' => null,
+        'cancelled_reason' => null,
+        'cancelled_by_user_id' => null,
+        'started_by_app_user_id' => $admin['app_user_id'],
+        'snapshot_instrument_name' => 'Gauge A',
+        'snapshot_instrument_type_name' => 'Pressure',
+    ]);
+
+    expect(fn () => cancelCalibration($connection, 'not admin session', $engineer['laravel_user_id']))
+        ->toThrow(CancelCalibrationSessionException::class, 'You are not allowed to cancel this calibration session.');
+
+    expect(cancellationRow($connection)->session_status)->toBe('in_progress')
+        ->and(cancellationRow($connection)->cancelled_at)->toBeNull()
+        ->and(cancellationRow($connection)->started_by_app_user_id)->toBe($admin['app_user_id']);
+});
+
+it('denies an Engineer cancelling a legacy NULL-owner session', function () {
+    $connection = sessionCancellationConnection();
+    $engineer = seedCancellableSession($connection, [
+        'started_by_app_user_id' => null,
+    ], ApplicationRoleName::Engineer);
+
+    expect(fn () => cancelCalibration($connection, 'legacy no owner', $engineer['laravel_user_id']))
+        ->toThrow(CancelCalibrationSessionException::class, 'You are not allowed to cancel this calibration session.');
+
+    expect(cancellationRow($connection)->session_status)->toBe('in_progress')
+        ->and(cancellationRow($connection)->cancelled_at)->toBeNull()
+        ->and(cancellationRow($connection)->started_by_app_user_id)->toBeNull();
+});
+
+it('denies a Viewer from cancelling any session', function () {
+    $connection = sessionCancellationConnection();
+    $viewer = seedCancellableSession($connection, [], ApplicationRoleName::Viewer);
+
+    expect(fn () => cancelCalibration($connection, 'viewer attempt', $viewer['laravel_user_id']))
+        ->toThrow(CancelCalibrationSessionException::class, 'You are not allowed to cancel this calibration session.');
+
+    expect(cancellationRow($connection)->session_status)->toBe('in_progress')
+        ->and(cancellationRow($connection)->cancelled_at)->toBeNull()
+        ->and(cancellationRow($connection)->cancelled_by_user_id)->toBeNull()
+        ->and(cancellationRow($connection)->started_by_app_user_id)->toBe($viewer['app_user_id']);
+});
+
+it('denies a roleless user from cancelling', function () {
+    $connection = sessionCancellationConnection();
+    $identity = seedCancellableSession($connection, [], null);
+
+    expect(fn () => cancelCalibration($connection, 'roleless attempt', $identity['laravel_user_id']))
+        ->toThrow(CancelCalibrationSessionException::class, 'You are not allowed to cancel this calibration session.');
+
+    expect(cancellationRow($connection)->session_status)->toBe('in_progress')
+        ->and(cancellationRow($connection)->cancelled_at)->toBeNull();
+});
+
+it('denies an invalid application role from cancelling', function () {
+    $connection = sessionCancellationConnection();
+    $identity = seedCancellableSession($connection, [], null);
+    $invalid = Role::query()->create(['name' => 'Contractor']);
+    UserRole::query()->create([
+        'laravel_user_id' => $identity['laravel_user_id'],
+        'role_id' => $invalid->id,
+    ]);
+
+    expect(fn () => cancelCalibration($connection, 'invalid role attempt', $identity['laravel_user_id']))
+        ->toThrow(CancelCalibrationSessionException::class, 'You are not allowed to cancel this calibration session.');
+
+    expect(cancellationRow($connection)->session_status)->toBe('in_progress')
+        ->and(cancellationRow($connection)->cancelled_at)->toBeNull();
+});
+
 it('rejects a blank cancellation reason before reading the session', function (string $reason) {
     $connection = sessionCancellationConnection();
-    seedCancellableSession($connection);
+    $identity = seedCancellableSession($connection);
     $connection->enableQueryLog();
 
-    expect(fn () => cancelCalibration($connection, $reason))
+    expect(fn () => cancelCalibration($connection, $reason, $identity['laravel_user_id']))
         ->toThrow(CancelCalibrationSessionException::class, 'The cancellation reason is required.');
 
     expect(cancellationSql($connection))->not->toContain('from "calibration"')
@@ -489,10 +760,10 @@ it('rejects a blank cancellation reason before reading the session', function (s
 
 it('rejects a calibration id below 1 before reading the session', function (int $calibrationId) {
     $connection = sessionCancellationConnection();
-    seedCancellableSession($connection);
+    $identity = seedCancellableSession($connection);
     $connection->enableQueryLog();
 
-    expect(fn () => sessionCanceller()->cancel($calibrationId, 'needed', 5, $connection))
+    expect(fn () => sessionCanceller()->cancel($calibrationId, 'needed', $identity['laravel_user_id'], $connection))
         ->toThrow(CancelCalibrationSessionException::class, 'The calibration id must be at least 1.');
 
     expect(cancellationSql($connection))->not->toContain('from "calibration"')
@@ -504,20 +775,20 @@ it('rejects a calibration id below 1 before reading the session', function (int 
 
 it('rejects a missing calibration', function () {
     $connection = sessionCancellationConnection();
-    seedCancellationActor($connection);
+    $identity = seedCancellationActor($connection);
 
-    expect(fn () => cancelCalibration($connection))
+    expect(fn () => cancelCalibration($connection, 'missing session', $identity['laravel_user_id']))
         ->toThrow(CancelCalibrationSessionException::class, 'The calibration does not exist.');
 });
 
 it('rejects a completed session', function () {
     $connection = sessionCancellationConnection();
-    seedCancellableSession($connection, [
+    $identity = seedCancellableSession($connection, [
         'session_status' => Calibration::STATUS_COMPLETED,
         'completed_at' => '2026-10-22 09:00:00',
     ]);
 
-    expect(fn () => cancelCalibration($connection))
+    expect(fn () => cancelCalibration($connection, 'too late', $identity['laravel_user_id']))
         ->toThrow(CancelCalibrationSessionException::class, 'Only an in-progress calibration session can be cancelled.');
 
     $row = cancellationRow($connection);
@@ -526,56 +797,57 @@ it('rejects a completed session', function () {
         ->and($row->completed_at)->toBe('2026-10-22 09:00:00')
         ->and($row->cancelled_at)->toBeNull()
         ->and($row->cancelled_reason)->toBeNull()
-        ->and($row->cancelled_by_user_id)->toBeNull();
+        ->and($row->cancelled_by_user_id)->toBeNull()
+        ->and($row->started_by_app_user_id)->toBe($identity['app_user_id']);
 });
 
 it('rejects an unsupported session status', function () {
     $connection = sessionCancellationConnection();
-    seedCancellableSession($connection, [
+    $identity = seedCancellableSession($connection, [
         'session_status' => 'archived',
     ]);
 
-    expect(fn () => cancelCalibration($connection))
+    expect(fn () => cancelCalibration($connection, 'archived', $identity['laravel_user_id']))
         ->toThrow(CancelCalibrationSessionException::class, 'Only an in-progress calibration session can be cancelled.');
 
     expect(cancellationRow($connection)->session_status)->toBe('archived')
         ->and(cancellationRow($connection)->cancelled_at)->toBeNull();
 });
 
-it('rejects a second cancellation and preserves the first audit', function (string $reason, int $laravelUserId) {
+it('rejects a second cancellation and preserves the first audit', function (string $variant) {
     $connection = sessionCancellationConnection();
-    seedCancellableSession($connection);
-    cancelCalibration($connection, 'instrument withdrawn');
-    $first = cancellationRow($connection);
-    seedCancellationActor($connection, [
-        'laravel_user_id' => 6,
-        'app_user_id' => 91,
-        'map_id' => 2,
-    ]);
+    $first = seedCancellableSession($connection);
+    cancelCalibration($connection, 'instrument withdrawn', $first['laravel_user_id']);
+    $before = cancellationRow($connection);
+    $second = seedCancellationActor($connection, ['app_user_id' => 91], ApplicationRoleName::Administrator);
 
-    expect(fn () => cancelCalibration($connection, $reason, $laravelUserId))
+    $callerId = $variant === 'different actor' ? $second['laravel_user_id'] : $first['laravel_user_id'];
+    $reason = $variant === 'different reason' ? 'a later note' : 'instrument withdrawn';
+
+    expect(fn () => cancelCalibration($connection, $reason, $callerId))
         ->toThrow(CancelCalibrationSessionException::class, 'This calibration session has already been cancelled.');
 
-    $second = cancellationRow($connection);
+    $after = cancellationRow($connection);
 
-    expect($second->session_status)->toBe('cancelled')
-        ->and($second->cancelled_at)->toBe($first->cancelled_at)
-        ->and($second->cancelled_reason)->toBe('instrument withdrawn')
-        ->and($second->cancelled_by_user_id)->toBe(90)
-        ->and($second->calibration_number)->toBe('CAL.VT0007/10/26');
+    expect($after->session_status)->toBe('cancelled')
+        ->and($after->cancelled_at)->toBe($before->cancelled_at)
+        ->and($after->cancelled_reason)->toBe('instrument withdrawn')
+        ->and($after->cancelled_by_user_id)->toBe($first['app_user_id'])
+        ->and($after->started_by_app_user_id)->toBe($first['app_user_id'])
+        ->and($after->calibration_number)->toBe('CAL.VT0007/10/26');
 })->with([
-    'identical input' => ['instrument withdrawn', 5],
-    'different reason' => ['a later note', 5],
-    'different actor' => ['instrument withdrawn', 6],
+    'identical input',
+    'different reason',
+    'different actor',
 ]);
 
 it('rejects a partial cancellation audit without repairing it', function () {
     $connection = sessionCancellationConnection();
-    seedCancellableSession($connection, [
+    $identity = seedCancellableSession($connection, [
         'cancelled_at' => '2026-10-22 08:15:00',
     ]);
 
-    expect(fn () => cancelCalibration($connection, 'repair the missing reason'))
+    expect(fn () => cancelCalibration($connection, 'repair the missing reason', $identity['laravel_user_id']))
         ->toThrow(CancelCalibrationSessionException::class, 'Cancellation audit data is partially recorded and cannot be repaired.');
 
     $row = cancellationRow($connection);
@@ -583,18 +855,19 @@ it('rejects a partial cancellation audit without repairing it', function () {
     expect($row->session_status)->toBe('in_progress')
         ->and($row->cancelled_at)->toBe('2026-10-22 08:15:00')
         ->and($row->cancelled_reason)->toBeNull()
-        ->and($row->cancelled_by_user_id)->toBeNull();
+        ->and($row->cancelled_by_user_id)->toBeNull()
+        ->and($row->started_by_app_user_id)->toBe($identity['app_user_id']);
 });
 
 it('rolls back when the actor mapping is inactive', function () {
     $connection = sessionCancellationConnection();
-    seedCancellableSession($connection);
+    $identity = seedCancellableSession($connection);
     $connection->table('user_app_user_map')->update([
         'status' => 'inactive',
         'inactivated_at' => '2026-10-21 08:00:00',
     ]);
 
-    expect(fn () => cancelCalibration($connection))
+    expect(fn () => cancelCalibration($connection, 'inactive map', $identity['laravel_user_id']))
         ->toThrow(ResolveDomainActorException::class, 'The domain actor mapping is inactive.');
 
     $row = cancellationRow($connection);
@@ -607,11 +880,27 @@ it('rolls back when the actor mapping is inactive', function () {
 
 it('rolls back when the mapped app user is inactive', function () {
     $connection = sessionCancellationConnection();
-    seedCancellableSession($connection);
+    $identity = seedCancellableSession($connection);
     $connection->table('app_user')->update(['is_active' => 0]);
 
-    expect(fn () => cancelCalibration($connection))
+    expect(fn () => cancelCalibration($connection, 'inactive app user', $identity['laravel_user_id']))
         ->toThrow(ResolveDomainActorException::class, 'The mapped app user is inactive.');
+
+    $row = cancellationRow($connection);
+
+    expect($row->session_status)->toBe('in_progress')
+        ->and($row->cancelled_at)->toBeNull()
+        ->and($row->cancelled_reason)->toBeNull()
+        ->and($row->cancelled_by_user_id)->toBeNull();
+});
+
+it('rolls back when the domain actor mapping is missing', function () {
+    $connection = sessionCancellationConnection();
+    $identity = seedCancellableSession($connection);
+    $connection->table('user_app_user_map')->delete();
+
+    expect(fn () => cancelCalibration($connection, 'missing map', $identity['laravel_user_id']))
+        ->toThrow(ResolveDomainActorException::class);
 
     $row = cancellationRow($connection);
 
@@ -623,9 +912,9 @@ it('rolls back when the mapped app user is inactive', function () {
 
 it('propagates a missing calibration table as a query exception', function () {
     $connection = sessionCancellationConnection(false);
-    seedCancellationActor($connection);
+    $identity = seedCancellationActor($connection);
 
-    expect(fn () => cancelCalibration($connection))
+    expect(fn () => cancelCalibration($connection, 'no table', $identity['laravel_user_id']))
         ->toThrow(QueryException::class);
 
     expect(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
@@ -633,13 +922,13 @@ it('propagates a missing calibration table as a query exception', function () {
 
 it('propagates an unsafe connection exception before querying the session', function () {
     $connection = sessionCancellationConnection();
-    seedCancellableSession($connection);
+    $identity = seedCancellableSession($connection);
     $unsafe = Mockery::mock(Connection::class);
     $unsafe->shouldReceive('getDriverName')->andReturn('mysql');
     $unsafe->shouldNotReceive('table');
     $unsafe->shouldNotReceive('transaction');
 
-    expect(fn () => sessionCanceller()->cancel(40, 'needed', 5, $unsafe))
+    expect(fn () => sessionCanceller()->cancel(40, 'needed', $identity['laravel_user_id'], $unsafe))
         ->toThrow(CalibrationSessionConnectionException::class, 'Calibration session workflow requires an explicit safe database connection.');
 
     expect(cancellationRow($connection)->session_status)->toBe('in_progress')
@@ -649,7 +938,7 @@ it('propagates an unsafe connection exception before querying the session', func
 
 it('cancels through the supplied connection when its name is empty or unregistered', function (string $connectionName) {
     $connection = sessionCancellationConnection();
-    seedCancellableSession($connection);
+    $identity = seedCancellableSession($connection);
     $config = new ReflectionProperty($connection, 'config');
     $settings = $config->getValue($connection);
     $settings['name'] = $connectionName;
@@ -660,10 +949,10 @@ it('cancels through the supplied connection when its name is empty or unregister
     $default->flushQueryLog();
     $default->enableQueryLog();
 
-    cancelCalibration($connection);
+    cancelCalibration($connection, 'unnamed connection', $identity['laravel_user_id']);
 
     expect($connection->getName())->toBe($connectionName)
-        ->and(cancellationRow($connection)->cancelled_by_user_id)->toBe(90)
+        ->and(cancellationRow($connection)->cancelled_by_user_id)->toBe($identity['app_user_id'])
         ->and(cancellationRow($connection)->session_status)->toBe('cancelled')
         ->and(cancellationSql($connection))->toContain('update "calibration"')
         ->and(cancellationSql($default))->not->toContain('from "calibration"')
