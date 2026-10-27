@@ -2,6 +2,7 @@
 
 use App\Activities\CalibrationActivityMasterException;
 use App\Activities\CalibrationActivityMasterWriter;
+use App\Authorization\AuthorizesMasterDataWrites;
 use App\Models\CalibrationActivityMaster;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Livewire\Component;
@@ -9,6 +10,7 @@ use Livewire\WithPagination;
 
 new class extends Component
 {
+    use AuthorizesMasterDataWrites;
     use WithPagination;
 
     public string $search = '';
@@ -30,6 +32,8 @@ new class extends Component
 
     public function startAdding(): void
     {
+        $this->authorizeMasterDataManage();
+
         $this->adding = true;
         $this->editingActivityId = null;
         $this->removingActivityId = null;
@@ -48,6 +52,8 @@ new class extends Component
 
     public function saveActivity(): void
     {
+        $this->authorizeMasterDataManage();
+
         $this->validate([
             'activityName' => ['required', 'string', 'max:'.CalibrationActivityMasterWriter::NAME_MAX],
         ], [
@@ -76,6 +82,8 @@ new class extends Component
 
     public function startEditing(int $activityId): void
     {
+        $this->authorizeMasterDataManage();
+
         $activity = CalibrationActivityMaster::query()->find($activityId);
 
         if ($activity === null) {
@@ -93,6 +101,8 @@ new class extends Component
 
     public function deactivateActivity(int $activityId): void
     {
+        $this->authorizeMasterDataManage();
+
         try {
             app(CalibrationActivityMasterWriter::class)->deactivate($activityId);
         } catch (CalibrationActivityMasterException $exception) {
@@ -107,6 +117,8 @@ new class extends Component
 
     public function activateActivity(int $activityId): void
     {
+        $this->authorizeMasterDataManage();
+
         try {
             app(CalibrationActivityMasterWriter::class)->activate($activityId);
         } catch (CalibrationActivityMasterException $exception) {
@@ -121,6 +133,8 @@ new class extends Component
 
     public function askToRemove(int $activityId): void
     {
+        $this->authorizeMasterDataManage();
+
         $this->removingActivityId = $activityId;
         $this->adding = false;
         $this->editingActivityId = null;
@@ -129,6 +143,8 @@ new class extends Component
 
     public function removeActivity(): void
     {
+        $this->authorizeMasterDataManage();
+
         if ($this->removingActivityId === null) {
             return;
         }
@@ -180,7 +196,9 @@ new class extends Component
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
                     <label for="activity-master-search" class="sr-only">Search by name or activity code</label>
                     <input id="activity-master-search" type="search" wire:model.live.debounce.300ms="search" maxlength="100" class="ui-input" placeholder="Name or activity code">
-                    <button type="button" wire:click="startAdding" class="ui-button-outline">Add New Activity</button>
+                    @can('masterdata.manage')
+                        <button type="button" wire:click="startAdding" class="ui-button-outline">Add New Activity</button>
+                    @endcan
                 </div>
             </div>
 

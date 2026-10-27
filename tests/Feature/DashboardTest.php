@@ -85,7 +85,7 @@ beforeEach(function () {
     Model::preventLazyLoading();
 });
 
-it('shows the dashboard at the root without authentication', function () {
+it('shows the dashboard at the root for authenticated users', function () {
     createDashboardTestTables();
 
     $response = $this->get(route('home'));

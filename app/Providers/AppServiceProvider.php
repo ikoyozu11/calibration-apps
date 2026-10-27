@@ -2,9 +2,16 @@
 
 namespace App\Providers;
 
+use App\Authorization\ApplicationCapability;
+use App\Authorization\LiveDatabaseIdentity;
+use App\Authorization\ResolveApplicationRole;
+use App\Authorization\ResolvesLiveDatabaseIdentity;
+use App\Authorization\StagingAuthConnection;
 use App\CalibrationSessions\CalibrationNumberAllocator;
 use App\CalibrationSessions\PostgresCalibrationNumberAllocator;
 use App\Database\DestructiveCommandGuard;
+use App\Http\Middleware\EnsureApplicationRole;
+use App\Models\User;
 use App\TestColumns\PostgresTestColumnWriter;
 use App\TestColumns\PostgresTestPointValueWriter;
 use App\TestColumns\PostgresTestProfileLifecycle;
@@ -22,8 +29,10 @@ use App\TestColumns\TestTableVersionWriter;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Livewire\Livewire;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -33,6 +42,9 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(CalibrationNumberAllocator::class, PostgresCalibrationNumberAllocator::class);
+        $this->app->singleton(ResolveApplicationRole::class);
+        $this->app->singleton(ResolvesLiveDatabaseIdentity::class, LiveDatabaseIdentity::class);
+        $this->app->singleton(StagingAuthConnection::class);
 
         $this->app->singleton(TestTableVersioning::class);
 
@@ -69,6 +81,11 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureDefaults();
+        $this->configureAuthorizationGates();
+
+        Livewire::addPersistentMiddleware([
+            EnsureApplicationRole::class,
+        ]);
     }
 
     /**
@@ -95,5 +112,23 @@ class AppServiceProvider extends ServiceProvider
                 ->uncompromised()
             : null,
         );
+    }
+
+    /**
+     * Register capability Gates from trusted role storage.
+     */
+    protected function configureAuthorizationGates(): void
+    {
+        $roles = $this->app->make(ResolveApplicationRole::class);
+
+        foreach (ApplicationCapability::cases() as $capability) {
+            Gate::define($capability->value, function (?User $user) use ($roles, $capability): bool {
+                if ($user === null) {
+                    return false;
+                }
+
+                return $roles->allows((int) $user->id, $capability);
+            });
+        }
     }
 }

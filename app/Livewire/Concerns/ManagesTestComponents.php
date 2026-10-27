@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Concerns;
 
+use App\Authorization\AuthorizesMasterDataWrites;
 use App\Models\InstrumentType;
 use App\Models\TestColumn;
 use App\Models\TestPoint;
@@ -37,6 +38,7 @@ use InvalidArgumentException;
  */
 trait ManagesTestComponents
 {
+    use AuthorizesMasterDataWrites;
     use DisplaysTestComponents;
 
     public bool $addingTestTable = false;
@@ -124,6 +126,8 @@ trait ManagesTestComponents
 
     public function startAddingTestTable(): void
     {
+        $this->authorizeMasterDataManage();
+
         if ($this->instrumentType === null) {
             return;
         }
@@ -161,6 +165,8 @@ trait ManagesTestComponents
 
     public function saveTestTable(): void
     {
+        $this->authorizeMasterDataManage();
+
         if ($this->instrumentType === null) {
             abort(404);
         }
@@ -268,7 +274,7 @@ trait ManagesTestComponents
         $created = $this->instrumentType?->testProfiles->last();
         if ($created !== null) {
             $this->selectProfile((int) $created->test_profile_id);
-        $this->testTableStatus = 'Test table added.';
+            $this->testTableStatus = 'Test table added.';
         }
     }
 
@@ -339,6 +345,8 @@ trait ManagesTestComponents
 
     public function startEditingTestTable(int $profileId): void
     {
+        $this->authorizeMasterDataManage();
+
         $profile = $this->profileForColumns($profileId);
 
         if ($profile->isArchived()) {
@@ -378,6 +386,8 @@ trait ManagesTestComponents
 
     public function saveEditedTestTable(int $profileId): void
     {
+        $this->authorizeMasterDataManage();
+
         if ($this->instrumentType === null) {
             abort(404);
         }
@@ -529,6 +539,8 @@ trait ManagesTestComponents
 
     public function askToDeleteTestTable(int $profileId): void
     {
+        $this->authorizeMasterDataManage();
+
         $profile = $this->profileForColumns($profileId);
 
         if (! $this->canPermanentlyDeleteTestTable($profile)) {
@@ -555,6 +567,8 @@ trait ManagesTestComponents
 
     public function deleteTestTable(int $profileId, TestProfileLifecycle $lifecycle): void
     {
+        $this->authorizeMasterDataManage();
+
         if ($this->instrumentType === null) {
             abort(404);
         }
@@ -603,6 +617,8 @@ trait ManagesTestComponents
 
     public function askToArchiveTestTable(int $profileId): void
     {
+        $this->authorizeMasterDataManage();
+
         $profile = $this->profileForColumns($profileId);
 
         if (! $this->canArchiveTestTable($profile)) {
@@ -629,6 +645,8 @@ trait ManagesTestComponents
 
     public function archiveTestTable(int $profileId, TestProfileLifecycle $lifecycle): void
     {
+        $this->authorizeMasterDataManage();
+
         if ($this->instrumentType === null) {
             abort(404);
         }
@@ -678,6 +696,8 @@ trait ManagesTestComponents
 
     public function askToRestoreTestTable(int $profileId): void
     {
+        $this->authorizeMasterDataManage();
+
         $profile = $this->profileForColumns($profileId);
 
         if (! $this->canRestoreTestTable($profile)) {
@@ -704,6 +724,8 @@ trait ManagesTestComponents
 
     public function restoreTestTable(int $profileId, TestProfileLifecycle $lifecycle): void
     {
+        $this->authorizeMasterDataManage();
+
         if ($this->instrumentType === null) {
             abort(404);
         }
@@ -811,6 +833,8 @@ trait ManagesTestComponents
 
     public function askToPublishVersion(int $profileId): void
     {
+        $this->authorizeMasterDataManage();
+
         $profile = $this->profileForColumns($profileId);
 
         if (! $this->canPublishTestTable($profile)) {
@@ -828,6 +852,8 @@ trait ManagesTestComponents
 
     public function publishVersion(int $profileId, TestTableVersionWriter $writer): void
     {
+        $this->authorizeMasterDataManage();
+
         $this->resetErrorBag();
         $profile = $this->profileForColumns($profileId);
 
@@ -851,6 +877,8 @@ trait ManagesTestComponents
 
     public function forkDraft(int $profileId, TestTableVersionWriter $writer): void
     {
+        $this->authorizeMasterDataManage();
+
         $this->resetErrorBag();
         $profile = $this->profileForColumns($profileId);
         $versioning = app(TestTableVersioning::class);
@@ -972,6 +1000,8 @@ trait ManagesTestComponents
 
     public function startManagingColumns(int $profileId): void
     {
+        $this->authorizeMasterDataManage();
+
         $this->assertCanMutateTestTable($this->profileForColumns($profileId));
         $this->addingTestTable = false;
         $this->resetErrorBag();
@@ -994,6 +1024,8 @@ trait ManagesTestComponents
 
     public function editTestColumn(int $profileId, int $columnId): void
     {
+        $this->authorizeMasterDataManage();
+
         $this->assertCanMutateTestTable($this->profileForColumns($profileId));
         $column = $this->columnForProfile($profileId, $columnId);
         $inputs = $column->inputKeys();
@@ -1015,6 +1047,8 @@ trait ManagesTestComponents
 
     public function askToDeleteTestColumn(int $profileId, int $columnId): void
     {
+        $this->authorizeMasterDataManage();
+
         $this->assertCanMutateTestTable($this->profileForColumns($profileId));
         $this->columnForProfile($profileId, $columnId);
         $this->managingColumnsProfileId = $profileId;
@@ -1029,6 +1063,8 @@ trait ManagesTestComponents
 
     public function saveTestColumn(TestColumnWriter $columns): void
     {
+        $this->authorizeMasterDataManage();
+
         $this->resetErrorBag();
         $profile = $this->profileForColumns((int) $this->managingColumnsProfileId);
         $this->assertCanMutateTestTable($profile);
@@ -1077,6 +1113,8 @@ trait ManagesTestComponents
 
     public function deleteTestColumn(TestColumnWriter $columns): void
     {
+        $this->authorizeMasterDataManage();
+
         $this->resetErrorBag();
 
         if ($this->deletingColumnId === null || $this->managingColumnsProfileId === null) {
@@ -1120,6 +1158,8 @@ trait ManagesTestComponents
 
     public function moveTestColumn(TestColumnWriter $columns, int $profileId, int $columnId, string $direction): void
     {
+        $this->authorizeMasterDataManage();
+
         $this->resetErrorBag();
 
         if (! in_array($direction, ['up', 'down'], true)) {
@@ -1419,6 +1459,8 @@ trait ManagesTestComponents
 
     public function startAddingRow(int $profileId): void
     {
+        $this->authorizeMasterDataManage();
+
         $profile = $this->profileForColumns($profileId);
         $this->assertCanMutateTestTable($profile);
 
@@ -1479,6 +1521,8 @@ trait ManagesTestComponents
 
     public function editTestRow(int $profileId, int $pointId): void
     {
+        $this->authorizeMasterDataManage();
+
         $profile = $this->profileForColumns($profileId);
         $this->assertCanMutateTestTable($profile);
         $point = $this->pointForProfile($profile, $pointId);
@@ -1521,6 +1565,8 @@ trait ManagesTestComponents
 
     public function askToDeleteTestRow(int $profileId, int $pointId): void
     {
+        $this->authorizeMasterDataManage();
+
         $profile = $this->profileForColumns($profileId);
         $this->assertCanMutateTestTable($profile);
         $this->pointForProfile($profile, $pointId);
@@ -1537,6 +1583,8 @@ trait ManagesTestComponents
 
     public function saveTestRow(TestPointValueWriter $values): void
     {
+        $this->authorizeMasterDataManage();
+
         $this->resetErrorBag();
 
         if ($this->editingRowProfileId === null || $this->editingPointId === null) {
@@ -1585,6 +1633,8 @@ trait ManagesTestComponents
 
     public function deleteTestRow(): void
     {
+        $this->authorizeMasterDataManage();
+
         $this->resetErrorBag();
 
         if ($this->deletingPointId === null || $this->editingRowProfileId === null) {
@@ -1642,6 +1692,8 @@ trait ManagesTestComponents
 
     public function moveTestRow(int $profileId, int $pointId, string $direction): void
     {
+        $this->authorizeMasterDataManage();
+
         $this->resetErrorBag();
 
         if (! in_array($direction, ['up', 'down'], true)) {

@@ -43,4 +43,19 @@
             {{ $item['label'] }}
         </a>
     @endforeach
+
+    @auth
+        <form method="POST" action="{{ route('logout') }}" class="mt-4 border-t border-white/15 pt-4">
+            @csrf
+            <button
+                type="submit"
+                class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-white hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+            >
+                <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6A2.25 2.25 0 0 0 5.25 5.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l3 3m0 0-3 3m3-3H9" />
+                </svg>
+                Sign out
+            </button>
+        </form>
+    @endauth
 </nav>

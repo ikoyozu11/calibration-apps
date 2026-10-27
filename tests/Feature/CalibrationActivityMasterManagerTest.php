@@ -4,7 +4,7 @@ use App\Models\CalibrationActivityMaster;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
-it('lists and searches the activity master without authentication', function () {
+it('lists and searches the activity master for authenticated users', function () {
     createInstrumentDetailTestTables();
     insertCalibrationActivityMaster(1, 'ACT-0001', 'Verification');
     insertCalibrationActivityMaster(2, 'ACT-0005', 'Cleaning');

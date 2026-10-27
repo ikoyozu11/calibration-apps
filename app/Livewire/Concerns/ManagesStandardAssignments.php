@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Concerns;
 
+use App\Authorization\AuthorizesMasterDataWrites;
 use App\Models\Instrument;
 use App\Models\InstrumentType;
 use App\Models\InstrumentTypeStandardAssignment;
@@ -23,6 +24,7 @@ use Livewire\WithPagination;
  */
 trait ManagesStandardAssignments
 {
+    use AuthorizesMasterDataWrites;
     use WithPagination;
 
     public string $search = '';
@@ -48,6 +50,8 @@ trait ManagesStandardAssignments
 
     public function selectCandidate(int $standardId): void
     {
+        $this->authorizeMasterDataManage();
+
         $this->selectedStandardId = $standardId;
         $this->removingAssignmentId = null;
         $this->addingStandard = false;
@@ -62,6 +66,8 @@ trait ManagesStandardAssignments
 
     public function startAddingStandard(): void
     {
+        $this->authorizeMasterDataManage();
+
         $this->addingStandard = true;
         $this->selectedStandardId = null;
         $this->removingAssignmentId = null;
@@ -82,6 +88,8 @@ trait ManagesStandardAssignments
 
     public function createStandard(): void
     {
+        $this->authorizeMasterDataManage();
+
         $this->validate([
             'newInstrumentName' => ['required', 'string', 'max:'.StandardMasterWriter::NAME_MAX],
             'newTypeSpecification' => ['nullable', 'string', 'max:'.StandardMasterWriter::TYPE_MAX],
@@ -116,6 +124,8 @@ trait ManagesStandardAssignments
 
     public function assignStandard(): void
     {
+        $this->authorizeMasterDataManage();
+
         $this->validate([
             'selectedStandardId' => ['required', 'integer'],
         ], [
@@ -147,6 +157,8 @@ trait ManagesStandardAssignments
 
     public function askToRemove(int $assignmentId): void
     {
+        $this->authorizeMasterDataManage();
+
         if ($this->assignmentOnType($assignmentId) === null) {
             $this->addError('standard', 'This standard assignment could not be found.');
 
@@ -164,6 +176,8 @@ trait ManagesStandardAssignments
 
     public function removeAssignment(): void
     {
+        $this->authorizeMasterDataManage();
+
         if ($this->removingAssignmentId === null) {
             return;
         }
@@ -185,6 +199,8 @@ trait ManagesStandardAssignments
 
     public function moveAssignment(int $assignmentId, int $direction): void
     {
+        $this->authorizeMasterDataManage();
+
         $writer = app(InstrumentTypeStandardAssignmentWriter::class);
 
         try {

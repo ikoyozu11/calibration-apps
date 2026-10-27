@@ -1,5 +1,6 @@
 <?php
 
+use App\Authorization\AuthorizesMasterDataWrites;
 use App\Models\StandardMaster;
 use App\Standards\StandardMasterException;
 use App\Standards\StandardMasterWriter;
@@ -11,6 +12,7 @@ use Livewire\WithPagination;
 
 new class extends Component
 {
+    use AuthorizesMasterDataWrites;
     use WithPagination;
 
     public string $search = '';
@@ -36,6 +38,8 @@ new class extends Component
 
     public function startAdding(): void
     {
+        $this->authorizeMasterDataManage();
+
         $this->adding = true;
         $this->editingStandardId = null;
         $this->removingStandardId = null;
@@ -58,6 +62,8 @@ new class extends Component
 
     public function saveStandard(): void
     {
+        $this->authorizeMasterDataManage();
+
         $this->validate([
             'instrumentName' => ['required', 'string', 'max:'.StandardMasterWriter::NAME_MAX],
             'typeSpecification' => ['nullable', 'string', 'max:'.StandardMasterWriter::TYPE_MAX],
@@ -88,6 +94,8 @@ new class extends Component
 
     public function startEditing(int $standardId): void
     {
+        $this->authorizeMasterDataManage();
+
         $standard = StandardMaster::query()->find($standardId);
 
         if ($standard === null) {
@@ -107,6 +115,8 @@ new class extends Component
 
     public function askToRemove(int $standardId): void
     {
+        $this->authorizeMasterDataManage();
+
         $this->removingStandardId = $standardId;
         $this->adding = false;
         $this->editingStandardId = null;
@@ -115,6 +125,8 @@ new class extends Component
 
     public function removeStandard(): void
     {
+        $this->authorizeMasterDataManage();
+
         if ($this->removingStandardId === null) {
             return;
         }
@@ -182,7 +194,9 @@ new class extends Component
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
                     <label for="standard-master-search" class="sr-only">Search by name, type, or serial number</label>
                     <input id="standard-master-search" type="search" wire:model.live.debounce.300ms="search" maxlength="100" class="ui-input" placeholder="Name, type / specification, or serial">
-                    <button type="button" wire:click="startAdding" class="ui-button-outline">Add New Standard</button>
+                    @can('masterdata.manage')
+                        <button type="button" wire:click="startAdding" class="ui-button-outline">Add New Standard</button>
+                    @endcan
                 </div>
             </div>
 

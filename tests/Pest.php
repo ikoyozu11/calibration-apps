@@ -1,5 +1,8 @@
 <?php
 
+use App\Authorization\ApplicationRoleName;
+use App\Authorization\AssignApplicationRole;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -16,6 +19,11 @@ use Tests\TestCase;
 
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
+    ->beforeEach(function (): void {
+        // Existing feature coverage expects an authenticated Administrator unless a
+        // test explicitly acts as guest / roleless / Engineer / Viewer.
+        actingAsRole(ApplicationRoleName::Administrator);
+    })
     ->in('Feature');
 
 /*
@@ -23,8 +31,7 @@ pest()->extend(TestCase::class)
 | Expectations
 |--------------------------------------------------------------------------
 |
-| When you're writing tests, you often need to check that values meet certain conditions. The
-| "expect()" function gives you access to a set of "expectations" methods that you can use
+| The "expect()" function gives you access to a set of "expectations" methods that you can use
 | to assert different things. Of course, you may extend the Expectation API at any time.
 |
 */
@@ -44,4 +51,31 @@ expect()->extend('toBeOne', function () {
 |
 */
 
+/**
+ * Authenticate as a user with exactly one trusted application role.
+ */
+function actingAsRole(ApplicationRoleName $role, ?User $user = null): User
+{
+    $user ??= User::factory()->create();
+
+    app(AssignApplicationRole::class)->assign((int) $user->id, $role);
+
+    test()->actingAs($user);
+
+    return $user->fresh() ?? $user;
+}
+
+/**
+ * Authenticate without any application role (must be denied by application.role).
+ */
+function actingAsRolelessUser(?User $user = null): User
+{
+    $user ??= User::factory()->create();
+
+    test()->actingAs($user);
+
+    return $user;
+}
+
 require_once __DIR__.'/Support/InstrumentDetailFixtures.php';
+require_once __DIR__.'/Support/ApplicationPageTables.php';
