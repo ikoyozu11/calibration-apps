@@ -40,6 +40,7 @@ function createCalibrationSessionConstraintTables(): void
             calibration_method VARCHAR NOT NULL,
             calibration_result VARCHAR,
             session_status VARCHAR NOT NULL DEFAULT 'completed',
+            started_by_app_user_id INTEGER NULL,
             certificate_number VARCHAR,
             remarks TEXT,
             created_at DATETIME NOT NULL,

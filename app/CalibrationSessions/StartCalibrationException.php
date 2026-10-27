@@ -68,4 +68,14 @@ class StartCalibrationException extends RuntimeException implements ShouldntRepo
     {
         return new self('Refusing to start a calibration session on the production database.', 'database');
     }
+
+    public static function unauthorized(): self
+    {
+        return new self('You are not allowed to start a calibration session.', 'authorization');
+    }
+
+    public static function invalidLaravelUserId(): self
+    {
+        return new self('A valid Laravel user id is required to start a calibration session.', 'authorization');
+    }
 }

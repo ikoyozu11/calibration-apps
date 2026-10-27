@@ -1,10 +1,15 @@
 <?php
 
+use App\Authorization\ApplicationRoleName;
+use App\Authorization\AssignApplicationRole;
+use App\Authorization\ResolveApplicationRole;
 use App\CalibrationSessions\CalibrationSessionConnection;
+use App\CalibrationSessions\ResolveDomainActor;
 use App\CalibrationSessions\StartCalibrationSession;
 use App\Models\Calibration;
 use App\Models\InstrumentType;
 use App\Models\TestProfileVersion;
+use App\Models\User;
 use App\TestColumns\ActiveTestTableScopeResolver;
 use App\TestColumns\CalibrationScopePinning;
 use App\TestColumns\TestTableSnapshotBuilder;
@@ -86,6 +91,30 @@ function isolationCreateSessionTables(string $connectionName): void
         $table->timestamp('created_at');
     });
 
+    if (! $schema->hasTable('users')) {
+        $schema->create('users', function (Blueprint $table): void {
+            $table->unsignedBigInteger('id')->primary();
+        });
+    }
+
+    if (! $schema->hasTable('app_user')) {
+        $schema->create('app_user', function (Blueprint $table): void {
+            $table->unsignedBigInteger('app_user_id')->primary();
+            $table->boolean('is_active')->default(true);
+        });
+    }
+
+    if (! $schema->hasTable('user_app_user_map')) {
+        $schema->create('user_app_user_map', function (Blueprint $table): void {
+            $table->unsignedBigInteger('user_app_user_map_id')->primary();
+            $table->unsignedBigInteger('laravel_user_id')->unique();
+            $table->unsignedBigInteger('app_user_id')->unique();
+            $table->string('status', 20);
+            $table->timestamp('created_at');
+            $table->timestamp('inactivated_at')->nullable();
+        });
+    }
+
     DB::connection($connectionName)->statement("
         CREATE TABLE calibration (
             calibration_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -104,6 +133,7 @@ function isolationCreateSessionTables(string $connectionName): void
             cancelled_at DATETIME,
             cancelled_reason TEXT,
             cancelled_by_user_id INTEGER,
+            started_by_app_user_id INTEGER,
             snapshot_instrument_name VARCHAR,
             snapshot_instrument_type_name VARCHAR,
             snapshot_brand VARCHAR,
@@ -299,6 +329,29 @@ function isolationSeedStartMasters(string $connectionName): void
         'provider_type' => 'INTERNAL',
         'created_at' => '2026-10-20 09:00:00',
     ]);
+}
+
+function isolationSeedStartActor(string $connectionName): int
+{
+    $user = User::factory()->create();
+    app(AssignApplicationRole::class)->assign((int) $user->id, ApplicationRoleName::Engineer);
+
+    $db = DB::connection($connectionName);
+    $db->table('users')->insert(['id' => $user->id]);
+    $db->table('app_user')->insert([
+        'app_user_id' => 90,
+        'is_active' => 1,
+    ]);
+    $db->table('user_app_user_map')->insert([
+        'user_app_user_map_id' => 1,
+        'laravel_user_id' => $user->id,
+        'app_user_id' => 90,
+        'status' => 'active',
+        'created_at' => '2026-10-20 09:00:00',
+        'inactivated_at' => null,
+    ]);
+
+    return (int) $user->id;
 }
 
 function isolationSeedPinningFixture(string $connectionName, string $cellText): void
@@ -540,17 +593,21 @@ it('starts a calibration only on the explicit session connection', function () {
     isolationSeedStartMasters('sqlite');
     isolationSeedStartMasters(ISOLATION_SESSION_CONNECTION);
     isolationSeedDefaultDecoyCalibration();
+    $starterId = isolationSeedStartActor(ISOLATION_SESSION_CONNECTION);
 
     $service = new StartCalibrationSession(
         app(CalibrationSessionConnection::class),
         new FakeCalibrationNumberAllocator,
+        app(ResolveDomainActor::class),
+        app(ResolveApplicationRole::class),
     );
 
-    $calibration = $service->start(11, Calibration::METHOD_INTERNAL, isolationConnection());
+    $calibration = $service->start(11, Calibration::METHOD_INTERNAL, $starterId, isolationConnection());
 
     expect($calibration->getConnectionName())->toBe(ISOLATION_SESSION_CONNECTION)
         ->and($calibration->session_status)->toBe(Calibration::STATUS_IN_PROGRESS)
         ->and($calibration->snapshot_instrument_name)->toBe('Gauge')
+        ->and($calibration->started_by_app_user_id)->toBe(90)
         ->and(DB::connection(ISOLATION_SESSION_CONNECTION)->table('calibration')->where('session_status', 'in_progress')->count())->toBe(1)
         ->and(DB::connection(ISOLATION_SESSION_CONNECTION)->table('calibration_requirement_snapshot')->count())->toBe(4)
         ->and(DB::table('calibration')->count())->toBe(1)
@@ -565,6 +622,7 @@ it('rolls back start on the session connection without writing to the default co
     isolationSeedStartMasters('sqlite');
     isolationSeedStartMasters(ISOLATION_SESSION_CONNECTION);
     isolationSeedDefaultDecoyCalibration();
+    $starterId = isolationSeedStartActor(ISOLATION_SESSION_CONNECTION);
 
     DB::connection(ISOLATION_SESSION_CONNECTION)->statement("
         CREATE TRIGGER abort_isolation_start
@@ -577,9 +635,11 @@ it('rolls back start on the session connection without writing to the default co
     $service = new StartCalibrationSession(
         app(CalibrationSessionConnection::class),
         new FakeCalibrationNumberAllocator,
+        app(ResolveDomainActor::class),
+        app(ResolveApplicationRole::class),
     );
 
-    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL, isolationConnection()))
+    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL, $starterId, isolationConnection()))
         ->toThrow(QueryException::class);
 
     expect(DB::connection(ISOLATION_SESSION_CONNECTION)->table('calibration')->count())->toBe(0)

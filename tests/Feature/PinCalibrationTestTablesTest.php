@@ -34,6 +34,7 @@ function pinTestTablesConnection(): Connection
         CREATE TABLE calibration (
             calibration_id INTEGER PRIMARY KEY,
             session_status VARCHAR(20) NOT NULL,
+            started_by_app_user_id INTEGER NULL,
             calibration_method VARCHAR(20) NOT NULL,
             instrument_type_id INTEGER NULL,
             calibration_date TEXT NULL,

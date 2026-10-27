@@ -192,6 +192,7 @@ function addCalibrationSessionColumns(Blueprint $table): void
 {
     $table->string('session_status', 20)->default('completed');
     $table->unsignedBigInteger('instrument_type_id')->nullable();
+    $table->unsignedBigInteger('started_by_app_user_id')->nullable();
 }
 
 function addInstrumentTypeIntervalColumn(Blueprint $table): void

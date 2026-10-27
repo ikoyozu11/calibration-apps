@@ -43,6 +43,7 @@ function sessionCompleteConnection(): Connection
             cancelled_at TEXT NULL,
             cancelled_reason TEXT NULL,
             cancelled_by_user_id INTEGER NULL,
+                started_by_app_user_id INTEGER NULL,
             snapshot_instrument_name TEXT NULL,
             snapshot_instrument_type_name TEXT NULL,
             snapshot_location_id INTEGER NULL,

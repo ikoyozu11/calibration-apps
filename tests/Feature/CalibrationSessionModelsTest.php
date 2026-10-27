@@ -79,6 +79,7 @@ function createCalibrationSessionModelTables(): void
         $table->timestamp('completed_at')->nullable();
         $table->timestamp('cancelled_at')->nullable();
         $table->text('cancelled_reason')->nullable();
+        $table->unsignedBigInteger('started_by_app_user_id')->nullable();
         $table->unsignedBigInteger('snapshot_location_id')->nullable();
         $table->unsignedBigInteger('snapshot_detail_location_id')->nullable();
         $table->timestamps();

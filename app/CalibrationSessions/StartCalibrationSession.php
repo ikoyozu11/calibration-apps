@@ -2,6 +2,8 @@
 
 namespace App\CalibrationSessions;
 
+use App\Authorization\ApplicationCapability;
+use App\Authorization\ResolveApplicationRole;
 use App\Models\Calibration;
 use App\Models\CalibrationEnvironmentParameterSnapshot;
 use App\Models\CalibrationRequirementSnapshot;
@@ -12,24 +14,53 @@ use App\Models\InstrumentTypeRequirement;
 use Illuminate\Database\Connection;
 use Illuminate\Database\QueryException;
 
+/**
+ * Starts one in-progress calibration session and attributes immutable ownership.
+ *
+ * Ownership: ResolveDomainActor(laravelUserId) → app_user_id written once on
+ * INSERT as started_by_app_user_id. Callers pass a trusted server-side
+ * Laravel users.id (never browser-supplied app_user_id or role strings).
+ *
+ * Authorization: ResolveApplicationRole must allow session.start (Administrator
+ * or Engineer) on the Laravel auth database before any domain write.
+ *
+ * Connection: explicit session Connection required. Roles are read from the
+ * default Laravel auth connection; domain actor mapping uses this Connection.
+ */
 class StartCalibrationSession
 {
     public function __construct(
         private CalibrationSessionConnection $sessionConnection,
         private CalibrationNumberAllocator $allocator,
+        private ResolveDomainActor $actors,
+        private ResolveApplicationRole $roles,
     ) {}
 
     public function start(
         int $instrumentTypeId,
         string $calibrationMethod,
-        ?Connection $connection = null,
+        int $laravelUserId,
+        Connection $connection,
     ): Calibration {
         $method = $this->normalizeMethod($calibrationMethod);
         $connection = $this->resolveConnection($connection);
 
+        if ($laravelUserId < 1) {
+            throw StartCalibrationException::invalidLaravelUserId();
+        }
+
+        if (! $this->roles->allows($laravelUserId, ApplicationCapability::SessionStart)) {
+            throw StartCalibrationException::unauthorized();
+        }
+
         try {
             return $connection->transaction(
-                fn (): Calibration => $this->startOnConnection($connection, $instrumentTypeId, $method),
+                fn (): Calibration => $this->startOnConnection(
+                    $connection,
+                    $instrumentTypeId,
+                    $method,
+                    $laravelUserId,
+                ),
             );
         } catch (QueryException $exception) {
             if ($this->isInProgressUniqueConflict($exception)) {
@@ -40,7 +71,7 @@ class StartCalibrationSession
         }
     }
 
-    private function resolveConnection(?Connection $connection): Connection
+    private function resolveConnection(Connection $connection): Connection
     {
         try {
             return $this->sessionConnection->resolve($connection);
@@ -53,8 +84,12 @@ class StartCalibrationSession
         }
     }
 
-    private function startOnConnection(Connection $connection, int $instrumentTypeId, string $method): Calibration
-    {
+    private function startOnConnection(
+        Connection $connection,
+        int $instrumentTypeId,
+        string $method,
+        int $laravelUserId,
+    ): Calibration {
         $connectionName = $connection->getName();
 
         $instrumentType = InstrumentType::on($connectionName)
@@ -85,13 +120,17 @@ class StartCalibrationSession
         }
 
         $identitySnapshot = $this->identitySnapshotAttributes($instrument, $instrumentType);
+        $providerId = $this->providerIdForMethod($connection, $method);
+
+        $ownerAppUserId = $this->actors->resolve($laravelUserId, $connection);
+        $calibrationNumber = $this->allocator->allocate($connection, now());
 
         $calibration = (new Calibration)->setConnection($connectionName);
         $calibration->forceFill([
             'instrument_id' => $instrument->instrument_id,
             'instrument_type_id' => $instrumentType->instrument_type_id,
-            'calibration_provider_id' => $this->providerIdForMethod($connection, $method),
-            'calibration_number' => $this->allocator->allocate($connection, now()),
+            'calibration_provider_id' => $providerId,
+            'calibration_number' => $calibrationNumber,
             'calibration_date' => null,
             'calibration_due' => null,
             'calibration_method' => $method,
@@ -100,6 +139,7 @@ class StartCalibrationSession
             'cancelled_at' => null,
             'cancelled_reason' => null,
             'cancelled_by_user_id' => null,
+            'started_by_app_user_id' => $ownerAppUserId,
             ...$identitySnapshot,
         ]);
         $calibration->save();

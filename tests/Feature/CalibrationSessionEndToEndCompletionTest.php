@@ -1,5 +1,7 @@
 <?php
 
+use App\Authorization\ApplicationRoleName;
+use App\Authorization\AssignApplicationRole;
 use App\CalibrationSessions\CalibrationNumberAllocator;
 use App\CalibrationSessions\CompleteCalibrationSession;
 use App\CalibrationSessions\CompleteCalibrationSessionException;
@@ -21,6 +23,7 @@ use App\CalibrationSessions\StoreExternalCalibrationDocument;
 use App\CalibrationSessions\StoreExternalCalibrationDocumentException;
 use App\Models\Calibration;
 use App\Models\InstrumentTypeRequirement;
+use App\Models\User;
 use Illuminate\Database\Connection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -123,6 +126,7 @@ function calibrationSessionE2eConnection(): Connection
             cancelled_at TEXT NULL,
             cancelled_reason TEXT NULL,
             cancelled_by_user_id INTEGER NULL,
+                started_by_app_user_id INTEGER NULL,
             snapshot_instrument_name VARCHAR NULL,
             snapshot_instrument_type_name VARCHAR NULL,
             snapshot_brand VARCHAR NULL,
@@ -472,21 +476,26 @@ function calibrationSessionE2eStart(): StartCalibrationSession
     return app(StartCalibrationSession::class);
 }
 
-function calibrationSessionE2eActor(Connection $connection): void
+function calibrationSessionE2eActor(Connection $connection): int
 {
-    $connection->table('users')->insert(['id' => 5]);
+    $user = User::factory()->create();
+    app(AssignApplicationRole::class)->assign((int) $user->id, ApplicationRoleName::Engineer);
+
+    $connection->table('users')->insert(['id' => $user->id]);
     $connection->table('app_user')->insert([
         'app_user_id' => 90,
         'is_active' => 1,
     ]);
     $connection->table('user_app_user_map')->insert([
         'user_app_user_map_id' => 1,
-        'laravel_user_id' => 5,
+        'laravel_user_id' => $user->id,
         'app_user_id' => 90,
         'status' => 'active',
         'created_at' => '2026-10-22 07:00:00',
         'inactivated_at' => null,
     ]);
+
+    return (int) $user->id;
 }
 
 function calibrationSessionE2eProvider(Connection $connection): void
@@ -752,11 +761,11 @@ function calibrationSessionE2eFullTable(Connection $connection): void
     ]);
 }
 
-function calibrationSessionE2eSupport(Connection $connection, int $calibrationId, bool $recordEnvironment): void
+function calibrationSessionE2eSupport(Connection $connection, int $calibrationId, bool $recordEnvironment, int $laravelUserId): void
 {
     app(RecordCalibrationStandardUsage::class)->add($calibrationId, 1, null, null, 'working standard', null, $connection);
     app(RecordCalibrationActivity::class)->add($calibrationId, 1, 'Adjusted zero', 'pass', $connection);
-    app(ConfirmEnvironmentConfiguration::class)->confirm($calibrationId, 'environment checked', 5, $connection);
+    app(ConfirmEnvironmentConfiguration::class)->confirm($calibrationId, 'environment checked', $laravelUserId, $connection);
 
     if ($recordEnvironment) {
         app(RecordCalibrationEnvironmentMeasurement::class)->record($calibrationId, 1, '23.5', $connection);
@@ -804,13 +813,13 @@ function calibrationSessionE2eActive(mixed $value): bool
 it('completes a fully configured internal session through the existing services', function () {
     $connection = calibrationSessionE2eConnection();
     calibrationSessionE2eProvider($connection);
-    calibrationSessionE2eActor($connection);
+    $starterId = calibrationSessionE2eActor($connection);
     calibrationSessionE2eInstrument($connection, true, calibrationSessionE2eRequiredModes(), InstrumentTypeRequirement::MODE_REQUIRED);
     calibrationSessionE2eStandard($connection);
     calibrationSessionE2eActivity($connection);
     calibrationSessionE2eFullTable($connection);
 
-    $session = calibrationSessionE2eStart()->start(11, Calibration::METHOD_INTERNAL, $connection);
+    $session = calibrationSessionE2eStart()->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
     $calibrationId = (int) $session->calibration_id;
 
     expect($session->session_status)->toBe(Calibration::STATUS_IN_PROGRESS)
@@ -826,7 +835,7 @@ it('completes a fully configured internal session through the existing services'
         ->and($connection->table('calibration_requirement_snapshot')->where('calibration_id', $calibrationId)->pluck('frozen_mode')->unique()->all())->toBe([InstrumentTypeRequirement::MODE_REQUIRED])
         ->and($connection->table('calibration_requirement_snapshot')->whereNotNull('resolved_mode')->count())->toBe(0);
 
-    calibrationSessionE2eSupport($connection, $calibrationId, true);
+    calibrationSessionE2eSupport($connection, $calibrationId, true, $starterId);
 
     expect($connection->table('calibration_standard_usage')->where('calibration_id', $calibrationId)->first())
         ->toMatchArray([
@@ -944,10 +953,10 @@ it('completes a fully configured internal session through the existing services'
 it('completes an external session after replacing the vendor PDF', function () {
     $connection = calibrationSessionE2eConnection();
     calibrationSessionE2eProvider($connection);
-    calibrationSessionE2eActor($connection);
+    $starterId = calibrationSessionE2eActor($connection);
     calibrationSessionE2eInstrument($connection, true, [], null);
 
-    $session = calibrationSessionE2eStart()->start(11, Calibration::METHOD_EXTERNAL, $connection);
+    $session = calibrationSessionE2eStart()->start(11, Calibration::METHOD_EXTERNAL, $starterId, $connection);
     $calibrationId = (int) $session->calibration_id;
 
     expect($session->session_status)->toBe(Calibration::STATUS_IN_PROGRESS)
@@ -969,8 +978,8 @@ it('completes an external session after replacing the vendor PDF', function () {
         ->toThrow(RecordCalibrationTestResultException::class, 'Test results can be recorded only for an internal calibration session.');
 
     $documents = app(StoreExternalCalibrationDocument::class);
-    $documents->store($calibrationId, 'vendor-a.pdf', "%PDF-1.4\nfirst\n", 5, $connection);
-    $documents->store($calibrationId, 'vendor-b.pdf', "%PDF-1.4\nsecond\n", 5, $connection);
+    $documents->store($calibrationId, 'vendor-a.pdf', "%PDF-1.4\nfirst\n", $starterId, $connection);
+    $documents->store($calibrationId, 'vendor-b.pdf', "%PDF-1.4\nsecond\n", $starterId, $connection);
 
     $rows = $connection->table('calibration_external_document')->orderBy('document_id')->get();
     $active = $rows->filter(fn (object $row): bool => calibrationSessionE2eActive($row->is_active));
@@ -1007,7 +1016,7 @@ it('completes an external session after replacing the vendor PDF', function () {
         ->and(Storage::disk('public')->allFiles())->toBeEmpty()
         ->and(Storage::disk('local')->allFiles())->toBeEmpty();
 
-    expect(fn () => app(StoreExternalCalibrationDocument::class)->store($calibrationId, 'vendor-c.pdf', "%PDF-1.4\nthird\n", 5, $connection))
+    expect(fn () => app(StoreExternalCalibrationDocument::class)->store($calibrationId, 'vendor-c.pdf', "%PDF-1.4\nthird\n", $starterId, $connection))
         ->toThrow(StoreExternalCalibrationDocumentException::class, 'Only an in-progress calibration session can store a vendor PDF.');
 
     $documents = $connection->table('calibration_external_document')->orderBy('document_id')->get();
@@ -1021,11 +1030,12 @@ it('completes an external session after replacing the vendor PDF', function () {
 
 it('rejects a start when the instrument has no location', function () {
     $connection = calibrationSessionE2eConnection();
+    $starterId = calibrationSessionE2eActor($connection);
     calibrationSessionE2eInstrument($connection, false, calibrationSessionE2eRequiredModes(), InstrumentTypeRequirement::MODE_REQUIRED);
     $allocator = new FakeCalibrationNumberAllocator;
     app()->instance(CalibrationNumberAllocator::class, $allocator);
 
-    expect(fn () => app(StartCalibrationSession::class)->start(11, Calibration::METHOD_INTERNAL, $connection))
+    expect(fn () => app(StartCalibrationSession::class)->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection))
         ->toThrow(StartCalibrationException::class, 'The instrument location is incomplete.');
 
     expect($connection->table('calibration')->count())->toBe(0)
@@ -1040,7 +1050,7 @@ it('rejects a start when the instrument has no location', function () {
 it('rejects pinning when a frozen column is not configured', function () {
     $connection = calibrationSessionE2eConnection();
     calibrationSessionE2eProvider($connection);
-    calibrationSessionE2eActor($connection);
+    $starterId = calibrationSessionE2eActor($connection);
     calibrationSessionE2eInstrument($connection, true, calibrationSessionE2eRequiredModes(), InstrumentTypeRequirement::MODE_REQUIRED);
     calibrationSessionE2eStandard($connection);
     calibrationSessionE2eActivity($connection);
@@ -1051,9 +1061,9 @@ it('rejects pinning when a frozen column is not configured', function () {
         calibrationSessionE2ePoint(11, 1, '100'),
     ], []);
 
-    $session = calibrationSessionE2eStart()->start(11, Calibration::METHOD_INTERNAL, $connection);
+    $session = calibrationSessionE2eStart()->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
     $calibrationId = (int) $session->calibration_id;
-    calibrationSessionE2eSupport($connection, $calibrationId, true);
+    calibrationSessionE2eSupport($connection, $calibrationId, true, $starterId);
 
     expect(fn () => app(PinCalibrationTestTables::class)->pin($calibrationId, $connection))
         ->toThrow(PinCalibrationTestTablesException::class, 'A not-configured test component cannot be pinned.');
@@ -1074,7 +1084,7 @@ it('rejects pinning when a frozen column is not configured', function () {
 it('rejects pinning when a required template value is missing', function () {
     $connection = calibrationSessionE2eConnection();
     calibrationSessionE2eProvider($connection);
-    calibrationSessionE2eActor($connection);
+    $starterId = calibrationSessionE2eActor($connection);
     calibrationSessionE2eInstrument($connection, true, calibrationSessionE2eRequiredModes(), InstrumentTypeRequirement::MODE_REQUIRED);
     calibrationSessionE2eStandard($connection);
     calibrationSessionE2eActivity($connection);
@@ -1085,9 +1095,9 @@ it('rejects pinning when a required template value is missing', function () {
         calibrationSessionE2ePoint(11, 1, '100'),
     ], []);
 
-    $session = calibrationSessionE2eStart()->start(11, Calibration::METHOD_INTERNAL, $connection);
+    $session = calibrationSessionE2eStart()->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
     $calibrationId = (int) $session->calibration_id;
-    calibrationSessionE2eSupport($connection, $calibrationId, true);
+    calibrationSessionE2eSupport($connection, $calibrationId, true, $starterId);
 
     expect(fn () => app(PinCalibrationTestTables::class)->pin($calibrationId, $connection))
         ->toThrow(PinCalibrationTestTablesException::class, 'A required template value is missing.');
@@ -1107,15 +1117,15 @@ it('rejects pinning when a required template value is missing', function () {
 it('keeps recorded evidence when complete is rejected for an unpinned test profile', function () {
     $connection = calibrationSessionE2eConnection();
     calibrationSessionE2eProvider($connection);
-    calibrationSessionE2eActor($connection);
+    $starterId = calibrationSessionE2eActor($connection);
     calibrationSessionE2eInstrument($connection, true, calibrationSessionE2eRequiredModes(), InstrumentTypeRequirement::MODE_REQUIRED);
     calibrationSessionE2eStandard($connection);
     calibrationSessionE2eActivity($connection);
     calibrationSessionE2eFullTable($connection);
 
-    $session = calibrationSessionE2eStart()->start(11, Calibration::METHOD_INTERNAL, $connection);
+    $session = calibrationSessionE2eStart()->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
     $calibrationId = (int) $session->calibration_id;
-    calibrationSessionE2eSupport($connection, $calibrationId, true);
+    calibrationSessionE2eSupport($connection, $calibrationId, true, $starterId);
 
     expect(fn () => app(CompleteCalibrationSession::class)->complete($calibrationId, '2026-10-22', '2027-10-22', $connection))
         ->toThrow(CompleteCalibrationSessionException::class, 'Required test profile must be pinned.');
@@ -1142,7 +1152,7 @@ it('keeps recorded evidence when complete is rejected for an unpinned test profi
 it('completes optional categories without standards, activities, or test tables', function () {
     $connection = calibrationSessionE2eConnection();
     calibrationSessionE2eProvider($connection);
-    calibrationSessionE2eActor($connection);
+    $starterId = calibrationSessionE2eActor($connection);
     $optional = [
         InstrumentTypeRequirement::CATEGORY_STANDARDS => InstrumentTypeRequirement::MODE_OPTIONAL,
         InstrumentTypeRequirement::CATEGORY_ACTIVITY => InstrumentTypeRequirement::MODE_OPTIONAL,
@@ -1151,12 +1161,12 @@ it('completes optional categories without standards, activities, or test tables'
     ];
     calibrationSessionE2eInstrument($connection, true, $optional, InstrumentTypeRequirement::MODE_OPTIONAL);
 
-    $session = calibrationSessionE2eStart()->start(11, Calibration::METHOD_INTERNAL, $connection);
+    $session = calibrationSessionE2eStart()->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
     $calibrationId = (int) $session->calibration_id;
 
     expect($connection->table('calibration_requirement_snapshot')->where('calibration_id', $calibrationId)->pluck('frozen_mode')->unique()->all())->toBe([InstrumentTypeRequirement::MODE_OPTIONAL]);
 
-    app(ConfirmEnvironmentConfiguration::class)->confirm($calibrationId, 'optional environment checked', 5, $connection);
+    app(ConfirmEnvironmentConfiguration::class)->confirm($calibrationId, 'optional environment checked', $starterId, $connection);
     app(CompleteCalibrationSession::class)->complete($calibrationId, '2026-10-22', '2027-10-22', $connection);
 
     $completed = calibrationSessionE2eRow($connection, $calibrationId);

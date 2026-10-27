@@ -33,6 +33,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $cancelled_at
  * @property string|null $cancelled_reason
  * @property int|null $cancelled_by_user_id
+ * @property int|null $started_by_app_user_id
  * @property string|null $snapshot_instrument_name
  * @property string|null $snapshot_instrument_type_name
  * @property string|null $snapshot_brand

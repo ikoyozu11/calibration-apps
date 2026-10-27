@@ -59,6 +59,7 @@ function createCalibrationSessionFoundationTables(): void
             cancelled_at DATETIME,
             cancelled_reason TEXT,
             cancelled_by_user_id INTEGER,
+            started_by_app_user_id INTEGER,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
             CHECK (session_status IN ('in_progress', 'completed', 'cancelled')),

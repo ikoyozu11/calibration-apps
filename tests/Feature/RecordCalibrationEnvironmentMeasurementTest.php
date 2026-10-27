@@ -39,6 +39,7 @@ function recordEnvironmentMeasurementConnection(): Connection
             calibration_number VARCHAR(50) NULL,
             calibration_method VARCHAR(20) NULL,
             session_status VARCHAR(20) NOT NULL,
+            started_by_app_user_id INTEGER NULL,
             calibration_date TEXT NULL,
             calibration_due TEXT NULL,
             certificate_number TEXT NULL,

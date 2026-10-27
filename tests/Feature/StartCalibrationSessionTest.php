@@ -1,13 +1,19 @@
 <?php
 
+use App\Authorization\ApplicationRoleName;
+use App\Authorization\AssignApplicationRole;
+use App\Authorization\ResolveApplicationRole;
 use App\CalibrationSessions\CalibrationNumberAllocator;
 use App\CalibrationSessions\CalibrationSessionConnection;
+use App\CalibrationSessions\ResolveDomainActor;
+use App\CalibrationSessions\ResolveDomainActorException;
 use App\CalibrationSessions\StartCalibrationException;
 use App\CalibrationSessions\StartCalibrationSession;
 use App\Models\Calibration;
 use App\Models\CalibrationEnvironmentParameterSnapshot;
 use App\Models\CalibrationRequirementSnapshot;
 use App\Models\InstrumentTypeRequirement;
+use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Connection;
 use Illuminate\Database\QueryException;
@@ -65,6 +71,22 @@ function createStartCalibrationTables(): void
         $table->timestamp('created_at');
     });
 
+    Schema::create('app_user', function (Blueprint $table): void {
+        $table->unsignedBigInteger('app_user_id')->primary();
+        $table->boolean('is_active')->default(true);
+    });
+
+    Schema::create('user_app_user_map', function (Blueprint $table): void {
+        $table->unsignedBigInteger('user_app_user_map_id')->primary();
+        $table->unsignedBigInteger('laravel_user_id');
+        $table->unsignedBigInteger('app_user_id');
+        $table->string('status', 20);
+        $table->timestamp('created_at');
+        $table->timestamp('inactivated_at')->nullable();
+        $table->unique('laravel_user_id');
+        $table->unique('app_user_id');
+    });
+
     DB::statement("
         CREATE TABLE calibration (
             calibration_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,6 +102,7 @@ function createStartCalibrationTables(): void
             cancelled_at DATETIME,
             cancelled_reason TEXT,
             cancelled_by_user_id INTEGER,
+            started_by_app_user_id INTEGER NULL,
             snapshot_instrument_name VARCHAR,
             snapshot_instrument_type_name VARCHAR,
             snapshot_brand VARCHAR,
@@ -236,16 +259,63 @@ function createStartCalibrationTables(): void
 }
 
 /**
- * @return array{allocator: FakeCalibrationNumberAllocator, service: StartCalibrationSession}
+ * @return array{
+ *     allocator: FakeCalibrationNumberAllocator,
+ *     service: StartCalibrationSession,
+ *     starterId: int,
+ *     connection: Connection,
+ *     appUserId: int
+ * }
  */
-function bindStartCalibrationServices(): array
+function bindStartCalibrationServices(?ApplicationRoleName $role = ApplicationRoleName::Engineer): array
 {
     $allocator = new FakeCalibrationNumberAllocator;
     app()->instance(CalibrationNumberAllocator::class, $allocator);
 
+    ['starterId' => $starterId, 'appUserId' => $appUserId] = seedStartCalibrationActor($role);
+
     return [
         'allocator' => $allocator,
         'service' => app(StartCalibrationSession::class),
+        'starterId' => $starterId,
+        'connection' => DB::connection(),
+        'appUserId' => $appUserId,
+    ];
+}
+
+/**
+ * @return array{starterId: int, appUserId: int}
+ */
+function seedStartCalibrationActor(
+    ?ApplicationRoleName $role = ApplicationRoleName::Engineer,
+    int $appUserId = 90,
+): array {
+    $user = User::factory()->create();
+
+    if ($role !== null) {
+        app(AssignApplicationRole::class)->assign((int) $user->id, $role);
+    }
+
+    if (! DB::table('app_user')->where('app_user_id', $appUserId)->exists()) {
+        DB::table('app_user')->insert([
+            'app_user_id' => $appUserId,
+            'is_active' => 1,
+        ]);
+    }
+
+    DB::table('user_app_user_map')->where('laravel_user_id', $user->id)->delete();
+    DB::table('user_app_user_map')->insert([
+        'user_app_user_map_id' => (int) $user->id,
+        'laravel_user_id' => $user->id,
+        'app_user_id' => $appUserId,
+        'status' => 'active',
+        'created_at' => '2026-10-20 09:00:00',
+        'inactivated_at' => null,
+    ]);
+
+    return [
+        'starterId' => (int) $user->id,
+        'appUserId' => $appUserId,
     ];
 }
 
@@ -466,9 +536,9 @@ it('creates an in-progress internal session with a generated calibration number'
     seedStartCalibrationLocation();
     seedInternalCalibrationTeam();
     seedStartCalibrationConfiguration();
-    ['allocator' => $allocator, 'service' => $service] = bindStartCalibrationServices();
+    ['allocator' => $allocator, 'service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    $calibration = $service->start(11, Calibration::METHOD_INTERNAL);
+    $calibration = $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
 
     expect($calibration->session_status)->toBe(Calibration::STATUS_IN_PROGRESS)
         ->and($calibration->calibration_method)->toBe(Calibration::METHOD_INTERNAL)
@@ -479,6 +549,7 @@ it('creates an in-progress internal session with a generated calibration number'
         ->and($calibration->calibration_date)->toBeNull()
         ->and($calibration->calibration_due)->toBeNull()
         ->and($calibration->completed_at)->toBeNull()
+        ->and($calibration->started_by_app_user_id)->toBe($appUserId)
         ->and($allocator->calls)->toBe(1);
 
     assertOptionalNonLocationIdentityIsNull($calibration);
@@ -491,9 +562,9 @@ it('creates an in-progress external session without a provider or pdf', function
     seedStartCalibrationLocation();
     seedInternalCalibrationTeam();
     seedStartCalibrationConfiguration();
-    ['allocator' => $allocator, 'service' => $service] = bindStartCalibrationServices();
+    ['allocator' => $allocator, 'service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    $calibration = $service->start(11, Calibration::METHOD_EXTERNAL);
+    $calibration = $service->start(11, Calibration::METHOD_EXTERNAL, $starterId, $connection);
 
     expect($calibration->session_status)->toBe(Calibration::STATUS_IN_PROGRESS)
         ->and($calibration->calibration_method)->toBe(Calibration::METHOD_EXTERNAL)
@@ -523,10 +594,10 @@ it('invokes the number allocator once per successful start', function () {
         'type_name' => 'Balance',
         'created_at' => '2026-10-20 09:00:00',
     ]);
-    ['allocator' => $allocator, 'service' => $service] = bindStartCalibrationServices();
+    ['allocator' => $allocator, 'service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    $first = $service->start(11, Calibration::METHOD_INTERNAL);
-    $second = $service->start(21, Calibration::METHOD_EXTERNAL);
+    $first = $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
+    $second = $service->start(21, Calibration::METHOD_EXTERNAL, $starterId, $connection);
 
     expect($allocator->calls)->toBe(2)
         ->and($first->calibration_number)->toBe('CAL.VT0001/10/26')
@@ -536,9 +607,9 @@ it('invokes the number allocator once per successful start', function () {
 it('rejects a missing instrument type', function () {
     createStartCalibrationTables();
     seedInternalCalibrationTeam();
-    ['service' => $service] = bindStartCalibrationServices();
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL))
+    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection))
         ->toThrow(StartCalibrationException::class, 'The instrument type does not exist.')
         ->and(Calibration::query()->count())->toBe(0);
 });
@@ -552,9 +623,9 @@ it('rejects a type whose parent instrument is missing', function () {
         'type_name' => 'Orphan',
         'created_at' => '2026-10-20 09:00:00',
     ]);
-    ['service' => $service] = bindStartCalibrationServices();
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL))
+    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection))
         ->toThrow(StartCalibrationException::class, 'The parent instrument does not exist.')
         ->and(Calibration::query()->count())->toBe(0);
 });
@@ -572,9 +643,9 @@ it('rejects a second in-progress session for the same instrument type', function
         'calibration_due' => null,
         'completed_at' => null,
     ]);
-    ['allocator' => $allocator, 'service' => $service] = bindStartCalibrationServices();
+    ['allocator' => $allocator, 'service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    expect(fn () => $service->start(11, Calibration::METHOD_EXTERNAL))
+    expect(fn () => $service->start(11, Calibration::METHOD_EXTERNAL, $starterId, $connection))
         ->toThrow(StartCalibrationException::class, 'An in-progress calibration session already exists for this instrument type.')
         ->and(Calibration::query()->count())->toBe(1)
         ->and($allocator->calls)->toBe(0);
@@ -591,9 +662,9 @@ it('starts after a completed historical session for the same type', function () 
         'session_status' => Calibration::STATUS_COMPLETED,
         'completed_at' => '2026-01-15 16:00:00',
     ]);
-    ['service' => $service] = bindStartCalibrationServices();
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    $calibration = $service->start(11, Calibration::METHOD_INTERNAL);
+    $calibration = $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
 
     expect($calibration->session_status)->toBe(Calibration::STATUS_IN_PROGRESS)
         ->and(Calibration::query()->count())->toBe(2);
@@ -613,9 +684,9 @@ it('starts after a cancelled historical session for the same type', function () 
         'cancelled_at' => '2026-01-16 10:00:00',
         'cancelled_reason' => 'Instrument withdrawn',
     ]);
-    ['service' => $service] = bindStartCalibrationServices();
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    $calibration = $service->start(11, Calibration::METHOD_EXTERNAL);
+    $calibration = $service->start(11, Calibration::METHOD_EXTERNAL, $starterId, $connection);
 
     expect($calibration->session_status)->toBe(Calibration::STATUS_IN_PROGRESS)
         ->and($calibration->calibration_number)->toBe('CAL.VT0001/10/26')
@@ -628,9 +699,9 @@ it('snapshots all four requirement categories including omitted not_configured r
     seedStartCalibrationLocation();
     seedInternalCalibrationTeam();
     seedStartCalibrationConfiguration();
-    ['service' => $service] = bindStartCalibrationServices();
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    $calibration = $service->start(11, Calibration::METHOD_INTERNAL);
+    $calibration = $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
     $modes = CalibrationRequirementSnapshot::query()
         ->where('calibration_id', $calibration->calibration_id)
         ->pluck('frozen_mode', 'requirement_category');
@@ -650,9 +721,9 @@ it('keeps frozen requirement modes after the instrument type master changes', fu
     seedStartCalibrationLocation();
     seedInternalCalibrationTeam();
     seedStartCalibrationConfiguration();
-    ['service' => $service] = bindStartCalibrationServices();
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    $calibration = $service->start(11, Calibration::METHOD_INTERNAL);
+    $calibration = $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
 
     DB::table('instrument_type_requirement')
         ->where('instrument_type_id', 11)
@@ -683,9 +754,9 @@ it('snapshots environment parameter configuration without measured values', func
     seedStartCalibrationLocation();
     seedInternalCalibrationTeam();
     seedStartCalibrationConfiguration();
-    ['service' => $service] = bindStartCalibrationServices();
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    $calibration = $service->start(11, Calibration::METHOD_INTERNAL);
+    $calibration = $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
     $snapshots = CalibrationEnvironmentParameterSnapshot::query()
         ->where('calibration_id', $calibration->calibration_id)
         ->orderBy('display_order')
@@ -711,9 +782,9 @@ it('does not calculate due dates from the instrument type interval', function ()
     seedStartCalibrationLocation();
     seedInternalCalibrationTeam();
     seedStartCalibrationConfiguration();
-    ['service' => $service] = bindStartCalibrationServices();
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    $calibration = $service->start(11, Calibration::METHOD_INTERNAL);
+    $calibration = $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
 
     expect($calibration->calibration_date)->toBeNull()
         ->and($calibration->calibration_due)->toBeNull()
@@ -740,9 +811,9 @@ it('rolls back the parent session and snapshots when a later write fails', funct
             SELECT RAISE(ABORT, 'forced snapshot failure');
         END
     ");
-    ['allocator' => $allocator, 'service' => $service] = bindStartCalibrationServices();
+    ['allocator' => $allocator, 'service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL))
+    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection))
         ->toThrow(QueryException::class)
         ->and(Calibration::query()->count())->toBe(0)
         ->and(CalibrationRequirementSnapshot::query()->count())->toBe(0)
@@ -755,9 +826,9 @@ it('rejects an internal start when the internal team provider is missing', funct
     seedStartCalibrationInstrumentType();
     seedStartCalibrationLocation();
     seedStartCalibrationConfiguration();
-    ['allocator' => $allocator, 'service' => $service] = bindStartCalibrationServices();
+    ['allocator' => $allocator, 'service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL))
+    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection))
         ->toThrow(StartCalibrationException::class, 'Internal Calibration Team provider is not available.')
         ->and(Calibration::query()->count())->toBe(0)
         ->and($allocator->calls)->toBe(0);
@@ -768,9 +839,9 @@ it('rejects an unknown calibration method', function () {
     seedStartCalibrationInstrumentType();
     seedStartCalibrationLocation();
     seedInternalCalibrationTeam();
-    ['allocator' => $allocator, 'service' => $service] = bindStartCalibrationServices();
+    ['allocator' => $allocator, 'service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    expect(fn () => $service->start(11, 'FIELD'))
+    expect(fn () => $service->start(11, 'FIELD', $starterId, $connection))
         ->toThrow(StartCalibrationException::class, 'Calibration method must be INTERNAL or EXTERNAL.')
         ->and($allocator->calls)->toBe(0);
 });
@@ -781,10 +852,10 @@ it('uses a caller-supplied database connection', function () {
     seedStartCalibrationLocation();
     seedInternalCalibrationTeam();
     seedStartCalibrationConfiguration();
-    ['service' => $service] = bindStartCalibrationServices();
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
     $connection = DB::connection();
 
-    $calibration = $service->start(11, Calibration::METHOD_INTERNAL, $connection);
+    $calibration = $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
 
     expect($calibration->getConnectionName())->toBe($connection->getName())
         ->and($calibration->session_status)->toBe(Calibration::STATUS_IN_PROGRESS);
@@ -796,9 +867,9 @@ it('snapshots instrument identity from current instrument and type masters', fun
     seedStartCalibrationIdentity();
     seedInternalCalibrationTeam();
     seedStartCalibrationConfiguration();
-    ['service' => $service] = bindStartCalibrationServices();
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    $calibration = $service->start(11, Calibration::METHOD_INTERNAL);
+    $calibration = $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
 
     expect($calibration->instrument_id)->toBe(1)
         ->and($calibration->instrument_type_id)->toBe(11);
@@ -813,9 +884,9 @@ it('snapshots instrument identity for an external session', function () {
     seedStartCalibrationIdentity();
     seedInternalCalibrationTeam();
     seedStartCalibrationConfiguration();
-    ['service' => $service] = bindStartCalibrationServices();
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    $calibration = $service->start(11, Calibration::METHOD_EXTERNAL);
+    $calibration = $service->start(11, Calibration::METHOD_EXTERNAL, $starterId, $connection);
 
     expect($calibration->calibration_method)->toBe(Calibration::METHOD_EXTERNAL)
         ->and($calibration->calibration_provider_id)->toBeNull();
@@ -829,9 +900,9 @@ it('keeps frozen identity after the instrument and type masters change', functio
     seedStartCalibrationIdentity();
     seedInternalCalibrationTeam();
     seedStartCalibrationConfiguration();
-    ['service' => $service] = bindStartCalibrationServices();
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    $calibration = $service->start(11, Calibration::METHOD_INTERNAL);
+    $calibration = $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
 
     DB::table('location')->where('location_id', 4)->update([
         'location_code' => 'WH',
@@ -871,9 +942,9 @@ it('rejects a start when the assigned location is missing', function () {
     DB::table('instrument')->where('instrument_id', 1)->update([
         'detail_location_id' => 88,
     ]);
-    ['allocator' => $allocator, 'service' => $service] = bindStartCalibrationServices();
+    ['allocator' => $allocator, 'service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL))
+    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection))
         ->toThrow(StartCalibrationException::class, 'The instrument location does not exist.')
         ->and(Calibration::query()->count())->toBe(0)
         ->and(CalibrationRequirementSnapshot::query()->count())->toBe(0)
@@ -896,9 +967,9 @@ it('rolls back when the identity snapshot cannot be stored', function () {
             SELECT RAISE(ABORT, 'forced identity snapshot failure');
         END
     ");
-    ['allocator' => $allocator, 'service' => $service] = bindStartCalibrationServices();
+    ['allocator' => $allocator, 'service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL))
+    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection))
         ->toThrow(QueryException::class)
         ->and(Calibration::query()->count())->toBe(0)
         ->and(CalibrationRequirementSnapshot::query()->count())->toBe(0)
@@ -916,9 +987,11 @@ it('refuses the production postgresql database name', function () {
     $service = new StartCalibrationSession(
         app(CalibrationSessionConnection::class),
         new FakeCalibrationNumberAllocator,
+        app(ResolveDomainActor::class),
+        app(ResolveApplicationRole::class),
     );
 
-    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL, $connection))
+    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL, 5, $connection))
         ->toThrow(StartCalibrationException::class, 'Refusing to start a calibration session on the production database.');
 });
 
@@ -927,9 +1000,9 @@ it('rejects a start when the instrument has no detail location', function (strin
     seedStartCalibrationInstrumentType();
     seedInternalCalibrationTeam();
     seedStartCalibrationConfiguration();
-    ['allocator' => $allocator, 'service' => $service] = bindStartCalibrationServices();
+    ['allocator' => $allocator, 'service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    expect(fn () => $service->start(11, $method))
+    expect(fn () => $service->start(11, $method, $starterId, $connection))
         ->toThrow(StartCalibrationException::class, 'The instrument location is incomplete.');
 
     expect(Calibration::query()->count())->toBe(0)
@@ -957,9 +1030,9 @@ it('rejects a start when the parent location row is missing', function () {
     DB::table('instrument')->where('instrument_id', 1)->update([
         'detail_location_id' => 9,
     ]);
-    ['allocator' => $allocator, 'service' => $service] = bindStartCalibrationServices();
+    ['allocator' => $allocator, 'service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL))
+    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection))
         ->toThrow(StartCalibrationException::class, 'The instrument location does not exist.');
 
     expect(Calibration::query()->count())->toBe(0)
@@ -976,9 +1049,9 @@ it('rejects a start when a frozen location text is blank', function (string $tab
     seedInternalCalibrationTeam();
     seedStartCalibrationConfiguration();
     DB::table($table)->update([$column => $value]);
-    ['allocator' => $allocator, 'service' => $service] = bindStartCalibrationServices();
+    ['allocator' => $allocator, 'service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    expect(fn () => $service->start(11, $method))
+    expect(fn () => $service->start(11, $method, $starterId, $connection))
         ->toThrow(StartCalibrationException::class, 'The instrument location is incomplete.');
 
     expect(Calibration::query()->count())->toBe(0)
@@ -1010,9 +1083,9 @@ it('stores accepted location text without trimming', function () {
         'detail_location_code' => ' FM05-06 ',
         'detail_location_name' => ' Line 2 ',
     ]);
-    ['service' => $service] = bindStartCalibrationServices();
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    $calibration = $service->start(11, Calibration::METHOD_INTERNAL);
+    $calibration = $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
 
     expect($calibration->snapshot_location_code)->toBe(' FMD ')
         ->and($calibration->snapshot_location_name)->toBe(' Filling Hall ')
@@ -1030,11 +1103,11 @@ it('rejects a start when the instrument name is blank', function (string $name, 
     DB::table('instrument')->where('instrument_id', 1)->update([
         'instrument_name' => $name,
     ]);
-    ['allocator' => $allocator, 'service' => $service] = bindStartCalibrationServices();
+    ['allocator' => $allocator, 'service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
     DB::flushQueryLog();
     DB::enableQueryLog();
 
-    expect(fn () => $service->start(11, $method))
+    expect(fn () => $service->start(11, $method, $starterId, $connection))
         ->toThrow(StartCalibrationException::class, 'The instrument name is incomplete.');
 
     $sql = strtolower(implode("\n", array_column(DB::getQueryLog(), 'query')));
@@ -1063,11 +1136,11 @@ it('rejects a start when the instrument type name is blank', function (string $n
     DB::table('instrument_type')->where('instrument_type_id', 11)->update([
         'type_name' => $name,
     ]);
-    ['allocator' => $allocator, 'service' => $service] = bindStartCalibrationServices();
+    ['allocator' => $allocator, 'service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
     DB::flushQueryLog();
     DB::enableQueryLog();
 
-    expect(fn () => $service->start(11, $method))
+    expect(fn () => $service->start(11, $method, $starterId, $connection))
         ->toThrow(StartCalibrationException::class, 'The instrument type name is incomplete.');
 
     $sql = strtolower(implode("\n", array_column(DB::getQueryLog(), 'query')));
@@ -1099,9 +1172,9 @@ it('rejects the instrument name before the type name when both are blank', funct
     DB::table('instrument_type')->where('instrument_type_id', 11)->update([
         'type_name' => '   ',
     ]);
-    ['allocator' => $allocator, 'service' => $service] = bindStartCalibrationServices();
+    ['allocator' => $allocator, 'service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL))
+    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection))
         ->toThrow(StartCalibrationException::class, 'The instrument name is incomplete.');
 
     expect(Calibration::query()->count())->toBe(0)
@@ -1125,9 +1198,9 @@ it('stores a padded instrument name and type name without trimming', function (s
     DB::table('instrument_type')->where('instrument_type_id', 11)->update([
         'type_name' => '  Type B  ',
     ]);
-    ['service' => $service] = bindStartCalibrationServices();
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
 
-    $calibration = $service->start(11, $method);
+    $calibration = $service->start(11, $method, $starterId, $connection);
 
     expect($calibration->snapshot_instrument_name)->toBe('  Instrument A  ')
         ->and($calibration->snapshot_instrument_type_name)->toBe('  Type B  ')
@@ -1138,3 +1211,113 @@ it('stores a padded instrument name and type name without trimming', function (s
     'internal' => Calibration::METHOD_INTERNAL,
     'external' => Calibration::METHOD_EXTERNAL,
 ]);
+
+it('allows an administrator to start and stores the resolved owner', function () {
+    createStartCalibrationTables();
+    seedStartCalibrationInstrumentType();
+    seedStartCalibrationLocation();
+    seedInternalCalibrationTeam();
+    seedStartCalibrationConfiguration();
+    ['allocator' => $allocator, 'service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices(ApplicationRoleName::Administrator);
+
+    $calibration = $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
+
+    expect($calibration->started_by_app_user_id)->toBe($appUserId)
+        ->and($allocator->calls)->toBe(1)
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('denies a viewer from starting a session', function () {
+    createStartCalibrationTables();
+    seedStartCalibrationInstrumentType();
+    seedStartCalibrationLocation();
+    seedInternalCalibrationTeam();
+    seedStartCalibrationConfiguration();
+    ['allocator' => $allocator, 'service' => $service, 'starterId' => $starterId, 'connection' => $connection] = bindStartCalibrationServices(ApplicationRoleName::Viewer);
+
+    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection))
+        ->toThrow(StartCalibrationException::class, 'You are not allowed to start a calibration session.')
+        ->and(Calibration::query()->count())->toBe(0)
+        ->and($allocator->calls)->toBe(0);
+});
+
+it('denies a roleless user from starting a session', function () {
+    createStartCalibrationTables();
+    seedStartCalibrationInstrumentType();
+    seedStartCalibrationLocation();
+    seedInternalCalibrationTeam();
+    seedStartCalibrationConfiguration();
+    ['allocator' => $allocator, 'service' => $service, 'starterId' => $starterId, 'connection' => $connection] = bindStartCalibrationServices(null);
+
+    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection))
+        ->toThrow(StartCalibrationException::class, 'You are not allowed to start a calibration session.')
+        ->and(Calibration::query()->count())->toBe(0)
+        ->and($allocator->calls)->toBe(0);
+});
+
+it('rejects start when the domain actor mapping is missing', function () {
+    createStartCalibrationTables();
+    seedStartCalibrationInstrumentType();
+    seedStartCalibrationLocation();
+    seedInternalCalibrationTeam();
+    seedStartCalibrationConfiguration();
+    ['allocator' => $allocator, 'service' => $service, 'starterId' => $starterId, 'connection' => $connection] = bindStartCalibrationServices();
+    DB::table('user_app_user_map')->where('laravel_user_id', $starterId)->delete();
+
+    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection))
+        ->toThrow(ResolveDomainActorException::class)
+        ->and(Calibration::query()->count())->toBe(0)
+        ->and(CalibrationRequirementSnapshot::query()->count())->toBe(0)
+        ->and($allocator->calls)->toBe(0);
+});
+
+it('rejects start when the domain actor mapping is inactive', function () {
+    createStartCalibrationTables();
+    seedStartCalibrationInstrumentType();
+    seedStartCalibrationLocation();
+    seedInternalCalibrationTeam();
+    seedStartCalibrationConfiguration();
+    ['allocator' => $allocator, 'service' => $service, 'starterId' => $starterId, 'connection' => $connection] = bindStartCalibrationServices();
+    DB::table('user_app_user_map')->where('laravel_user_id', $starterId)->update([
+        'status' => 'inactive',
+        'inactivated_at' => '2026-10-20 09:30:00',
+    ]);
+
+    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection))
+        ->toThrow(ResolveDomainActorException::class)
+        ->and(Calibration::query()->count())->toBe(0)
+        ->and($allocator->calls)->toBe(0);
+});
+
+it('rejects start when the mapped app_user is inactive', function () {
+    createStartCalibrationTables();
+    seedStartCalibrationInstrumentType();
+    seedStartCalibrationLocation();
+    seedInternalCalibrationTeam();
+    seedStartCalibrationConfiguration();
+    ['allocator' => $allocator, 'service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
+    DB::table('app_user')->where('app_user_id', $appUserId)->update(['is_active' => 0]);
+
+    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection))
+        ->toThrow(ResolveDomainActorException::class)
+        ->and(Calibration::query()->count())->toBe(0)
+        ->and($allocator->calls)->toBe(0);
+});
+
+it('keeps started_by_app_user_id unchanged after unrelated evidence-style updates', function () {
+    createStartCalibrationTables();
+    seedStartCalibrationInstrumentType();
+    seedStartCalibrationLocation();
+    seedInternalCalibrationTeam();
+    seedStartCalibrationConfiguration();
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
+
+    $calibration = $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
+
+    DB::table('calibration')->where('calibration_id', $calibration->calibration_id)->update([
+        'updated_at' => '2026-10-20 11:00:00',
+    ]);
+
+    expect(Calibration::query()->findOrFail($calibration->calibration_id)->started_by_app_user_id)
+        ->toBe($appUserId);
+});
