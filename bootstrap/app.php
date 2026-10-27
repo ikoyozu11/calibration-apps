@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureApplicationRole;
+use App\Http\Middleware\EnsureStagingRuntimeIsolation;
 use Illuminate\Auth\Middleware\Authenticate;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
@@ -25,8 +26,12 @@ return Application::configure(basePath: dirname(__DIR__))
             'application.role' => EnsureApplicationRole::class,
         ]);
 
+        // Staging isolation must run before session/auth/CSRF can touch a database.
+        $middleware->prepend(EnsureStagingRuntimeIsolation::class);
+
         // Deny roleless users before route-model binding hits domain tables.
         $middleware->priority([
+            EnsureStagingRuntimeIsolation::class,
             HandlePrecognitiveRequests::class,
             EncryptCookies::class,
             AddQueuedCookiesToResponse::class,

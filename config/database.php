@@ -26,6 +26,12 @@ return [
     'staging_preflight_http' => filter_var(env('STAGING_PREFLIGHT_HTTP', false), FILTER_VALIDATE_BOOL),
 
     /*
+    | When true (staging launcher only), EnsureStagingRuntimeIsolation validates
+    | resolved config before session/auth middleware. Leave false in .env.
+    */
+    'staging_runtime_isolation' => filter_var(env('STAGING_RUNTIME_ISOLATION', false), FILTER_VALIDATE_BOOL),
+
+    /*
     |--------------------------------------------------------------------------
     | Database Connections
     |--------------------------------------------------------------------------
