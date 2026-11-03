@@ -1,5 +1,6 @@
 <?php
 
+use App\CalibrationSessions\CalibrationSessionHttpRead;
 use App\Models\DetailLocation;
 use App\Models\Instrument;
 use App\Models\InstrumentType;
@@ -37,8 +38,8 @@ new class extends Component
     public function totals(): array
     {
         return [
-            'instruments' => Instrument::query()->count(),
-            'types' => InstrumentType::query()->count(),
+            'instruments' => Instrument::on($this->readConnectionName())->count(),
+            'types' => InstrumentType::on($this->readConnectionName())->count(),
             'locations' => $this->filledLocationCount(),
         ];
     }
@@ -49,7 +50,7 @@ new class extends Component
     #[Computed]
     public function instruments(): LengthAwarePaginator
     {
-        return Instrument::query()
+        return Instrument::on($this->readConnectionName())
             ->select([
                 'instrument.instrument_id',
                 'instrument.instrument_name',
@@ -114,16 +115,23 @@ new class extends Component
 
     private function filledLocationCount(): int
     {
-        return Location::query()
+        $name = $this->readConnectionName();
+
+        return Location::on($name)
             ->whereNotNull('location_name')
             ->whereRaw("trim(location_name) <> ''")
-            ->whereIn('location_id', DetailLocation::query()
+            ->whereIn('location_id', DetailLocation::on($name)
                 ->select('location_id')
                 ->whereIn(
                     'detail_location_id',
-                    Instrument::query()->select('detail_location_id')->whereNotNull('detail_location_id'),
+                    Instrument::on($name)->select('detail_location_id')->whereNotNull('detail_location_id'),
                 ))
             ->count();
+    }
+
+    private function readConnectionName(): string
+    {
+        return app(CalibrationSessionHttpRead::class)->connectionName();
     }
 };
 ?>

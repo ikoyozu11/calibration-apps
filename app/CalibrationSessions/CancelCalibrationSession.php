@@ -107,6 +107,10 @@ class CancelCalibrationSession
             throw CancelCalibrationSessionException::invalidSessionStatus();
         }
 
+        if (is_string($calibration->certificate_number) && trim($calibration->certificate_number) !== '') {
+            throw CancelCalibrationSessionException::certificateIssued();
+        }
+
         foreach ([
             'cancelled_at',
             'cancelled_reason',

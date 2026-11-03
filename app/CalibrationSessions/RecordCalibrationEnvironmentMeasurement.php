@@ -118,36 +118,18 @@ class RecordCalibrationEnvironmentMeasurement
     {
         $frozen = (string) $snapshot->frozen_mode;
         $resolved = $snapshot->resolved_mode !== null ? (string) $snapshot->resolved_mode : null;
-        $mode = $this->effectiveMode($frozen, $resolved);
+        $mode = CalibrationSessionRequirementPolicy::effectiveMode(
+            InstrumentTypeRequirement::CATEGORY_ENVIRONMENT,
+            $frozen,
+            $resolved,
+            Calibration::METHOD_INTERNAL,
+        );
 
         if (in_array($mode, [InstrumentTypeRequirement::MODE_REQUIRED, InstrumentTypeRequirement::MODE_OPTIONAL], true)) {
             return;
         }
 
-        if ($frozen === InstrumentTypeRequirement::MODE_NOT_CONFIGURED) {
-            throw RecordCalibrationEnvironmentMeasurementException::unresolvedEnvironmentMode();
-        }
-
         throw RecordCalibrationEnvironmentMeasurementException::invalidEffectiveMode();
-    }
-
-    /**
-     * PostgreSQL calibration_requirement_effective_mode CASE.
-     */
-    private function effectiveMode(string $frozenMode, ?string $resolvedMode): string
-    {
-        if (in_array($frozenMode, [InstrumentTypeRequirement::MODE_REQUIRED, InstrumentTypeRequirement::MODE_OPTIONAL], true)) {
-            return $frozenMode;
-        }
-
-        if (
-            $frozenMode === InstrumentTypeRequirement::MODE_NOT_CONFIGURED
-            && in_array($resolvedMode, [InstrumentTypeRequirement::MODE_REQUIRED, InstrumentTypeRequirement::MODE_OPTIONAL], true)
-        ) {
-            return $resolvedMode;
-        }
-
-        return InstrumentTypeRequirement::MODE_NOT_CONFIGURED;
     }
 
     /**

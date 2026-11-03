@@ -233,7 +233,8 @@ it('renders basic certificate and related calibration information', function () 
         ->assertSee('12 June 2027')
         ->assertSee('PASS')
         ->assertSee('No environment data found.')
-        ->assertSee('No activities found.')
+        ->assertDontSee('No activities found.')
+        ->assertDontSee('>Activity</h2>', false)
         ->assertSee('No standards used.')
         ->assertSee('No test results found.')
         ->assertSeeInOrder([
@@ -457,7 +458,7 @@ it('renders customer and scoped instrument identification without duplicate inst
         ->assertSee('No test results found.');
 });
 
-it('renders environment, ordered activities, and ordered standard usages', function () {
+it('renders environment and ordered standard usages without activities', function () {
     createCertificatePreviewTestTables();
 
     DB::table('instrument')->insert([
@@ -595,12 +596,9 @@ it('renders environment, ordered activities, and ordered standard usages', funct
         ->assertSee('65')
         ->assertSee('%')
         ->assertDontSee('No environment data found.')
-        ->assertSee('Activity')
-        ->assertSeeInOrder([
-            'Cleaning All Module',
-            'Leakage test',
-            'Verification',
-        ])
+        ->assertDontSee('>Activity</h2>', false)
+        ->assertDontSee('Cleaning All Module')
+        ->assertDontSee('Leakage test')
         ->assertDontSee('No activities found.')
         ->assertSee('Standard(s) Used')
         ->assertSeeInOrder([

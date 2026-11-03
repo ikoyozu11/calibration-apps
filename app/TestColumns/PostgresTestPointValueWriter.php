@@ -3,10 +3,11 @@
 namespace App\TestColumns;
 
 use Illuminate\Database\QueryException;
-use Illuminate\Support\Facades\DB;
 
 class PostgresTestPointValueWriter implements TestPointValueWriter
 {
+    use WritesThroughHttpConnection;
+
     public function upsert(
         int $profileId,
         int $pointId,
@@ -35,7 +36,7 @@ class PostgresTestPointValueWriter implements TestPointValueWriter
     private function call(string $sql, array $bindings): void
     {
         try {
-            DB::selectOne($sql, $bindings);
+            $this->writeConnection()->selectOne($sql, $bindings);
         } catch (QueryException $exception) {
             throw new TestPointValueWriteException(
                 TestPointValueConstraintMessage::fromDatabaseMessage($exception->getMessage()),

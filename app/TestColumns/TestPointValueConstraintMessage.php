@@ -31,4 +31,29 @@ class TestPointValueConstraintMessage
 
         return 'The row could not be saved. Check the values and try again.';
     }
+
+    public static function fromDeleteDatabaseMessage(string $message): string
+    {
+        $known = [
+            'fk_calibration_test_result_test_point' => 'This row is used by a calibration result and cannot be deleted.',
+            'fk_test_point_value_point' => 'The row values could not be removed before deleting the row.',
+            'uq_test_point_order' => 'The remaining row order could not be normalized. Refresh the page and try again.',
+            'test profile' => 'This test table could not be found.',
+        ];
+
+        uksort($known, fn (string $left, string $right): int => strlen($right) <=> strlen($left));
+
+        foreach ($known as $needle => $text) {
+            if (str_contains($message, $needle)) {
+                return $text;
+            }
+        }
+
+        return self::genericDeleteFailure();
+    }
+
+    public static function genericDeleteFailure(): string
+    {
+        return 'The row could not be deleted. Check the draft row and try again.';
+    }
 }

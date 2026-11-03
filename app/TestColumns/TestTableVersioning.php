@@ -2,6 +2,8 @@
 
 namespace App\TestColumns;
 
+use App\CalibrationSessions\CalibrationHttpConnection;
+use App\CalibrationSessions\CalibrationHttpConnectionException;
 use App\Models\TestProfile;
 use App\Models\TestProfileVersion;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -16,7 +18,7 @@ class TestTableVersioning
 
     public function enabled(): bool
     {
-        return Schema::hasTable((new TestProfileVersion)->getTable());
+        return Schema::connection($this->connectionName())->hasTable((new TestProfileVersion)->getTable());
     }
 
     public function draft(TestProfile $profile): ?TestProfileVersion
@@ -112,7 +114,7 @@ class TestTableVersioning
             return null;
         }
 
-        $id = TestProfileVersion::query()
+        $id = TestProfileVersion::on($this->connectionName())
             ->where('test_profile_id', $profileId)
             ->where('status', TestProfileVersion::STATUS_DRAFT)
             ->value('test_profile_version_id');
@@ -132,7 +134,7 @@ class TestTableVersioning
             return $existing;
         }
 
-        return TestProfileVersion::query()->create([
+        $payload = [
             'test_profile_id' => $profile->test_profile_id,
             'version_number' => 1,
             'status' => TestProfileVersion::STATUS_DRAFT,
@@ -140,7 +142,15 @@ class TestTableVersioning
             'display_title' => $profile->display_title,
             'description' => $profile->description,
             'published_at' => null,
-        ]);
+        ];
+
+        $connection = $this->connectionName($profile);
+
+        if (Schema::connection($connection)->hasColumn('test_profile_version', 'remarks')) {
+            $payload['remarks'] = null;
+        }
+
+        return TestProfileVersion::on($connection)->create($payload);
     }
 
     /**
@@ -230,5 +240,22 @@ class TestTableVersioning
         }
 
         return $profile->versions()->get();
+    }
+
+    private function connectionName(?TestProfile $profile = null): string
+    {
+        $name = $profile?->getConnectionName();
+
+        if (is_string($name) && $name !== '') {
+            return $name;
+        }
+
+        $resolved = app(CalibrationHttpConnection::class)->resolve()->getName();
+
+        if (! is_string($resolved) || $resolved === '') {
+            throw CalibrationHttpConnectionException::unavailable();
+        }
+
+        return $resolved;
     }
 }

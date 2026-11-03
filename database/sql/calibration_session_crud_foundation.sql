@@ -36,11 +36,10 @@
 --   projection then writes the new parent.
 --   Remaining limitation: a superuser or raw SQL in the same transaction can
 --   SET LOCAL the same GUC. Triggers cannot prevent that class of bypass.
---   Validation: Internal Complete reads canonical required values. Required
---   and Optional environment both need explicit configuration confirmation.
---   Optional environment may be empty after confirmation, but any Required
---   parameters on that session must still have values. Unconfirmed parameter
---   inclusions block Complete.
+--   Validation: Internal Complete reads canonical required values. Temperature
+--   and Relative Humidity are required per session; other included required
+--   parameters must also have values. Unconfirmed parameter inclusions block
+--   Complete. Configuration confirmation is not a completion gate.
 --   pressure_* on calibration_environment is unused by the new parameter set
 --   and is left untouched so v_certificate_environment stays valid.
 --
@@ -851,19 +850,14 @@ BEGIN
             USING ERRCODE = '23514';
     END IF;
 
-    effective_mode := public.calibration_requirement_effective_mode(
-        snap.frozen_mode,
-        snap.resolved_mode
-    );
+    effective_mode := CASE
+        WHEN snap.frozen_mode IN ('required', 'optional') THEN snap.frozen_mode
+        WHEN snap.resolved_mode IN ('required', 'optional') THEN snap.resolved_mode
+        ELSE 'required'
+    END;
 
     IF effective_mode = 'not_configured' THEN
         RAISE EXCEPTION 'environment is not configured'
-            USING ERRCODE = '23514';
-    END IF;
-
-    IF snap.configuration_confirmed_at IS NULL THEN
-        RAISE EXCEPTION
-            'environment requires explicit configuration confirmation before complete'
             USING ERRCODE = '23514';
     END IF;
 
@@ -875,6 +869,19 @@ BEGIN
     ) THEN
         RAISE EXCEPTION
             'unconfirmed environment parameter inclusions block complete'
+            USING ERRCODE = '23514';
+    END IF;
+
+    IF (
+        SELECT COUNT(*)
+        FROM public.calibration_environment_parameter_snapshot
+        WHERE calibration_id = p_calibration_id
+          AND parameter_code IN ('temperature', 'relative_humidity')
+          AND inclusion_confirmed
+          AND requirement_mode = 'required'
+    ) IS DISTINCT FROM 2 THEN
+        RAISE EXCEPTION
+            'internal environment requires required Temperature and Relative Humidity snapshots'
             USING ERRCODE = '23514';
     END IF;
 
@@ -946,11 +953,12 @@ BEGIN
             SELECT value
             FROM jsonb_array_elements(scope_row.test_table_snapshot -> 'columns')
         LOOP
-            completion_rule := column_row ->> 'completion_rule';
+            completion_rule := COALESCE(column_row ->> 'completion_rule', 'not_configured');
             column_key := column_row ->> 'column_key';
 
             IF completion_rule IS DISTINCT FROM 'required'
-               AND completion_rule IS DISTINCT FROM 'optional' THEN
+               AND completion_rule IS DISTINCT FROM 'optional'
+               AND completion_rule IS DISTINCT FROM 'not_configured' THEN
                 RAISE EXCEPTION
                     'unconfigured test component % blocks complete',
                     column_key
@@ -1075,10 +1083,12 @@ BEGIN
         FROM public.calibration_requirement_snapshot
         WHERE calibration_id = rec.calibration_id
     LOOP
-        effective_mode := public.calibration_requirement_effective_mode(
-            snap.frozen_mode,
-            snap.resolved_mode
-        );
+        effective_mode := CASE
+            WHEN snap.requirement_category = 'activity' THEN 'optional'
+            WHEN snap.frozen_mode IN ('required', 'optional') THEN snap.frozen_mode
+            WHEN snap.resolved_mode IN ('required', 'optional') THEN snap.resolved_mode
+            ELSE 'optional'
+        END;
 
         IF effective_mode = 'not_configured' THEN
             RAISE EXCEPTION '% is not configured', snap.requirement_category

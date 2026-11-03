@@ -4,10 +4,13 @@ use App\Authorization\ApplicationRoleName;
 use App\Authorization\AssignApplicationRole;
 use App\Authorization\ResolveApplicationRole;
 use App\CalibrationSessions\CalibrationSessionConnection;
+use App\CalibrationSessions\RecordCalibrationStandardUsage;
 use App\CalibrationSessions\ResolveDomainActor;
 use App\CalibrationSessions\StartCalibrationSession;
 use App\Models\Calibration;
+use App\Models\EnvironmentParameter;
 use App\Models\InstrumentType;
+use App\Models\InstrumentTypeRequirement;
 use App\Models\TestProfileVersion;
 use App\Models\User;
 use App\TestColumns\ActiveTestTableScopeResolver;
@@ -329,6 +332,40 @@ function isolationSeedStartMasters(string $connectionName): void
         'provider_type' => 'INTERNAL',
         'created_at' => '2026-10-20 09:00:00',
     ]);
+    $db->table('environment_parameter')->insert([
+        [
+            'parameter_id' => 1,
+            'parameter_code' => EnvironmentParameter::CODE_TEMPERATURE,
+            'parameter_name' => 'Temperature',
+            'unit' => 'C',
+            'data_type' => 'numeric',
+            'is_system' => true,
+            'created_at' => '2026-10-20 09:00:00',
+        ],
+        [
+            'parameter_id' => 2,
+            'parameter_code' => EnvironmentParameter::CODE_RELATIVE_HUMIDITY,
+            'parameter_name' => 'Relative Humidity',
+            'unit' => '%RH',
+            'data_type' => 'numeric',
+            'is_system' => true,
+            'created_at' => '2026-10-20 09:00:00',
+        ],
+    ]);
+    $db->table('instrument_type_environment_parameter')->insert([
+        [
+            'instrument_type_id' => 11,
+            'parameter_id' => 1,
+            'requirement_mode' => InstrumentTypeRequirement::MODE_REQUIRED,
+            'display_order' => 1,
+        ],
+        [
+            'instrument_type_id' => 11,
+            'parameter_id' => 2,
+            'requirement_mode' => InstrumentTypeRequirement::MODE_REQUIRED,
+            'display_order' => 2,
+        ],
+    ]);
 }
 
 function isolationSeedStartActor(string $connectionName): int
@@ -600,6 +637,7 @@ it('starts a calibration only on the explicit session connection', function () {
         new FakeCalibrationNumberAllocator,
         app(ResolveDomainActor::class),
         app(ResolveApplicationRole::class),
+        app(RecordCalibrationStandardUsage::class),
     );
 
     $calibration = $service->start(11, Calibration::METHOD_INTERNAL, $starterId, isolationConnection());
@@ -637,6 +675,7 @@ it('rolls back start on the session connection without writing to the default co
         new FakeCalibrationNumberAllocator,
         app(ResolveDomainActor::class),
         app(ResolveApplicationRole::class),
+        app(RecordCalibrationStandardUsage::class),
     );
 
     expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL, $starterId, isolationConnection()))

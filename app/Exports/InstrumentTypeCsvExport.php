@@ -4,7 +4,9 @@ namespace App\Exports;
 
 use App\Models\Calibration;
 use App\Models\Instrument;
+use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use InvalidArgumentException;
 
 class InstrumentTypeCsvExport
 {
@@ -31,9 +33,9 @@ class InstrumentTypeCsvExport
     /**
      * @return list<list<string>>
      */
-    public static function rows(): array
+    public static function rows(Connection $connection): array
     {
-        $instruments = Instrument::query()
+        $instruments = Instrument::on(self::connectionName($connection))
             ->select([
                 'instrument_id',
                 'instrument_name',
@@ -88,5 +90,16 @@ class InstrumentTypeCsvExport
         }
 
         return $rows;
+    }
+
+    private static function connectionName(Connection $connection): string
+    {
+        $name = $connection->getName();
+
+        if (! is_string($name) || $name === '') {
+            throw new InvalidArgumentException('Instrument CSV export requires a named connection.');
+        }
+
+        return $name;
     }
 }

@@ -361,14 +361,66 @@ function seedSessionCompleteResult(Connection $connection, mixed $numeric = null
     ]);
 }
 
-function seedSessionCompleteInternal(Connection $connection, array $modes = [], bool $confirmEnvironment = true): void
-{
+function seedSessionCompleteInternal(
+    Connection $connection,
+    array $modes = [],
+    bool $confirmEnvironment = true,
+    bool $withRoomEnvironment = true,
+): void {
     seedSessionCompleteProvider($connection);
     seedSessionComplete($connection, [
         'calibration_method' => Calibration::METHOD_INTERNAL,
         'calibration_provider_id' => 77,
     ]);
     seedSessionCompleteRequirements($connection, $modes, $confirmEnvironment);
+
+    if ($withRoomEnvironment) {
+        seedSessionCompleteRoomEnvironment($connection);
+    }
+}
+
+function seedSessionCompleteRoomEnvironment(Connection $connection, bool $withValues = true): void
+{
+    foreach ([
+        [
+            'parameter_id' => 1,
+            'parameter_code' => 'temperature',
+            'parameter_name' => 'Temperature',
+            'unit' => 'C',
+            'display_order' => 1,
+            'numeric_value' => 21.5,
+        ],
+        [
+            'parameter_id' => 2,
+            'parameter_code' => 'relative_humidity',
+            'parameter_name' => 'Relative Humidity',
+            'unit' => '%RH',
+            'display_order' => 2,
+            'numeric_value' => 55,
+        ],
+    ] as $row) {
+        $connection->table('calibration_environment_parameter_snapshot')->insert([
+            'calibration_id' => 40,
+            'parameter_id' => $row['parameter_id'],
+            'parameter_code' => $row['parameter_code'],
+            'parameter_name' => $row['parameter_name'],
+            'unit' => $row['unit'],
+            'data_type' => 'numeric',
+            'requirement_mode' => 'required',
+            'display_order' => $row['display_order'],
+            'inclusion_confirmed' => 1,
+        ]);
+
+        if ($withValues) {
+            $connection->table('calibration_environment_value')->insert([
+                'calibration_environment_value_id' => $row['parameter_id'],
+                'calibration_id' => 40,
+                'parameter_id' => $row['parameter_id'],
+                'numeric_value' => $row['numeric_value'],
+                'text_value' => null,
+            ]);
+        }
+    }
 }
 
 function sessionCompleteSql(Connection $connection): string
@@ -558,49 +610,59 @@ it('rejects an internal session that is missing a requirement category', functio
     expect($connection->table('calibration')->where('calibration_id', 40)->value('session_status'))->toBe(Calibration::STATUS_IN_PROGRESS);
 });
 
-it('rejects an unresolved or unsupported requirement mode', function (array $standards) {
+it('completes when a routine requirement snapshot is unresolved or has an unsupported resolution', function (array $standards) {
     $connection = sessionCompleteConnection();
     seedSessionCompleteInternal($connection, ['standards' => $standards]);
 
-    expect(fn () => sessionCompleteService()->complete(40, '2026-10-22', '2027-10-22', $connection))
-        ->toThrow(CompleteCalibrationSessionException::class, 'The standards requirement is not configured.');
+    sessionCompleteService()->complete(40, '2026-10-22', '2027-10-22', $connection);
 
-    expect($connection->table('calibration')->where('calibration_id', 40)->value('session_status'))->toBe(Calibration::STATUS_IN_PROGRESS)
+    expect($connection->table('calibration')->where('calibration_id', 40)->value('session_status'))->toBe(Calibration::STATUS_COMPLETED)
         ->and($connection->table('calibration_requirement_snapshot')->where('requirement_category', 'standards')->value('frozen_mode'))->toBe('not_configured');
 })->with([
     'unresolved' => [['frozen' => 'not_configured', 'resolved' => null]],
     'unsupported resolved mode' => [['frozen' => 'not_configured', 'resolved' => 'mandatory']],
 ]);
 
-it('rejects required standards or activity when no rows exist', function (string $category, string $message) {
+it('rejects required standards when no rows exist', function () {
     $connection = sessionCompleteConnection();
-    seedSessionCompleteInternal($connection, [$category => 'required']);
+    seedSessionCompleteInternal($connection, ['standards' => 'required']);
 
     expect(fn () => sessionCompleteService()->complete(40, '2026-10-22', '2027-10-22', $connection))
-        ->toThrow(CompleteCalibrationSessionException::class, $message);
+        ->toThrow(CompleteCalibrationSessionException::class, 'Required standards need at least one standard.');
 
     expect($connection->table('calibration')->where('calibration_id', 40)->value('session_status'))->toBe(Calibration::STATUS_IN_PROGRESS)
-        ->and($connection->table('calibration_standard_usage')->count())->toBe(0)
-        ->and($connection->table('calibration_activity')->count())->toBe(0);
+        ->and($connection->table('calibration_standard_usage')->count())->toBe(0);
+});
+
+it('completes an internal session with no activity rows', function (string|array $activityMode) {
+    $connection = sessionCompleteConnection();
+    seedSessionCompleteInternal($connection, ['activity' => $activityMode]);
+
+    sessionCompleteService()->complete(40, '2026-10-22', '2027-10-22', $connection);
+
+    expect($connection->table('calibration')->where('calibration_id', 40)->value('session_status'))->toBe(Calibration::STATUS_COMPLETED)
+        ->and($connection->table('calibration_activity')->count())->toBe(0)
+        ->and($connection->table('calibration_requirement_snapshot')->where('requirement_category', 'activity')->value('frozen_mode'))->toBe(is_array($activityMode) ? $activityMode['frozen'] : $activityMode);
 })->with([
-    'standards' => ['standards', 'Required standards need at least one standard.'],
-    'activity' => ['activity', 'Required calibration activity needs at least one activity.'],
+    'optional' => ['optional'],
+    'required snapshot left unchanged' => [['frozen' => 'required', 'resolved' => null]],
+    'not configured snapshot left unchanged' => [['frozen' => 'not_configured', 'resolved' => null]],
 ]);
 
-it('rejects an internal session whose environment configuration is not confirmed', function () {
+it('completes an internal session whose environment configuration is not confirmed', function () {
     $connection = sessionCompleteConnection();
     seedSessionCompleteInternal($connection, [], false);
 
-    expect(fn () => sessionCompleteService()->complete(40, '2026-10-22', '2027-10-22', $connection))
-        ->toThrow(CompleteCalibrationSessionException::class, 'Environment requires explicit configuration confirmation before complete.');
+    sessionCompleteService()->complete(40, '2026-10-22', '2027-10-22', $connection);
 
-    expect($connection->table('calibration')->where('calibration_id', 40)->value('session_status'))->toBe(Calibration::STATUS_IN_PROGRESS)
-        ->and($connection->table('calibration_requirement_snapshot')->where('requirement_category', 'environment')->value('configuration_confirmed_at'))->toBeNull();
+    expect($connection->table('calibration')->where('calibration_id', 40)->value('session_status'))->toBe(Calibration::STATUS_COMPLETED)
+        ->and($connection->table('calibration_requirement_snapshot')->where('requirement_category', 'environment')->value('configuration_confirmed_at'))->toBeNull()
+        ->and($connection->table('calibration_environment_value')->count())->toBe(2);
 });
 
 it('rejects an environment parameter whose inclusion is not confirmed', function () {
     $connection = sessionCompleteConnection();
-    seedSessionCompleteInternal($connection);
+    seedSessionCompleteInternal($connection, [], true, false);
     seedSessionCompleteParameter($connection, 'numeric', 'optional', 0);
     seedSessionCompleteEnvironmentValue($connection, 21);
 
@@ -613,21 +675,57 @@ it('rejects an environment parameter whose inclusion is not confirmed', function
 
 it('rejects required environment when no confirmed required parameter exists', function () {
     $connection = sessionCompleteConnection();
-    seedSessionCompleteInternal($connection, ['environment' => 'required']);
+    seedSessionCompleteInternal($connection, ['environment' => 'required'], true, false);
     seedSessionCompleteParameter($connection, 'numeric', 'optional');
 
     expect(fn () => sessionCompleteService()->complete(40, '2026-10-22', '2027-10-22', $connection))
-        ->toThrow(CompleteCalibrationSessionException::class, 'Required environment needs at least one confirmed required parameter.');
+        ->toThrow(CompleteCalibrationSessionException::class, 'Temperature must be frozen as required before complete.');
 
     expect($connection->table('calibration')->where('calibration_id', 40)->value('session_status'))->toBe(Calibration::STATUS_IN_PROGRESS);
 });
 
 it('rejects a required environment parameter without its typed value', function (string $dataType, mixed $numeric, ?string $text) {
     $connection = sessionCompleteConnection();
-    seedSessionCompleteInternal($connection, ['environment' => 'required']);
-    seedSessionCompleteParameter($connection, $dataType);
-    if ($numeric !== null || $text !== null) {
-        seedSessionCompleteEnvironmentValue($connection, $numeric, $text);
+    seedSessionCompleteInternal($connection, ['environment' => 'required'], true, false);
+    seedSessionCompleteRoomEnvironment($connection, false);
+    if ($dataType === 'numeric') {
+        $connection->table('calibration_environment_value')->insert([
+            'calibration_environment_value_id' => 2,
+            'calibration_id' => 40,
+            'parameter_id' => 2,
+            'numeric_value' => 55,
+            'text_value' => null,
+        ]);
+    } else {
+        $connection->table('calibration_environment_value')->insert([
+            [
+                'calibration_environment_value_id' => 1,
+                'calibration_id' => 40,
+                'parameter_id' => 1,
+                'numeric_value' => 21.5,
+                'text_value' => null,
+            ],
+            [
+                'calibration_environment_value_id' => 2,
+                'calibration_id' => 40,
+                'parameter_id' => 2,
+                'numeric_value' => 55,
+                'text_value' => null,
+            ],
+        ]);
+        seedSessionCompleteParameter($connection, 'text', 'required', 1, 5);
+        $connection->table('calibration_environment_parameter_snapshot')
+            ->where('parameter_id', 5)
+            ->update(['display_order' => 3]);
+        if ($numeric !== null || $text !== null) {
+            $connection->table('calibration_environment_value')->insert([
+                'calibration_environment_value_id' => 5,
+                'calibration_id' => 40,
+                'parameter_id' => 5,
+                'numeric_value' => $numeric,
+                'text_value' => $text,
+            ]);
+        }
     }
 
     expect(fn () => sessionCompleteService()->complete(40, '2026-10-22', '2027-10-22', $connection))
@@ -643,18 +741,128 @@ it('rejects a required environment parameter without its typed value', function 
 it('completes an internal session when the required environment value is present', function (string $dataType, mixed $numeric, ?string $text) {
     $connection = sessionCompleteConnection();
     seedSessionCompleteInternal($connection, ['environment' => 'required']);
-    seedSessionCompleteParameter($connection, $dataType);
-    seedSessionCompleteEnvironmentValue($connection, $numeric, $text);
+    if ($dataType === 'text') {
+        seedSessionCompleteParameter($connection, 'text', 'required', 1, 5);
+        $connection->table('calibration_environment_parameter_snapshot')
+            ->where('parameter_id', 5)
+            ->update(['display_order' => 3]);
+        $connection->table('calibration_environment_value')->insert([
+            'calibration_environment_value_id' => 5,
+            'calibration_id' => 40,
+            'parameter_id' => 5,
+            'numeric_value' => $numeric,
+            'text_value' => $text,
+        ]);
+    }
 
     sessionCompleteService()->complete(40, '2026-10-22', '2027-10-22', $connection);
 
     expect($connection->table('calibration')->where('calibration_id', 40)->value('session_status'))->toBe(Calibration::STATUS_COMPLETED)
-        ->and($connection->table('calibration_environment_value')->count())->toBe(1)
-        ->and($connection->table('calibration_environment_parameter_snapshot')->value('requirement_mode'))->toBe('required');
+        ->and($connection->table('calibration_environment_parameter_snapshot')->where('parameter_code', 'temperature')->value('requirement_mode'))->toBe('required')
+        ->and($connection->table('calibration_environment_parameter_snapshot')->where('parameter_code', 'relative_humidity')->value('requirement_mode'))->toBe('required');
 })->with([
     'numeric' => ['numeric', 21.5, null],
-    'text' => ['text', null, 'bench'],
+    'text extra parameter' => ['text', null, 'bench'],
 ]);
+
+it('rejects complete when frozen temperature is missing', function () {
+    $connection = sessionCompleteConnection();
+    seedSessionCompleteInternal($connection, [], true, false);
+    $connection->table('calibration_environment_parameter_snapshot')->insert([
+        'calibration_id' => 40,
+        'parameter_id' => 2,
+        'parameter_code' => 'relative_humidity',
+        'parameter_name' => 'Relative Humidity',
+        'unit' => '%RH',
+        'data_type' => 'numeric',
+        'requirement_mode' => 'required',
+        'display_order' => 1,
+        'inclusion_confirmed' => 1,
+    ]);
+    $connection->table('calibration_environment_value')->insert([
+        'calibration_environment_value_id' => 2,
+        'calibration_id' => 40,
+        'parameter_id' => 2,
+        'numeric_value' => 55,
+        'text_value' => null,
+    ]);
+
+    expect(fn () => sessionCompleteService()->complete(40, '2026-10-22', '2027-10-22', $connection))
+        ->toThrow(CompleteCalibrationSessionException::class, 'Complete requires a frozen required Temperature measurement.');
+
+    expect($connection->table('calibration')->where('calibration_id', 40)->value('session_status'))->toBe(Calibration::STATUS_IN_PROGRESS);
+});
+
+it('rejects complete when frozen relative humidity is missing', function () {
+    $connection = sessionCompleteConnection();
+    seedSessionCompleteInternal($connection, [], true, false);
+    $connection->table('calibration_environment_parameter_snapshot')->insert([
+        'calibration_id' => 40,
+        'parameter_id' => 1,
+        'parameter_code' => 'temperature',
+        'parameter_name' => 'Temperature',
+        'unit' => 'C',
+        'data_type' => 'numeric',
+        'requirement_mode' => 'required',
+        'display_order' => 1,
+        'inclusion_confirmed' => 1,
+    ]);
+    $connection->table('calibration_environment_value')->insert([
+        'calibration_environment_value_id' => 1,
+        'calibration_id' => 40,
+        'parameter_id' => 1,
+        'numeric_value' => 21.5,
+        'text_value' => null,
+    ]);
+
+    expect(fn () => sessionCompleteService()->complete(40, '2026-10-22', '2027-10-22', $connection))
+        ->toThrow(CompleteCalibrationSessionException::class, 'Complete requires a frozen required Relative Humidity measurement.');
+
+    expect($connection->table('calibration')->where('calibration_id', 40)->value('session_status'))->toBe(Calibration::STATUS_IN_PROGRESS);
+});
+
+it('rejects complete when frozen temperature or relative humidity is optional', function (string $code, string $message) {
+    $connection = sessionCompleteConnection();
+    seedSessionCompleteInternal($connection);
+    $connection->table('calibration_environment_parameter_snapshot')
+        ->where('parameter_code', $code)
+        ->update(['requirement_mode' => 'optional']);
+
+    expect(fn () => sessionCompleteService()->complete(40, '2026-10-22', '2027-10-22', $connection))
+        ->toThrow(CompleteCalibrationSessionException::class, $message);
+
+    expect($connection->table('calibration')->where('calibration_id', 40)->value('session_status'))->toBe(Calibration::STATUS_IN_PROGRESS)
+        ->and($connection->table('calibration')->where('calibration_id', 40)->value('certificate_number'))->toBe('CERT-1');
+})->with([
+    'temperature' => ['temperature', 'Temperature must be frozen as required before complete.'],
+    'relative humidity' => ['relative_humidity', 'Relative Humidity must be frozen as required before complete.'],
+]);
+
+it('still requires extra dynamic environment values when temperature and humidity are present', function () {
+    $connection = sessionCompleteConnection();
+    seedSessionCompleteInternal($connection);
+    seedSessionCompleteParameter($connection, 'numeric', 'required', 1, 5);
+    $connection->table('calibration_environment_parameter_snapshot')
+        ->where('parameter_id', 5)
+        ->update(['parameter_code' => 'pressure', 'parameter_name' => 'Pressure', 'display_order' => 3]);
+
+    expect(fn () => sessionCompleteService()->complete(40, '2026-10-22', '2027-10-22', $connection))
+        ->toThrow(CompleteCalibrationSessionException::class, 'Required environment parameters are missing values.');
+
+    expect($connection->table('calibration')->where('calibration_id', 40)->value('session_status'))->toBe(Calibration::STATUS_IN_PROGRESS);
+});
+
+it('does not let a resolved optional environment bypass temperature and relative humidity', function () {
+    $connection = sessionCompleteConnection();
+    seedSessionCompleteInternal($connection, [
+        'environment' => ['frozen' => 'not_configured', 'resolved' => 'optional'],
+    ], true, false);
+
+    expect(fn () => sessionCompleteService()->complete(40, '2026-10-22', '2027-10-22', $connection))
+        ->toThrow(CompleteCalibrationSessionException::class, 'Complete requires a frozen required Temperature measurement.');
+
+    expect($connection->table('calibration')->where('calibration_id', 40)->value('session_status'))->toBe(Calibration::STATUS_IN_PROGRESS);
+});
 
 it('rejects a required test profile that has no fully pinned scope', function () {
     $connection = sessionCompleteConnection();
@@ -709,10 +917,19 @@ it('completes a pinned required component when its entered value is present', fu
     'text' => [null, 'pass'],
 ]);
 
-it('rejects a pinned snapshot whose schema or completion rule cannot be completed', function (int|string $schemaVersion, string $rule, string $message) {
+it('rejects a legacy schema but completes a pinned not configured component', function (int|string $schemaVersion, string $rule, string $message) {
     $connection = sessionCompleteConnection();
     seedSessionCompleteInternal($connection);
     seedSessionCompleteScope($connection, sessionCompleteSnapshot($schemaVersion, $rule));
+
+    if ($rule === 'not_configured') {
+        sessionCompleteService()->complete(40, '2026-10-22', '2027-10-22', $connection);
+
+        expect($connection->table('calibration')->where('calibration_id', 40)->value('session_status'))
+            ->toBe(Calibration::STATUS_COMPLETED);
+
+        return;
+    }
 
     expect(fn () => sessionCompleteService()->complete(40, '2026-10-22', '2027-10-22', $connection))
         ->toThrow(CompleteCalibrationSessionException::class, $message);

@@ -7,6 +7,7 @@ use App\Authorization\ResolveApplicationRole;
 use App\Models\Calibration;
 use App\Models\CalibrationEnvironmentParameterSnapshot;
 use App\Models\CalibrationRequirementSnapshot;
+use App\Models\EnvironmentParameter;
 use App\Models\Instrument;
 use App\Models\InstrumentType;
 use App\Models\InstrumentTypeEnvironmentParameter;
@@ -34,6 +35,7 @@ class StartCalibrationSession
         private CalibrationNumberAllocator $allocator,
         private ResolveDomainActor $actors,
         private ResolveApplicationRole $roles,
+        private RecordCalibrationStandardUsage $standardUsages,
     ) {}
 
     public function start(
@@ -119,6 +121,10 @@ class StartCalibrationSession
             throw StartCalibrationException::inProgressExists();
         }
 
+        if ($method === Calibration::METHOD_INTERNAL) {
+            $this->requiredRoomEnvironmentCatalog($connectionName);
+        }
+
         $identitySnapshot = $this->identitySnapshotAttributes($instrument, $instrumentType);
         $providerId = $this->providerIdForMethod($connection, $method);
 
@@ -144,10 +150,55 @@ class StartCalibrationSession
         ]);
         $calibration->save();
 
-        $this->freezeRequirementSnapshots($connectionName, $calibration, $instrumentType);
-        $this->freezeEnvironmentParameterSnapshots($connectionName, $calibration, $instrumentType);
+        $this->freezeRequirementSnapshots($connectionName, $calibration, $instrumentType, $method);
+        $this->freezeEnvironmentParameterSnapshots($connectionName, $calibration, $instrumentType, $method);
+        $this->persistAssignedStandards($connection, $calibration, $method);
 
         return $calibration->refresh();
+    }
+
+    private function persistAssignedStandards(
+        Connection $connection,
+        Calibration $calibration,
+        string $method,
+    ): void {
+        if ($method !== Calibration::METHOD_INTERNAL) {
+            return;
+        }
+
+        $schema = $connection->getSchemaBuilder();
+
+        foreach (['calibration_standard_usage', 'instrument_type_standard_assignment', 'standard_master'] as $table) {
+            if (! $schema->hasTable($table)) {
+                return;
+            }
+        }
+
+        if (! $schema->hasColumn('instrument_type_standard_assignment', 'standard_id')) {
+            return;
+        }
+
+        $standardIds = $connection->table('instrument_type_standard_assignment')
+            ->where('instrument_type_id', $calibration->instrument_type_id)
+            ->whereNotNull('standard_id')
+            ->orderBy('assignment_order')
+            ->orderBy('instrument_type_standard_assignment_id')
+            ->pluck('standard_id')
+            ->map(fn (mixed $id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($standardIds === []) {
+            return;
+        }
+
+        $this->standardUsages->sync(
+            (int) $calibration->calibration_id,
+            $standardIds,
+            $connection,
+        );
     }
 
     private function normalizeMethod(string $calibrationMethod): string
@@ -261,6 +312,7 @@ class StartCalibrationSession
         string $connectionName,
         Calibration $calibration,
         InstrumentType $instrumentType,
+        string $method,
     ): void {
         $configured = InstrumentTypeRequirement::on($connectionName)
             ->where('instrument_type_id', $instrumentType->instrument_type_id)
@@ -270,6 +322,21 @@ class StartCalibrationSession
         foreach (InstrumentTypeRequirement::CATEGORIES as $category) {
             $mode = $configured->get($category)?->requirement_mode
                 ?? InstrumentTypeRequirement::MODE_NOT_CONFIGURED;
+
+            if (
+                $method === Calibration::METHOD_INTERNAL
+                && $category === InstrumentTypeRequirement::CATEGORY_ENVIRONMENT
+                && $mode === InstrumentTypeRequirement::MODE_NOT_CONFIGURED
+            ) {
+                $mode = InstrumentTypeRequirement::MODE_REQUIRED;
+            }
+
+            if (
+                $method === Calibration::METHOD_INTERNAL
+                && $category === InstrumentTypeRequirement::CATEGORY_ACTIVITY
+            ) {
+                $mode = InstrumentTypeRequirement::MODE_OPTIONAL;
+            }
 
             $snapshot = (new CalibrationRequirementSnapshot)->setConnection($connectionName);
             $snapshot->forceFill([
@@ -286,17 +353,33 @@ class StartCalibrationSession
         }
     }
 
-    private function freezeEnvironmentParameterSnapshots(
+    /**
+     * @return list<array{parameter: EnvironmentParameter, requirement_mode: string}>
+     */
+    private function sessionEnvironmentSnapshots(
         string $connectionName,
-        Calibration $calibration,
         InstrumentType $instrumentType,
-    ): void {
+        string $method,
+    ): array {
         $configurations = InstrumentTypeEnvironmentParameter::on($connectionName)
             ->with('parameter')
             ->where('instrument_type_id', $instrumentType->instrument_type_id)
             ->orderBy('display_order')
             ->orderBy('parameter_id')
             ->get();
+
+        $snapshots = [];
+        $injectedRoomCodes = [];
+
+        if ($method === Calibration::METHOD_INTERNAL) {
+            foreach ($this->requiredRoomEnvironmentCatalog($connectionName) as $parameter) {
+                $snapshots[] = [
+                    'parameter' => $parameter,
+                    'requirement_mode' => InstrumentTypeRequirement::MODE_REQUIRED,
+                ];
+                $injectedRoomCodes[] = $parameter->parameter_code;
+            }
+        }
 
         foreach ($configurations as $configuration) {
             $parameter = $configuration->parameter;
@@ -305,6 +388,52 @@ class StartCalibrationSession
                 throw StartCalibrationException::environmentParameterMissing();
             }
 
+            if (in_array($parameter->parameter_code, $injectedRoomCodes, true)) {
+                continue;
+            }
+
+            $snapshots[] = [
+                'parameter' => $parameter,
+                'requirement_mode' => $configuration->requirement_mode,
+            ];
+        }
+
+        return $snapshots;
+    }
+
+    /**
+     * @return list<EnvironmentParameter>
+     */
+    private function requiredRoomEnvironmentCatalog(string $connectionName): array
+    {
+        $parameters = [];
+
+        foreach ([
+            EnvironmentParameter::CODE_TEMPERATURE,
+            EnvironmentParameter::CODE_RELATIVE_HUMIDITY,
+        ] as $parameterCode) {
+            $parameter = EnvironmentParameter::on($connectionName)
+                ->where('parameter_code', $parameterCode)
+                ->first();
+
+            if ($parameter === null) {
+                throw StartCalibrationException::roomEnvironmentCatalogMissing();
+            }
+
+            $parameters[] = $parameter;
+        }
+
+        return $parameters;
+    }
+
+    private function freezeEnvironmentParameterSnapshots(
+        string $connectionName,
+        Calibration $calibration,
+        InstrumentType $instrumentType,
+        string $method,
+    ): void {
+        foreach ($this->sessionEnvironmentSnapshots($connectionName, $instrumentType, $method) as $index => $row) {
+            $parameter = $row['parameter'];
             $snapshot = (new CalibrationEnvironmentParameterSnapshot)->setConnection($connectionName);
             $snapshot->forceFill([
                 'calibration_id' => $calibration->calibration_id,
@@ -313,8 +442,8 @@ class StartCalibrationSession
                 'parameter_name' => $parameter->parameter_name,
                 'unit' => $parameter->unit,
                 'data_type' => $parameter->data_type,
-                'requirement_mode' => $configuration->requirement_mode,
-                'display_order' => $configuration->display_order,
+                'requirement_mode' => $row['requirement_mode'],
+                'display_order' => $index + 1,
                 'included_at' => now(),
                 'inclusion_confirmed' => true,
                 'inclusion_reason' => null,

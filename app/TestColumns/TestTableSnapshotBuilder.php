@@ -30,6 +30,7 @@ class TestTableSnapshotBuilder
      *     profile_name: string,
      *     display_title: ?string,
      *     description: ?string,
+     *     remarks: ?string,
      *     duration_format: 'hh:mm:ss',
      *     columns: list<array{
      *         column_key: string,
@@ -111,6 +112,7 @@ class TestTableSnapshotBuilder
             'profile_name' => $version->profile_name,
             'display_title' => $version->display_title,
             'description' => $version->description,
+            'remarks' => filled($version->remarks ?? null) ? (string) $version->remarks : null,
             'duration_format' => self::DURATION_FORMAT,
             'columns' => $version->testColumns
                 ->map(fn (TestColumn $column): array => $this->column($column))
@@ -133,6 +135,10 @@ class TestTableSnapshotBuilder
         $schemaVersion = (string) ($snapshot['schema_version'] ?? '');
 
         if (! in_array($schemaVersion, ['1', '2'], true)) {
+            return false;
+        }
+
+        if (array_key_exists('remarks', $snapshot) && $snapshot['remarks'] !== null && ! is_string($snapshot['remarks'])) {
             return false;
         }
 

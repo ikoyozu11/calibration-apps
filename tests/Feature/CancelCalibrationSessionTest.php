@@ -193,7 +193,7 @@ function seedCancellableSession(
         'calibration_date' => '2026-10-22',
         'calibration_due' => '2027-10-22',
         'completed_at' => null,
-        'certificate_number' => 'CERT-KEEP',
+        'certificate_number' => null,
         'cancelled_at' => null,
         'cancelled_reason' => null,
         'cancelled_by_user_id' => null,
@@ -458,7 +458,7 @@ it('cancels an incomplete internal session and stores the domain actor', functio
         ->and($row->calibration_date)->toBe('2026-10-22')
         ->and($row->calibration_due)->toBe('2027-10-22')
         ->and($row->completed_at)->toBeNull()
-        ->and($row->certificate_number)->toBe('CERT-KEEP')
+        ->and($row->certificate_number)->toBeNull()
         ->and($row->snapshot_instrument_name)->toBe('Gauge A')
         ->and($row->snapshot_instrument_type_name)->toBe('Pressure')
         ->and($calibrationPosition)->toBeInt()
@@ -578,7 +578,7 @@ it('allows an Administrator to cancel another actor owned session', function () 
         'calibration_date' => '2026-10-22',
         'calibration_due' => '2027-10-22',
         'completed_at' => null,
-        'certificate_number' => 'CERT-KEEP',
+        'certificate_number' => null,
         'cancelled_at' => null,
         'cancelled_reason' => null,
         'cancelled_by_user_id' => null,
@@ -637,7 +637,7 @@ it('denies an Engineer cancelling another Engineer owned session', function () {
         'calibration_date' => '2026-10-22',
         'calibration_due' => '2027-10-22',
         'completed_at' => null,
-        'certificate_number' => 'CERT-KEEP',
+        'certificate_number' => null,
         'cancelled_at' => null,
         'cancelled_reason' => null,
         'cancelled_by_user_id' => null,
@@ -671,7 +671,7 @@ it('denies an Engineer cancelling an Administrator-owned session', function () {
         'calibration_date' => '2026-10-22',
         'calibration_due' => '2027-10-22',
         'completed_at' => null,
-        'certificate_number' => 'CERT-KEEP',
+        'certificate_number' => null,
         'cancelled_at' => null,
         'cancelled_reason' => null,
         'cancelled_by_user_id' => null,
@@ -799,6 +799,20 @@ it('rejects a completed session', function () {
         ->and($row->cancelled_reason)->toBeNull()
         ->and($row->cancelled_by_user_id)->toBeNull()
         ->and($row->started_by_app_user_id)->toBe($identity['app_user_id']);
+});
+
+it('rejects an in-progress session with an issued certificate', function () {
+    $connection = sessionCancellationConnection();
+    $identity = seedCancellableSession($connection, [
+        'certificate_number' => 'SR.VT001/11/26',
+    ]);
+
+    expect(fn () => cancelCalibration($connection, 'certificate already issued', $identity['laravel_user_id']))
+        ->toThrow(CancelCalibrationSessionException::class, 'A calibration session with an issued certificate cannot be cancelled.');
+
+    expect(cancellationRow($connection)->session_status)->toBe(Calibration::STATUS_IN_PROGRESS)
+        ->and(cancellationRow($connection)->cancelled_at)->toBeNull()
+        ->and(cancellationRow($connection)->cancelled_reason)->toBeNull();
 });
 
 it('rejects an unsupported session status', function () {

@@ -1,6 +1,7 @@
 <?php
 
 use App\Authorization\ApplicationCapability;
+use App\Authorization\ApplicationCapabilityMap;
 use App\Authorization\ApplicationRoleName;
 use App\Authorization\AssignApplicationRole;
 use App\Authorization\ResolveApplicationRole;
@@ -186,6 +187,29 @@ it('keeps session.cancel fail-closed until ownership exists', function () {
     }
 });
 
+it('keeps session.complete granted to administrator and engineer only', function () {
+    $map = app(ApplicationCapabilityMap::class);
+
+    expect($map->allows(ApplicationRoleName::Administrator, ApplicationCapability::SessionComplete))->toBeTrue()
+        ->and($map->allows(ApplicationRoleName::Engineer, ApplicationCapability::SessionComplete))->toBeTrue()
+        ->and($map->allows(ApplicationRoleName::Viewer, ApplicationCapability::SessionComplete))->toBeFalse()
+        ->and($map->allows(ApplicationRoleName::Viewer, ApplicationCapability::SessionRecord))->toBeFalse()
+        ->and($map->allows(ApplicationRoleName::Viewer, ApplicationCapability::HistoryView))->toBeTrue();
+
+    actingAsRole(ApplicationRoleName::Administrator);
+    expect(Gate::allows(ApplicationCapability::SessionComplete->value))->toBeTrue()
+        ->and(Gate::allows(ApplicationCapability::SessionRecord->value))->toBeTrue();
+
+    actingAsRole(ApplicationRoleName::Engineer);
+    expect(Gate::allows(ApplicationCapability::SessionComplete->value))->toBeTrue()
+        ->and(Gate::allows(ApplicationCapability::SessionRecord->value))->toBeTrue();
+
+    actingAsRole(ApplicationRoleName::Viewer);
+    expect(Gate::allows(ApplicationCapability::SessionComplete->value))->toBeFalse()
+        ->and(Gate::allows(ApplicationCapability::SessionRecord->value))->toBeFalse()
+        ->and(Gate::allows(ApplicationCapability::HistoryView->value))->toBeTrue();
+});
+
 it('keeps login and logout working with roles', function () {
     $user = User::factory()->create([
         'email' => 'admin@example.com',
@@ -194,7 +218,7 @@ it('keeps login and logout working with roles', function () {
     app(AssignApplicationRole::class)->assign((int) $user->id, ApplicationRoleName::Administrator);
 
     $this->post(route('login.store'), [
-        'email' => 'admin@example.com',
+        'login' => 'admin@example.com',
         'password' => 'secret-password',
     ])->assertRedirect(route('home'));
 

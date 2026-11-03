@@ -27,6 +27,11 @@ class CancelCalibrationSessionException extends RuntimeException implements Shou
         return new self('Only an in-progress calibration session can be cancelled.');
     }
 
+    public static function certificateIssued(): self
+    {
+        return new self('A calibration session with an issued certificate cannot be cancelled.');
+    }
+
     public static function alreadyCancelled(): self
     {
         return new self('This calibration session has already been cancelled.');

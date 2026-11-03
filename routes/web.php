@@ -4,6 +4,7 @@ use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\LogoutController;
 use App\Http\Controllers\CalibrationHistoryCsvExportController;
 use App\Http\Controllers\CertificateServiceReportController;
+use App\Http\Controllers\ExternalCalibrationDocumentDownloadController;
 use App\Http\Controllers\InstrumentTypeCsvExportController;
 use App\StagingPreflight;
 use Illuminate\Support\Facades\Route;
@@ -22,23 +23,42 @@ Route::middleware(['auth', 'application.role'])->group(function (): void {
 
     Route::get('/calibrations/export.csv', CalibrationHistoryCsvExportController::class)->name('calibrations.export.csv');
     Route::livewire('/calibrations', 'pages::calibrations')->name('calibrations.index');
-    Route::livewire('/calibrations/{calibration}', 'pages::calibrations.show')->name('calibrations.show');
-    Route::get('/certificates/{certificate}/pdf', CertificateServiceReportController::class)->name('certificates.pdf');
-    Route::livewire('/certificates/{certificate}', 'pages::certificates.show')->name('certificates.show');
+    Route::get('/calibrations/{calibration}/external-documents/{document}/download', ExternalCalibrationDocumentDownloadController::class)
+        ->whereNumber('calibration')
+        ->whereNumber('document')
+        ->name('calibrations.external-documents.download');
+    Route::livewire('/calibrations/{calibration}', 'pages::calibrations.show')
+        ->whereNumber('calibration')
+        ->name('calibrations.show');
+    Route::get('/certificates/{certificate}/pdf', CertificateServiceReportController::class)
+        ->whereNumber('certificate')
+        ->name('certificates.pdf');
+    Route::livewire('/certificates/{certificate}', 'pages::certificates.show')
+        ->whereNumber('certificate')
+        ->name('certificates.show');
     Route::get('/instruments/export.csv', InstrumentTypeCsvExportController::class)->name('instruments.export.csv');
     Route::livewire('/instruments', 'pages::instruments')->name('instruments.index');
     Route::livewire('/standards', 'pages::standards')->name('standards.index');
     Route::livewire('/activities', 'pages::activities')->name('activities.index');
+    Route::livewire('/instruments/{instrument}/types/{instrumentType}/calibrations/start', 'pages::instruments.start-calibration')
+        ->whereNumber('instrument')
+        ->whereNumber('instrumentType')
+        ->name('instruments.types.calibrations.start');
     Route::livewire('/instruments/{instrument}/types/{instrumentType}/test-components', 'pages::instruments.test-components')
-        ->name('instruments.types.test-components')
-        ->scopeBindings();
+        ->whereNumber('instrument')
+        ->whereNumber('instrumentType')
+        ->name('instruments.types.test-components');
     Route::livewire('/instruments/{instrument}/types/{instrumentType}/standards', 'pages::instruments.standards')
-        ->name('instruments.types.standards')
-        ->scopeBindings();
+        ->whereNumber('instrument')
+        ->whereNumber('instrumentType')
+        ->name('instruments.types.standards');
     Route::livewire('/instruments/{instrument}/types/{instrumentType}', 'pages::instruments.show')
-        ->name('instruments.types.show')
-        ->scopeBindings();
-    Route::livewire('/instruments/{instrument}', 'pages::instruments.show')->name('instruments.show');
+        ->whereNumber('instrument')
+        ->whereNumber('instrumentType')
+        ->name('instruments.types.show');
+    Route::livewire('/instruments/{instrument}', 'pages::instruments.show')
+        ->whereNumber('instrument')
+        ->name('instruments.show');
 
     if (config('database.staging_preflight_http')) {
         Route::get('/__staging-preflight', function (StagingPreflight $preflight) {

@@ -48,6 +48,15 @@ function requirementWriterConnection(): Connection
         $table->primary(['instrument_type_id', 'requirement_category']);
     });
 
+    $schema->create('environment_parameter', function (Blueprint $table): void {
+        $table->unsignedBigInteger('parameter_id')->primary();
+        $table->string('parameter_code', 50);
+        $table->string('parameter_name', 150);
+        $table->string('unit', 50);
+        $table->string('data_type', 20);
+        $table->boolean('is_system')->default(false);
+    });
+
     $schema->create('instrument_type_environment_parameter', function (Blueprint $table): void {
         $table->unsignedBigInteger('instrument_type_id');
         $table->unsignedBigInteger('parameter_id');
@@ -80,6 +89,24 @@ function requirementWriterConnection(): Connection
         'instrument_type_id' => 11,
         'instrument_id' => 7,
         'type_name' => 'Analytical',
+    ]);
+    $connection->table('environment_parameter')->insert([
+        [
+            'parameter_id' => 1,
+            'parameter_code' => 'temperature',
+            'parameter_name' => 'Temperature',
+            'unit' => '°C',
+            'data_type' => 'numeric',
+            'is_system' => true,
+        ],
+        [
+            'parameter_id' => 2,
+            'parameter_code' => 'relative_humidity',
+            'parameter_name' => 'Relative Humidity',
+            'unit' => '%RH',
+            'data_type' => 'numeric',
+            'is_system' => true,
+        ],
     ]);
 
     return $connection;
@@ -177,36 +204,86 @@ it('rejects a missing instrument type', function () {
     expect($connection->table('instrument_type_requirement')->count())->toBe(0);
 });
 
-it('rejects environment required when no required parameter exists', function () {
+it('stores environment required without temperature or relative humidity assignments', function () {
     $connection = requirementWriterConnection();
 
-    expect(fn () => requirementWriter()->configure(11, InstrumentTypeRequirement::CATEGORY_ENVIRONMENT, InstrumentTypeRequirement::MODE_REQUIRED, $connection))
-        ->toThrow(ConfigureInstrumentTypeRequirementException::class, 'Environment required needs at least one required environment parameter.');
-    expect($connection->table('instrument_type_requirement')->count())->toBe(0);
-    expect($connection->table('instrument_type_environment_parameter')->count())->toBe(0);
+    requirementWriter()->configure(11, InstrumentTypeRequirement::CATEGORY_ENVIRONMENT, InstrumentTypeRequirement::MODE_REQUIRED, $connection);
+
+    expect(requirementMode($connection, InstrumentTypeRequirement::CATEGORY_ENVIRONMENT))->toBe('required')
+        ->and($connection->table('instrument_type_environment_parameter')->count())->toBe(0);
 });
 
-it('stores environment required when a required parameter already exists', function () {
+it('stores environment optional without temperature or relative humidity assignments', function () {
+    $connection = requirementWriterConnection();
+
+    requirementWriter()->configure(11, InstrumentTypeRequirement::CATEGORY_ENVIRONMENT, InstrumentTypeRequirement::MODE_OPTIONAL, $connection);
+
+    expect(requirementMode($connection, InstrumentTypeRequirement::CATEGORY_ENVIRONMENT))->toBe('optional')
+        ->and($connection->table('instrument_type_environment_parameter')->count())->toBe(0);
+});
+
+it('stores environment required after temperature and relative humidity are assigned as required', function () {
     $connection = requirementWriterConnection();
     $connection->table('instrument_type_environment_parameter')->insert([
-        'instrument_type_id' => 11,
-        'parameter_id' => 3,
-        'requirement_mode' => InstrumentTypeRequirement::MODE_REQUIRED,
-        'display_order' => 1,
+        [
+            'instrument_type_id' => 11,
+            'parameter_id' => 1,
+            'requirement_mode' => InstrumentTypeRequirement::MODE_REQUIRED,
+            'display_order' => 1,
+        ],
+        [
+            'instrument_type_id' => 11,
+            'parameter_id' => 2,
+            'requirement_mode' => InstrumentTypeRequirement::MODE_REQUIRED,
+            'display_order' => 2,
+        ],
     ]);
 
     requirementWriter()->configure(11, InstrumentTypeRequirement::CATEGORY_ENVIRONMENT, InstrumentTypeRequirement::MODE_REQUIRED, $connection);
 
     expect(requirementMode($connection, InstrumentTypeRequirement::CATEGORY_ENVIRONMENT))->toBe('required')
-        ->and($connection->table('instrument_type_environment_parameter')->count())->toBe(1);
+        ->and($connection->table('instrument_type_environment_parameter')->count())->toBe(2);
 });
 
-it('stores environment optional when the type has no parameters', function () {
+it('stores environment optional after temperature and relative humidity are assigned as required', function () {
     $connection = requirementWriterConnection();
+    $connection->table('instrument_type_environment_parameter')->insert([
+        [
+            'instrument_type_id' => 11,
+            'parameter_id' => 1,
+            'requirement_mode' => InstrumentTypeRequirement::MODE_REQUIRED,
+            'display_order' => 1,
+        ],
+        [
+            'instrument_type_id' => 11,
+            'parameter_id' => 2,
+            'requirement_mode' => InstrumentTypeRequirement::MODE_REQUIRED,
+            'display_order' => 2,
+        ],
+    ]);
 
     requirementWriter()->configure(11, InstrumentTypeRequirement::CATEGORY_ENVIRONMENT, InstrumentTypeRequirement::MODE_OPTIONAL, $connection);
 
     expect(requirementMode($connection, InstrumentTypeRequirement::CATEGORY_ENVIRONMENT))->toBe('optional');
+});
+
+it('stores environment not configured without temperature or relative humidity assignments', function () {
+    $connection = requirementWriterConnection();
+
+    requirementWriter()->configure(11, InstrumentTypeRequirement::CATEGORY_ENVIRONMENT, InstrumentTypeRequirement::MODE_NOT_CONFIGURED, $connection);
+
+    expect(requirementMode($connection, InstrumentTypeRequirement::CATEGORY_ENVIRONMENT))->toBe('not_configured')
+        ->and($connection->table('instrument_type_environment_parameter')->count())->toBe(0);
+});
+
+it('can raise environment from not configured to required without room assignments', function () {
+    $connection = requirementWriterConnection();
+
+    requirementWriter()->configure(11, InstrumentTypeRequirement::CATEGORY_ENVIRONMENT, InstrumentTypeRequirement::MODE_NOT_CONFIGURED, $connection);
+    requirementWriter()->configure(11, InstrumentTypeRequirement::CATEGORY_ENVIRONMENT, InstrumentTypeRequirement::MODE_REQUIRED, $connection);
+
+    expect(requirementMode($connection, InstrumentTypeRequirement::CATEGORY_ENVIRONMENT))->toBe('required')
+        ->and($connection->table('instrument_type_environment_parameter')->count())->toBe(0);
 });
 
 it('rolls back when the requirement write fails', function () {

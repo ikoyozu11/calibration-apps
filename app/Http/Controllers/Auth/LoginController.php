@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\Authorization\ResolveLoginEmail;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -24,20 +25,25 @@ class LoginController extends Controller
     /**
      * Authenticate the user and start a session.
      */
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request, ResolveLoginEmail $loginEmail): RedirectResponse
     {
         $credentials = $request->validate([
-            'email' => ['required', 'string', 'email'],
+            'login' => ['required', 'string', 'max:255'],
             'password' => ['required', 'string'],
         ]);
 
         $this->ensureIsNotRateLimited($request);
 
-        if (! Auth::attempt($credentials, $request->boolean('remember'))) {
+        $email = $loginEmail->email($credentials['login']);
+
+        if ($email === null || ! Auth::attempt([
+            'email' => $email,
+            'password' => $credentials['password'],
+        ])) {
             RateLimiter::hit($this->throttleKey($request));
 
             throw ValidationException::withMessages([
-                'email' => __('These credentials do not match our records.'),
+                'login' => __('These credentials do not match our records.'),
             ]);
         }
 
@@ -60,7 +66,7 @@ class LoginController extends Controller
         $seconds = RateLimiter::availableIn($this->throttleKey($request));
 
         throw ValidationException::withMessages([
-            'email' => __('Too many login attempts. Please try again in :seconds seconds.', [
+            'login' => __('Too many login attempts. Please try again in :seconds seconds.', [
                 'seconds' => $seconds,
             ]),
         ]);
@@ -68,6 +74,6 @@ class LoginController extends Controller
 
     private function throttleKey(Request $request): string
     {
-        return Str::transliterate(Str::lower($request->string('email')->toString()).'|'.$request->ip());
+        return Str::transliterate(Str::lower($request->string('login')->toString()).'|'.$request->ip());
     }
 }

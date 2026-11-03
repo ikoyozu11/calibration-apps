@@ -31,7 +31,7 @@ it('creates and edits an activity from the master page', function () {
         ->call('startAdding')
         ->set('activityName', 'Leakage test')
         ->call('saveActivity')
-        ->assertSee('Activity saved.')
+        ->assertSet('adding', false)
         ->assertSee('ACT-0001')
         ->assertSee('Leakage test');
 
@@ -41,7 +41,7 @@ it('creates and edits an activity from the master page', function () {
         ->call('startEditing', $id)
         ->set('activityName', 'Leakage Test')
         ->call('saveActivity')
-        ->assertSee('Activity updated.')
+        ->assertSet('editingActivityId', null)
         ->assertSee('Leakage Test');
 });
 
@@ -55,6 +55,21 @@ it('requires an activity name on the master page', function () {
         ->assertHasErrors(['activityName']);
 });
 
+it('dispatches confirmation events before activity mutations', function () {
+    createInstrumentDetailTestTables();
+    insertCalibrationActivityMaster(1, 'ACT-0001', 'Verification');
+
+    Livewire::test('pages::activities')
+        ->call('startAdding')
+        ->set('activityName', 'Cleaning')
+        ->call('prepareActivitySave')
+        ->assertDispatched('instruments-desk-confirm-activity-master-save')
+        ->call('prepareActivityStatusChange', 1, false)
+        ->assertDispatched('instruments-desk-confirm-activity-deactivate')
+        ->call('prepareActivityDelete', 1)
+        ->assertDispatched('instruments-desk-confirm-activity-delete');
+});
+
 it('deactivates and reactivates an activity', function () {
     createInstrumentDetailTestTables();
     insertCalibrationActivityMaster(1, 'ACT-0001', 'Verification');
@@ -62,10 +77,8 @@ it('deactivates and reactivates an activity', function () {
     Livewire::test('pages::activities')
         ->assertSee('Active')
         ->call('deactivateActivity', 1)
-        ->assertSee('Activity deactivated.')
         ->assertSee('Inactive')
         ->call('activateActivity', 1)
-        ->assertSee('Activity reactivated.')
         ->assertSee('Active');
 
     $this->assertDatabaseHas('calibration_activity_master', [
@@ -81,7 +94,7 @@ it('deletes an unused activity after confirmation', function () {
     Livewire::test('pages::activities')
         ->call('askToRemove', 1)
         ->call('removeActivity')
-        ->assertSee('Activity deleted.');
+        ->assertSet('removingActivityId', null);
 
     $this->assertDatabaseCount('calibration_activity_master', 0);
 });
@@ -116,7 +129,7 @@ it('blocks deletion when the activity is used in a calibration session', functio
     Livewire::test('pages::activities')
         ->call('askToRemove', 1)
         ->call('removeActivity')
-        ->assertSee('This activity is used in a calibration session and cannot be deleted.');
+        ->assertSet('removingActivityId', null);
 
     $this->assertDatabaseHas('calibration_activity_master', ['activity_id' => 1]);
 });

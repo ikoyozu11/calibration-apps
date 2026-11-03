@@ -3,14 +3,15 @@
 namespace App\TestColumns;
 
 use Illuminate\Database\QueryException;
-use Illuminate\Support\Facades\DB;
 
 class PostgresTestProfileLifecycle implements TestProfileLifecycle
 {
+    use WritesThroughHttpConnection;
+
     public function isUsedInCalibration(int $profileId): bool
     {
         try {
-            $row = DB::selectOne(
+            $row = $this->writeConnection()->selectOne(
                 'select (
                     public.test_profile_is_used_in_calibration(?::bigint)
                     or exists (
@@ -46,8 +47,10 @@ class PostgresTestProfileLifecycle implements TestProfileLifecycle
 
     public function restore(int $profileId): void
     {
+        $connection = $this->writeConnection();
+
         try {
-            $updated = DB::update(
+            $updated = $connection->update(
                 'update public.test_profile set archived_at = null where test_profile_id = ? and archived_at is not null',
                 [$profileId],
             );
@@ -61,7 +64,7 @@ class PostgresTestProfileLifecycle implements TestProfileLifecycle
             return;
         }
 
-        $exists = DB::table('test_profile')->where('test_profile_id', $profileId)->exists();
+        $exists = $connection->table('test_profile')->where('test_profile_id', $profileId)->exists();
 
         if (! $exists) {
             throw new TestProfileLifecycleException('This test table could not be found.');
@@ -76,7 +79,7 @@ class PostgresTestProfileLifecycle implements TestProfileLifecycle
     private function call(string $sql, array $bindings): void
     {
         try {
-            DB::selectOne($sql, $bindings);
+            $this->writeConnection()->selectOne($sql, $bindings);
         } catch (QueryException $exception) {
             throw new TestProfileLifecycleException(
                 TestProfileLifecycleConstraintMessage::fromDatabaseMessage($exception->getMessage()),

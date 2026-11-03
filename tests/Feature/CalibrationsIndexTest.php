@@ -33,6 +33,7 @@ function createCalibrationIndexTables(): void
         $table->date('calibration_due')->nullable();
         $table->string('calibration_result', 20)->nullable();
         $table->string('certificate_number', 100)->nullable();
+        $table->timestamp('created_at')->nullable();
         addCalibrationSessionColumns($table);
     });
 
@@ -99,6 +100,9 @@ function insertCalibrationIndexRecord(array $attributes): void
         'calibration_due' => $attributes['calibration_due'] ?? null,
         'calibration_result' => $attributes['calibration_result'] ?? null,
         'certificate_number' => $attributes['certificate_number'] ?? null,
+        'created_at' => $attributes['created_at'] ?? (($attributes['calibration_date'] ?? null) === null
+            ? '2026-01-01 00:00:00'
+            : $attributes['calibration_date'].' 00:00:00'),
     ]);
 }
 
@@ -202,18 +206,29 @@ it('shows each instrument type with the latest calibration standing', function (
             'Asset Number',
             'Calibration Date',
             'Calibration Due',
-            'Calibration Status',
+            'Annual Progress',
+            'Current Due Status',
         ])
-        ->assertSeeInOrder(['This month', '4', 'Pass / Fail', '3', '2', 'No certificate', '3'])
-        ->assertSeeInOrder(['Sodiline', 'Sodim', 'Weight', 'PDV - PD', 'WEIGHT-001', 'ASSET-9', '2026-10-01', '2026-12-12', 'On Track'])
-        ->assertSeeInOrder(['Sodiline', 'Diameter', '2026-10-01', '2026-12-12', 'On Track'])
-        ->assertSeeInOrder(['Due Today', '2026-10-12', '2026-10-12', 'Due Soon'])
-        ->assertSeeInOrder(['Late Gauge', '2026-09-15', '2026-10-11', 'Overdue'])
-        ->assertSeeInOrder(['No History', 'Not Calibrated'])
-        ->assertSeeInOrder(['Open Due', '2026-10-02', 'Not Calibrated'])
+        ->assertSee('Annual Overview')
+        ->assertSeeInOrder(['Completed', '5', 'In Progress', '0', 'Not Calibrated', '1'])
+        ->assertSeeInOrder(['Sodiline', 'Sodim', 'Weight', 'PDV - PD', 'WEIGHT-001', 'ASSET-9', '2026-10-01', '2026-12-12', 'Completed', 'On Track'])
+        ->assertSeeInOrder(['Sodiline', 'Diameter', '2026-10-01', '2026-12-12', 'Completed', 'On Track'])
+        ->assertSeeInOrder(['Due Today', '2026-10-12', '2026-10-12', 'Completed', 'Due Soon'])
+        ->assertSeeInOrder(['Late Gauge', '2026-09-15', '2026-10-11', 'Completed', 'Overdue'])
+        ->assertSeeInOrder(['No History', 'Not Calibrated', 'Not Calibrated'])
+        ->assertSeeInOrder(['Open Due', '2026-10-02', 'Completed', 'Not Calibrated'])
         ->assertDontSee('2026-09-01')
+        ->assertDontSee('This month')
+        ->assertDontSee('Pass / Fail')
+        ->assertDontSee('No certificate')
         ->assertDontSee('Calibration Number')
         ->assertDontSee('Remarks')
+        ->assertSee('Start Calibration')
+        ->assertSee('href="'.e(route('instruments.types.calibrations.start', [
+            'instrument' => 6,
+            'instrumentType' => 5,
+        ])).'"', false)
+        ->assertDontSee('Total Instruments')
         ->assertSee('href="'.route('calibrations.show', 2).'"', false)
         ->assertDontSee('href="'.route('calibrations.show', 1).'"', false);
 });
@@ -259,9 +274,9 @@ it('opens the latest calibration that covers each instrument type', function () 
     $response = $this->get(route('calibrations.index'));
 
     $response
-        ->assertSeeInOrder(['Sodiline', 'Weight', '2026-10-01', '2026-12-12', 'On Track'])
-        ->assertSeeInOrder(['Sodiline', 'Diameter', '2026-09-15', '2026-10-11', 'Overdue'])
-        ->assertSeeInOrder(['Sodiline', 'PD', 'Not Calibrated'])
+        ->assertSeeInOrder(['Sodiline', 'Weight', '2026-10-01', '2026-12-12', 'Completed', 'On Track'])
+        ->assertSeeInOrder(['Sodiline', 'Diameter', '2026-09-15', '2026-10-11', 'Completed', 'Overdue'])
+        ->assertSeeInOrder(['Sodiline', 'PD', 'Not Calibrated', 'Not Calibrated'])
         ->assertDontSee('2026-08-01')
         ->assertSee('href="'.route('calibrations.show', 2).'"', false)
         ->assertSee('href="'.route('calibrations.show', 3).'"', false)
@@ -298,11 +313,11 @@ it('keeps the calibration totals when the type list moves to the next page', fun
     $secondPage = $this->get(route('calibrations.index', ['page' => 2]));
 
     $firstPage
-        ->assertSeeInOrder(['This month', '1', 'Pass / Fail', '1', '0', 'No certificate', '0'])
+        ->assertSeeInOrder(['Completed', '1', 'In Progress', '0', 'Not Calibrated', '10'])
         ->assertSee('Gauge 01')
         ->assertDontSee('Gauge 11');
     $secondPage
-        ->assertSeeInOrder(['This month', '1'])
+        ->assertSeeInOrder(['Completed', '1', 'In Progress', '0', 'Not Calibrated', '10'])
         ->assertSee('Gauge 11')
         ->assertDontSee('Gauge 01');
 });
@@ -345,23 +360,17 @@ it('filters calibration rows by name brand type or model without changing the to
         ->assertSee('Diameter')
         ->assertDontSee('Weight')
         ->assertDontSee('Digital Caliper')
-        ->assertSee('This month')
-        ->assertSee('Pass / Fail')
-        ->assertSee('>1</p>', false)
-        ->assertSee('>/</span>0', false)
-        ->assertSee('No certificate')
-        ->assertSee('>0</p>', false)
+        ->assertSeeInOrder(['Completed', '1', 'In Progress', '0', 'Not Calibrated', '2'])
         ->set('search', 'sodim')
         ->assertSee('Weight')
         ->assertDontSee('Diameter')
+        ->assertSeeInOrder(['Completed', '1', 'In Progress', '0', 'Not Calibrated', '2'])
         ->set('search', 'pdv')
         ->assertSee('PDV - PD')
         ->assertDontSee('Diameter')
         ->set('search', 'WEIGHT-001')
         ->assertDontSee('Sodiline')
-        ->assertSee('>1</p>', false)
-        ->assertSee('>/</span>0', false)
-        ->assertSee('>0</p>', false);
+        ->assertSeeInOrder(['Completed', '1', 'In Progress', '0', 'Not Calibrated', '2']);
 });
 
 it('rejects a page size outside the allowed choices', function () {
@@ -387,15 +396,16 @@ it('rejects a page size outside the allowed choices', function () {
 
 it('shows zero totals when no instruments exist', function () {
     createCalibrationIndexTables();
+    $this->travelTo('2026-10-12');
 
     $response = $this->get(route('calibrations.index'));
 
     $response
-        ->assertSeeInOrder(['This month', '0', 'Pass / Fail', '0', '0', 'No certificate', '0'])
+        ->assertSeeInOrder(['Completed', '0', 'In Progress', '0', 'Not Calibrated', '0'])
         ->assertSee('No instruments found.');
 });
 
-it('ignores in-progress and cancelled sessions in standing and summary cards', function () {
+it('prefers an in-progress session for the year and ignores cancelled sessions', function () {
     createCalibrationIndexTables();
     $this->travelTo('2026-10-12');
 
@@ -415,10 +425,8 @@ it('ignores in-progress and cancelled sessions in standing and summary cards', f
         'calibration_id' => 2,
         'instrument_id' => 3,
         'instrument_type_id' => 1,
-        'calibration_date' => '2026-10-12',
-        'calibration_due' => '2026-10-12',
-        'calibration_result' => 'FAIL',
         'session_status' => 'in_progress',
+        'created_at' => '2026-10-12 08:00:00',
     ]);
     insertCalibrationIndexRecord([
         'calibration_id' => 3,
@@ -427,16 +435,256 @@ it('ignores in-progress and cancelled sessions in standing and summary cards', f
         'calibration_date' => '2026-10-11',
         'calibration_due' => '2026-10-11',
         'session_status' => 'cancelled',
+        'created_at' => '2026-10-11 08:00:00',
     ]);
 
     $response = $this->get(route('calibrations.index'));
 
     $response
-        ->assertSeeInOrder(['This month', '0', 'Pass / Fail', '1', '0', 'No certificate', '0'])
-        ->assertSeeInOrder(['Sodiline', 'Weight', '2026-09-01', '2026-12-12', 'On Track'])
-        ->assertDontSee('2026-10-12')
+        ->assertSeeInOrder(['Completed', '0', 'In Progress', '1', 'Not Calibrated', '0'])
+        ->assertSeeInOrder(['Sodiline', 'Weight', '2026-09-01', '2026-12-12', 'In Progress', 'On Track'])
         ->assertDontSee('2026-10-11')
-        ->assertSee('href="'.route('calibrations.show', 1).'"', false)
-        ->assertDontSee('href="'.route('calibrations.show', 2).'"', false)
+        ->assertDontSee('Active session')
+        ->assertSee('href="'.route('calibrations.show', 2).'"', false)
+        ->assertDontSee('href="'.route('calibrations.show', 1).'"', false)
         ->assertDontSee('href="'.route('calibrations.show', 3).'"', false);
+});
+
+it('does not treat a completed session from another year as the annual cell', function () {
+    createCalibrationIndexTables();
+    $this->travelTo('2026-10-12');
+
+    insertCalibrationIndexInstrument(['instrument_id' => 3, 'instrument_name' => 'Sodiline']);
+    insertCalibrationIndexType(['instrument_type_id' => 1, 'instrument_id' => 3, 'type_name' => 'Weight']);
+    insertCalibrationIndexRecord([
+        'calibration_id' => 1,
+        'instrument_id' => 3,
+        'instrument_type_id' => 1,
+        'calibration_date' => '2025-06-01',
+        'calibration_due' => '2025-12-01',
+        'calibration_result' => 'PASS',
+        'certificate_number' => 'CERT-2025',
+    ]);
+
+    $response = $this->get(route('calibrations.index'));
+
+    $response
+        ->assertSeeInOrder(['Completed', '0', 'In Progress', '0', 'Not Calibrated', '1'])
+        ->assertSeeInOrder(['Sodiline', 'Weight', 'Not Calibrated', 'Overdue'])
+        ->assertDontSee('2025-06-01')
+        ->assertDontSee('href="'.route('calibrations.show', 1).'"', false);
+});
+
+it('switches the annual cell when the selected year changes', function () {
+    createCalibrationIndexTables();
+    $this->travelTo('2026-10-12');
+
+    insertCalibrationIndexInstrument(['instrument_id' => 3, 'instrument_name' => 'Sodiline']);
+    insertCalibrationIndexType(['instrument_type_id' => 1, 'instrument_id' => 3, 'type_name' => 'Weight']);
+    insertCalibrationIndexRecord([
+        'calibration_id' => 1,
+        'instrument_id' => 3,
+        'instrument_type_id' => 1,
+        'calibration_date' => '2026-03-01',
+        'calibration_due' => '2026-09-01',
+        'calibration_result' => 'PASS',
+        'certificate_number' => 'CERT-2026',
+    ]);
+    insertCalibrationIndexRecord([
+        'calibration_id' => 2,
+        'instrument_id' => 3,
+        'instrument_type_id' => 1,
+        'calibration_date' => '2027-04-01',
+        'calibration_due' => '2027-10-01',
+        'calibration_result' => 'FAIL',
+        'certificate_number' => 'CERT-2027',
+    ]);
+
+    Livewire::test('pages::calibrations')
+        ->assertSee('option value="2027"', false)
+        ->assertSeeInOrder(['Completed', '1', 'In Progress', '0', 'Not Calibrated', '0'])
+        ->assertSeeInOrder(['Sodiline', 'Weight', '2026-03-01', '2026-09-01', 'Completed', 'On Track'])
+        ->assertDontSee('2027-04-01')
+        ->set('year', 2027)
+        ->assertSeeInOrder(['Completed', '1', 'In Progress', '0', 'Not Calibrated', '0'])
+        ->assertSeeInOrder(['Sodiline', 'Weight', '2027-04-01', '2027-10-01', 'Completed', 'On Track'])
+        ->assertDontSee('2026-03-01');
+});
+
+it('clamps an unsupported year back to the default', function () {
+    createCalibrationIndexTables();
+    $this->travelTo('2026-10-12');
+
+    Livewire::test('pages::calibrations')
+        ->set('year', 2019)
+        ->assertSet('year', 2026)
+        ->assertSee('Annual Overview');
+});
+
+it('keeps annual overview as the default tab', function () {
+    createCalibrationIndexTables();
+    $this->travelTo('2026-10-12');
+
+    insertCalibrationIndexInstrument(['instrument_id' => 3, 'instrument_name' => 'Sodiline']);
+    insertCalibrationIndexType(['instrument_type_id' => 1, 'instrument_id' => 3, 'type_name' => 'Weight']);
+
+    Livewire::test('pages::calibrations')
+        ->assertSee('Annual Overview')
+        ->assertSee('Session History')
+        ->assertSet('tab', 'overview')
+        ->assertSee('Sodiline')
+        ->assertDontSee('No Calibration Sessions Yet')
+        ->set('tab', 'unknown')
+        ->assertSet('tab', 'overview')
+        ->assertSee('Sodiline');
+});
+
+it('escapes instrument identity values in the annual overview', function () {
+    createCalibrationIndexTables();
+    $this->travelTo('2026-10-12');
+
+    insertCalibrationIndexInstrument(['instrument_id' => 3, 'instrument_name' => '<script>alert(1)</script>']);
+    insertCalibrationIndexType(['instrument_type_id' => 1, 'instrument_id' => 3, 'type_name' => 'Weight']);
+
+    $response = $this->get(route('calibrations.index'));
+
+    $response
+        ->assertDontSee('<script>alert(1)</script>', false)
+        ->assertSee('&lt;script&gt;alert(1)&lt;/script&gt;', false);
+});
+
+it('treats a cancelled-only type as not calibrated for the selected year', function () {
+    createCalibrationIndexTables();
+    $this->travelTo('2026-10-12');
+
+    insertCalibrationIndexInstrument(['instrument_id' => 3, 'instrument_name' => 'Sodiline']);
+    insertCalibrationIndexType(['instrument_type_id' => 1, 'instrument_id' => 3, 'type_name' => 'Weight']);
+    insertCalibrationIndexRecord([
+        'calibration_id' => 1,
+        'instrument_id' => 3,
+        'instrument_type_id' => 1,
+        'calibration_date' => '2026-10-11',
+        'calibration_due' => '2026-12-12',
+        'session_status' => 'cancelled',
+        'created_at' => '2026-10-11 08:00:00',
+    ]);
+
+    $response = $this->get(route('calibrations.index'));
+
+    $response
+        ->assertSeeInOrder(['Completed', '0', 'In Progress', '0', 'Not Calibrated', '1'])
+        ->assertSeeInOrder(['Sodiline', 'Weight', 'Not Calibrated', 'Not Calibrated'])
+        ->assertDontSee('2026-10-11')
+        ->assertDontSee('href="'.route('calibrations.show', 1).'"', false);
+});
+
+it('keeps a cross-year in-progress session off the selected year progress', function () {
+    createCalibrationIndexTables();
+    $this->travelTo('2026-10-12');
+
+    insertCalibrationIndexInstrument(['instrument_id' => 3, 'instrument_name' => 'Sodiline']);
+    insertCalibrationIndexType(['instrument_type_id' => 1, 'instrument_id' => 3, 'type_name' => 'Weight']);
+    insertCalibrationIndexRecord([
+        'calibration_id' => 1,
+        'instrument_id' => 3,
+        'instrument_type_id' => 1,
+        'calibration_date' => '2026-03-01',
+        'calibration_due' => '2026-12-12',
+        'calibration_result' => 'PASS',
+        'certificate_number' => 'CERT-2026',
+    ]);
+    insertCalibrationIndexRecord([
+        'calibration_id' => 2,
+        'instrument_id' => 3,
+        'instrument_type_id' => 1,
+        'session_status' => 'in_progress',
+        'created_at' => '2027-02-01 08:00:00',
+    ]);
+
+    Livewire::test('pages::calibrations')
+        ->assertSeeInOrder(['Completed', '1', 'In Progress', '0', 'Not Calibrated', '0'])
+        ->assertSeeInOrder(['Sodiline', 'Weight', '2026-03-01', '2026-12-12', 'Completed', 'On Track'])
+        ->assertSee('Active session (2027)')
+        ->assertSee('href="'.route('calibrations.show', 2).'"', false)
+        ->set('year', 2027)
+        ->assertSeeInOrder(['Completed', '0', 'In Progress', '1', 'Not Calibrated', '0'])
+        ->assertSeeInOrder(['Sodiline', 'Weight', 'In Progress', 'On Track'])
+        ->assertDontSee('Active session (2027)')
+        ->assertDontSee('2026-03-01');
+});
+
+it('keeps current due status independent of the selected annual year', function () {
+    createCalibrationIndexTables();
+    $this->travelTo('2026-10-12');
+
+    insertCalibrationIndexInstrument(['instrument_id' => 3, 'instrument_name' => 'Sodiline']);
+    insertCalibrationIndexType(['instrument_type_id' => 1, 'instrument_id' => 3, 'type_name' => 'Weight']);
+    insertCalibrationIndexRecord([
+        'calibration_id' => 1,
+        'instrument_id' => 3,
+        'instrument_type_id' => 1,
+        'calibration_date' => '2026-03-01',
+        'calibration_due' => '2026-09-01',
+        'calibration_result' => 'PASS',
+        'certificate_number' => 'CERT-2026',
+    ]);
+    insertCalibrationIndexRecord([
+        'calibration_id' => 2,
+        'instrument_id' => 3,
+        'instrument_type_id' => 1,
+        'calibration_date' => '2027-01-15',
+        'calibration_due' => '2027-12-12',
+        'calibration_result' => 'PASS',
+        'certificate_number' => 'CERT-2027',
+    ]);
+
+    Livewire::test('pages::calibrations')
+        ->assertSeeInOrder(['Sodiline', 'Weight', '2026-03-01', '2026-09-01', 'Completed', 'On Track'])
+        ->set('year', 2027)
+        ->assertSeeInOrder(['Sodiline', 'Weight', '2027-01-15', '2027-12-12', 'Completed', 'On Track']);
+});
+
+it('reuses home due standing thresholds for current due status', function () {
+    createCalibrationIndexTables();
+    $this->travelTo('2026-10-12');
+
+    insertCalibrationIndexInstrument(['instrument_id' => 1, 'instrument_name' => 'On Track Type']);
+    insertCalibrationIndexInstrument(['instrument_id' => 2, 'instrument_name' => 'Due Soon Type']);
+    insertCalibrationIndexInstrument(['instrument_id' => 3, 'instrument_name' => 'Overdue Type']);
+    insertCalibrationIndexType(['instrument_type_id' => 1, 'instrument_id' => 1, 'type_name' => 'Gauge']);
+    insertCalibrationIndexType(['instrument_type_id' => 2, 'instrument_id' => 2, 'type_name' => 'Gauge']);
+    insertCalibrationIndexType(['instrument_type_id' => 3, 'instrument_id' => 3, 'type_name' => 'Gauge']);
+    insertCalibrationIndexRecord([
+        'calibration_id' => 1,
+        'instrument_id' => 1,
+        'instrument_type_id' => 1,
+        'calibration_date' => '2025-10-01',
+        'calibration_due' => '2026-12-12',
+        'certificate_number' => 'CERT-TRACK',
+    ]);
+    insertCalibrationIndexRecord([
+        'calibration_id' => 2,
+        'instrument_id' => 2,
+        'instrument_type_id' => 2,
+        'calibration_date' => '2025-10-01',
+        'calibration_due' => '2026-10-12',
+        'certificate_number' => 'CERT-SOON',
+    ]);
+    insertCalibrationIndexRecord([
+        'calibration_id' => 3,
+        'instrument_id' => 3,
+        'instrument_type_id' => 3,
+        'calibration_date' => '2025-10-01',
+        'calibration_due' => '2026-10-11',
+        'certificate_number' => 'CERT-LATE',
+    ]);
+
+    $response = $this->get(route('calibrations.index'));
+
+    $response
+        ->assertSeeInOrder(['Completed', '0', 'In Progress', '0', 'Not Calibrated', '3'])
+        ->assertSeeInOrder(['On Track Type', 'Not Calibrated', 'On Track'])
+        ->assertSeeInOrder(['Due Soon Type', 'Not Calibrated', 'Due Soon'])
+        ->assertSeeInOrder(['Overdue Type', 'Not Calibrated', 'Overdue'])
+        ->assertDontSee('2025-10-01');
 });

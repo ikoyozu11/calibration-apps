@@ -1,6 +1,5 @@
 <?php
 
-use App\Models\Instrument;
 use App\Models\InstrumentType;
 use App\Models\StandardMaster;
 use App\Standards\InstrumentTypeStandardAssignmentWriter;
@@ -21,8 +20,8 @@ it('opens the manage standards page from instrument detail', function () {
         ->assertDontSee('Assign Standard');
 
     Livewire::test('pages::instruments.standards', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->assertSee('Manage Standards')
         ->assertSee('Back to instrument detail')
@@ -62,8 +61,8 @@ it('searches candidate standards by name type and serial', function (string $sea
     insertStandardMaster(11, 'STD-0011', 'Weight Standard', 'Mass', 'W-9');
 
     Livewire::test('pages::instruments.standards', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->set('search', $search)
         ->assertSee($expected)
@@ -80,14 +79,14 @@ it('assigns a selected master standard and shows it on instrument detail', funct
     insertStandardMaster(10, 'STD-0010', 'Pressure Drop Standard', '99.0 mmWG', 'ET4276');
 
     Livewire::test('pages::instruments.standards', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('selectCandidate', 10)
-        ->assertSee('Selected Standard')
-        ->assertSee('STD-0010')
+        ->assertDispatched('instruments-desk-confirm-standard-assignment')
         ->call('assignStandard')
-        ->assertSee('Standard assigned.')
+        ->assertDontSee('Move up')
+        ->assertDontSee('Move down')
         ->assertSee('Pressure Drop Standard')
         ->assertSee('ET4276')
         ->assertSee('99.0 mmWG');
@@ -104,20 +103,20 @@ it('creates a new master standard from manage standards and selects it', functio
     insertInstrumentDetailSubject();
 
     Livewire::test('pages::instruments.standards', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('startAddingStandard')
         ->set('newInstrumentName', 'Weight Standard E2 Class')
         ->set('newTypeSpecification', '0.0001 - 10.0000 gr')
         ->set('newSerialNumber', '40488')
         ->call('createStandard')
-        ->assertSee('Standard saved. Assign it to this instrument type when ready.')
-        ->assertSee('Selected Standard')
+        ->assertDontSee('Standard saved. Assign it to this instrument type when ready.')
+        ->assertDontSee('Selected Standard')
         ->assertSee('Weight Standard E2 Class')
         ->assertSee('40488')
         ->call('assignStandard')
-        ->assertSee('Standard assigned.')
+        ->assertDontSee('Standard assigned.')
         ->assertSee('STD-0001');
 
     $this->assertDatabaseHas('standard_master', [
@@ -126,6 +125,126 @@ it('creates a new master standard from manage standards and selects it', functio
         'type_specification' => '0.0001 - 10.0000 gr',
         'serial_number' => '40488',
     ]);
+});
+
+it('opens assignment confirmation without changing assignments', function () {
+    createInstrumentDetailTestTables();
+    insertInstrumentDetailSubject();
+    insertStandardMaster(10, 'STD-0010', 'Pressure Drop Standard', '99.0 mmWG', 'ET4276');
+
+    Livewire::test('pages::instruments.standards', [
+        'instrument' => 3,
+        'instrumentType' => 31,
+    ])
+        ->call('selectCandidate', 10)
+        ->assertDispatched('instruments-desk-confirm-standard-assignment')
+        ->assertDontSee('Selected Standard')
+        ->call('clearSelection');
+
+    $this->assertDatabaseCount('instrument_type_standard_assignment', 0);
+});
+
+it('opens the add standard custom modal without rendering an inline form', function () {
+    createInstrumentDetailTestTables();
+    insertInstrumentDetailSubject();
+
+    Livewire::test('pages::instruments.standards', [
+        'instrument' => 3,
+        'instrumentType' => 31,
+    ])
+        ->assertSee('Add New Standard')
+        ->assertSee('Create a new standard in the Standard Master.')
+        ->call('startAddingStandard')
+        ->assertSet('addingStandard', true)
+        ->assertSee('Add New Standard')
+        ->assertSee('Instrument Name')
+        ->assertSee('Type / Specification')
+        ->assertSee('Serial Number');
+});
+
+it('validates the add standard form before asking for confirmation', function () {
+    createInstrumentDetailTestTables();
+    insertInstrumentDetailSubject();
+
+    Livewire::test('pages::instruments.standards', [
+        'instrument' => 3,
+        'instrumentType' => 31,
+    ])
+        ->call('startAddingStandard')
+        ->call('prepareNewStandardCreation')
+        ->assertHasErrors(['newInstrumentName'])
+        ->assertNotDispatched('instruments-desk-confirm-new-standard-creation');
+});
+
+it('cancels a new standard without saving it', function () {
+    createInstrumentDetailTestTables();
+    insertInstrumentDetailSubject();
+
+    Livewire::test('pages::instruments.standards', [
+        'instrument' => 3,
+        'instrumentType' => 31,
+    ])
+        ->call('startAddingStandard')
+        ->set('newInstrumentName', 'Temporary Standard')
+        ->call('cancelAddingStandard')
+        ->assertSet('addingStandard', false)
+        ->assertSet('newInstrumentName', '')
+        ->assertSet('newTypeSpecification', '')
+        ->assertSet('newSerialNumber', '');
+
+    $this->assertDatabaseCount('standard_master', 0);
+});
+
+it('dispatches standard creation confirmation after validation', function () {
+    createInstrumentDetailTestTables();
+    insertInstrumentDetailSubject();
+
+    Livewire::test('pages::instruments.standards', [
+        'instrument' => 3,
+        'instrumentType' => 31,
+    ])
+        ->call('startAddingStandard')
+        ->set('newInstrumentName', 'Pressure Drop Standard')
+        ->set('newTypeSpecification', 'Standard PD')
+        ->set('newSerialNumber', 'ET4276')
+        ->call('prepareNewStandardCreation')
+        ->assertDispatched('instruments-desk-confirm-new-standard-creation');
+});
+
+it('creates a standard with optional fields left blank', function () {
+    createInstrumentDetailTestTables();
+    insertInstrumentDetailSubject();
+
+    Livewire::test('pages::instruments.standards', [
+        'instrument' => 3,
+        'instrumentType' => 31,
+    ])
+        ->call('startAddingStandard')
+        ->set('newInstrumentName', 'Length Standard')
+        ->call('createStandard')
+        ->assertSet('addingStandard', false);
+
+    $this->assertDatabaseHas('standard_master', [
+        'instrument_name' => 'Length Standard',
+        'type_specification' => null,
+        'serial_number' => null,
+    ]);
+});
+
+it('preserves the modal state and field errors when standard creation validation fails', function () {
+    createInstrumentDetailTestTables();
+    insertInstrumentDetailSubject();
+
+    Livewire::test('pages::instruments.standards', [
+        'instrument' => 3,
+        'instrumentType' => 31,
+    ])
+        ->call('startAddingStandard')
+        ->set('newInstrumentName', 'Pressure Drop Standard')
+        ->set('newTypeSpecification', str_repeat('x', 151))
+        ->call('createStandard')
+        ->assertSet('addingStandard', true)
+        ->assertHasErrors(['newTypeSpecification']);
 });
 
 it('prevents duplicate assignment from the manager', function () {
@@ -137,8 +256,8 @@ it('prevents duplicate assignment from the manager', function () {
     $writer->assign(InstrumentType::query()->findOrFail(31), StandardMaster::query()->findOrFail(10));
 
     Livewire::test('pages::instruments.standards', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('selectCandidate', 10)
         ->call('assignStandard')
@@ -152,8 +271,8 @@ it('assigns multiple standards and reorders them', function () {
     insertStandardMaster(11, 'STD-0011', 'Standard B', null, 'B-1');
 
     $component = Livewire::test('pages::instruments.standards', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ]);
 
     $component->call('selectCandidate', 10)->call('assignStandard');
@@ -180,13 +299,13 @@ it('removes an assignment only after confirmation and leaves the master standard
     $assignment = $writer->assign(InstrumentType::query()->findOrFail(31), StandardMaster::query()->findOrFail(10));
 
     Livewire::test('pages::instruments.standards', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
-        ->call('askToRemove', $assignment->instrument_type_standard_assignment_id)
-        ->assertSee('Remove this standard assignment?')
-        ->call('removeAssignment')
-        ->assertSee('Standard assignment removed.')
+        ->assertDontSee('Remove this standard assignment?')
+        ->assertDontSee('Move up')
+        ->assertDontSee('Move down')
+        ->call('removeAssignment', $assignment->instrument_type_standard_assignment_id)
         ->assertSee('No standards assigned.');
 
     $this->assertDatabaseCount('instrument_type_standard_assignment', 0);
@@ -224,11 +343,10 @@ it('does not mutate calibration standard usage when an assignment is removed', f
     $assignment = $writer->assign(InstrumentType::query()->findOrFail(31), StandardMaster::query()->findOrFail(10), '198.1', 'mmWG');
 
     Livewire::test('pages::instruments.standards', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
-        ->call('askToRemove', $assignment->instrument_type_standard_assignment_id)
-        ->call('removeAssignment');
+        ->call('removeAssignment', $assignment->instrument_type_standard_assignment_id);
 
     $this->assertDatabaseHas('calibration_standard_usage', [
         'calibration_standard_usage_id' => 1,

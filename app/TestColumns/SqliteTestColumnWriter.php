@@ -3,7 +3,6 @@
 namespace App\TestColumns;
 
 use Illuminate\Database\Query\Builder;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Persists column changes on the SQLite test connection.
@@ -11,11 +10,13 @@ use Illuminate\Support\Facades\DB;
  */
 class SqliteTestColumnWriter implements TestColumnWriter
 {
+    use WritesThroughHttpConnection;
+
     public function __construct(private TestTableVersioning $versioning) {}
 
     public function insert(ColumnDefinition $column): int
     {
-        $id = ((int) DB::table('test_column')->max('test_column_id')) + 1;
+        $id = ((int) $this->writeConnection()->table('test_column')->max('test_column_id')) + 1;
         $payload = [
             'test_column_id' => $id,
             'test_profile_id' => $column->profileId,
@@ -37,14 +38,14 @@ class SqliteTestColumnWriter implements TestColumnWriter
             $payload['test_profile_version_id'] = $versionId;
         }
 
-        DB::table('test_column')->insert($payload);
+        $this->writeConnection()->table('test_column')->insert($payload);
 
         return $id;
     }
 
     public function update(int $columnId, ColumnDefinition $column): void
     {
-        $updated = DB::table('test_column')
+        $updated = $this->writeConnection()->table('test_column')
             ->where('test_column_id', $columnId)
             ->update([
                 'column_label' => $column->columnLabel,
@@ -64,7 +65,7 @@ class SqliteTestColumnWriter implements TestColumnWriter
 
     public function delete(int $columnId): void
     {
-        $deleted = DB::table('test_column')->where('test_column_id', $columnId)->delete();
+        $deleted = $this->writeConnection()->table('test_column')->where('test_column_id', $columnId)->delete();
 
         if ($deleted === 0) {
             throw new TestColumnWriteException('This column could not be found.');
@@ -73,7 +74,7 @@ class SqliteTestColumnWriter implements TestColumnWriter
 
     public function reorder(int $profileId, array $columnIds): void
     {
-        $existingQuery = DB::table('test_column')->where('test_profile_id', $profileId);
+        $existingQuery = $this->writeConnection()->table('test_column')->where('test_profile_id', $profileId);
         $this->scopeToWritableVersion($existingQuery, $profileId);
 
         $existing = $existingQuery
@@ -111,7 +112,7 @@ class SqliteTestColumnWriter implements TestColumnWriter
             $sql .= ' and test_profile_version_id is null';
         }
 
-        DB::update($sql, $bindings);
+        $this->writeConnection()->update($sql, $bindings);
     }
 
     private function scopeToWritableVersion(Builder $query, int $profileId): void

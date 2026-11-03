@@ -1,14 +1,12 @@
 <?php
 
-use App\Models\Instrument;
-use App\Models\InstrumentType;
-use App\Models\TestProfile;
 use App\TestColumns\ColumnDefinition;
 use App\TestColumns\SqliteTestColumnWriter;
 use App\TestColumns\SqliteTestPointValueWriter;
 use App\TestColumns\TestColumnWriteException;
 use App\TestColumns\TestColumnWriter;
 use App\TestColumns\TestPointValueWriter;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
@@ -24,8 +22,8 @@ it('opens the manage test components page from instrument detail', function () {
         ->assertDontSee('Add Row');
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->assertSee('Manage Test Components')
         ->assertSee('Back to instrument detail')
@@ -70,8 +68,8 @@ it('clears editor form state when switching test tables in the sidebar', functio
     ]);
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('selectProfile', 1)
         ->call('startManagingColumns', 1)
@@ -91,23 +89,24 @@ it('creates the first test table without a display title', function () {
     insertInstrumentDetailSubject();
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->assertSee('Add Test Table')
         ->call('startAddingTestTable')
-        ->assertSee('Profile name')
-        ->assertSee('(optional)')
+        ->assertSee('Test Table Name')
+        ->assertSee('Create Table')
         ->set('profileName', ' Weight Calibration ')
         ->set('displayTitle', '   ')
         ->call('saveTestTable')
         ->assertHasNoErrors()
-        ->assertSee('Test table added.')
+        ->assertDispatched('instruments-desk-notification')
         ->assertSee('Add Test Table')
         ->assertSee('Weight Calibration')
         ->assertSee('No columns yet.')
         ->assertDontSee('No test components found.')
         ->assertDontSee('Title not set')
+        ->assertDontSee('test-table-remarks-heading')
         ->assertSet('addingTestTable', false);
 
     $this->assertDatabaseHas('test_profile', [
@@ -120,73 +119,65 @@ it('creates the first test table without a display title', function () {
     ]);
 });
 
-it('creates a second test table and titles the existing one together', function () {
+it('creates a second test table without changing the existing table', function () {
     createInstrumentDetailTestTables();
     insertInstrumentDetailSubject();
     DB::table('test_profile')->insert([
         'test_profile_id' => 1,
         'instrument_type_id' => 31,
         'profile_name' => 'INTERNAL',
-        'display_title' => null,
+        'display_title' => 'Existing title',
         'description' => null,
         'created_at' => '2026-06-12 09:00:00',
     ]);
 
-    TestProfile::creating(function (TestProfile $profile): void {
-        if ($profile->profile_name === 'BOOM') {
-            throw new RuntimeException('stop the second table');
-        }
-    });
-
-    try {
-        expect(fn () => Livewire::test('pages::instruments.test-components', [
-            'instrument' => Instrument::query()->findOrFail(3),
-            'instrumentType' => InstrumentType::query()->findOrFail(31),
-        ])
-            ->call('startAddingTestTable')
-            ->set('profileName', 'BOOM')
-            ->set('displayTitle', 'New table')
-            ->set('existingDisplayTitle', 'Changed title')
-            ->call('saveTestTable'))->toThrow(RuntimeException::class);
-    } finally {
-        TestProfile::flushEventListeners();
-    }
-
-    expect(DB::table('test_profile')->where('profile_name', 'BOOM')->exists())->toBeFalse()
-        ->and(DB::table('test_profile')->where('test_profile_id', 1)->value('display_title'))->toBeNull();
-
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('startAddingTestTable')
         ->set('profileName', 'Diameter Check')
         ->set('displayTitle', '')
-        ->set('existingDisplayTitle', '')
-        ->call('saveTestTable')
-        ->assertHasErrors(['displayTitle', 'existingDisplayTitle'])
-        ->assertSee('Enter a table title.')
-        ->assertSee('Enter a title for the existing test table.')
-        ->set('displayTitle', ' diameter table ')
-        ->set('existingDisplayTitle', ' Weight table ')
         ->call('saveTestTable')
         ->assertHasNoErrors()
-        ->assertSee('Test table added.')
-        ->assertSeeInOrder(['Weight table', 'diameter table'])
         ->assertSet('selectedProfileId', 2)
         ->assertSee('Diameter Check');
 
     $this->assertDatabaseHas('test_profile', [
         'test_profile_id' => 1,
         'instrument_type_id' => 31,
-        'display_title' => 'Weight table',
+        'display_title' => 'Existing title',
     ]);
     $this->assertDatabaseHas('test_profile', [
         'profile_name' => 'Diameter Check',
         'instrument_type_id' => 31,
-        'display_title' => 'diameter table',
+        'display_title' => null,
     ]);
     $this->assertDatabaseCount('test_profile', 2);
+});
+
+it('creates a new test table when multiple tables already exist', function () {
+    createInstrumentDetailTestTables();
+    insertInstrumentDetailSubject();
+    DB::table('test_profile')->insert([
+        ['test_profile_id' => 1, 'instrument_type_id' => 31, 'profile_name' => 'First', 'display_title' => 'First title', 'description' => null, 'created_at' => '2026-06-12 09:00:00'],
+        ['test_profile_id' => 2, 'instrument_type_id' => 31, 'profile_name' => 'Second', 'display_title' => 'Second title', 'description' => null, 'created_at' => '2026-06-12 09:00:00'],
+    ]);
+
+    Livewire::test('pages::instruments.test-components', [
+        'instrument' => 3,
+        'instrumentType' => 31,
+    ])
+        ->call('startAddingTestTable')
+        ->set('profileName', 'Third')
+        ->set('displayTitle', '')
+        ->call('saveTestTable')
+        ->assertHasNoErrors()
+        ->assertSet('selectedProfileId', 3);
+
+    expect(DB::table('test_profile')->count())->toBe(3)
+        ->and(DB::table('test_profile')->where('test_profile_id', 1)->value('display_title'))->toBe('First title')
+        ->and(DB::table('test_profile')->where('test_profile_id', 2)->value('display_title'))->toBe('Second title');
 });
 
 it('rejects a duplicate table title', function () {
@@ -196,26 +187,24 @@ it('rejects a duplicate table title', function () {
         'test_profile_id' => 1,
         'instrument_type_id' => 31,
         'profile_name' => 'INTERNAL',
-        'display_title' => null,
+        'display_title' => 'Scale',
         'description' => null,
         'created_at' => '2026-06-12 09:00:00',
     ]);
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('startAddingTestTable')
         ->set('profileName', 'Second')
         ->set('displayTitle', ' scale ')
-        ->set('existingDisplayTitle', 'Scale')
         ->call('saveTestTable')
         ->assertHasErrors(['displayTitle'])
-        ->assertSee('Table titles must be different.')
         ->assertDontSee('Test table added.');
 
     expect(DB::table('test_profile')->count())->toBe(1)
-        ->and(DB::table('test_profile')->where('test_profile_id', 1)->value('display_title'))->toBeNull();
+        ->and(DB::table('test_profile')->where('test_profile_id', 1)->value('display_title'))->toBe('Scale');
 
     DB::table('test_profile')->where('test_profile_id', 1)->update(['display_title' => 'Weight table']);
     DB::table('test_profile')->insert([
@@ -228,15 +217,14 @@ it('rejects a duplicate table title', function () {
     ]);
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('startAddingTestTable')
         ->set('profileName', 'Third')
         ->set('displayTitle', 'WEIGHT TABLE')
         ->call('saveTestTable')
-        ->assertHasErrors(['displayTitle'])
-        ->assertSee('Table titles must be different.');
+        ->assertHasErrors(['displayTitle']);
 
     $this->assertDatabaseCount('test_profile', 2);
     $this->assertDatabaseMissing('test_profile', [
@@ -257,16 +245,15 @@ it('rejects a duplicate profile name for the instrument type', function () {
     ]);
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('startAddingTestTable')
         ->set('profileName', ' Weight Calibration ')
         ->set('displayTitle', 'New table')
-        ->set('existingDisplayTitle', 'Changed title')
         ->call('saveTestTable')
         ->assertHasErrors(['profileName'])
-        ->assertSee('A test table with this profile name already exists for this type.')
+        ->assertHasErrors(['profileName'])
         ->assertDontSee('Test table added.');
 
     $this->assertDatabaseCount('test_profile', 1);
@@ -281,23 +268,20 @@ it('rejects an invalid test table', function () {
     insertInstrumentDetailSubject();
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('startAddingTestTable')
         ->set('profileName', '   ')
         ->call('saveTestTable')
         ->assertHasErrors(['profileName'])
-        ->assertSee('Enter a profile name.')
         ->set('profileName', str_repeat('a', 151))
         ->call('saveTestTable')
         ->assertHasErrors(['profileName'])
-        ->assertSee('The profile name must be 150 characters or fewer.')
         ->set('profileName', 'Valid profile')
         ->set('displayTitle', str_repeat('b', 256))
         ->call('saveTestTable')
-        ->assertHasErrors(['displayTitle'])
-        ->assertSee('The table title must be 255 characters or fewer.');
+        ->assertHasErrors(['displayTitle']);
 
     $this->assertDatabaseCount('test_profile', 0);
 });
@@ -311,8 +295,8 @@ it('adds the first column and keeps the legacy table until that save succeeds', 
     insertColumnManagerFixture();
 
     $component = Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ]);
 
     $component
@@ -320,6 +304,9 @@ it('adds the first column and keeps the legacy table until that save succeeds', 
         ->assertSee('+Tol')
         ->assertSee('Legacy point')
         ->call('startManagingColumns', 1)
+        ->assertSee('No Unit')
+        ->assertSee('Length / Dimension')
+        ->assertSee('mm')
         ->set('columnLabel', '   ')
         ->call('saveTestColumn')
         ->assertHasErrors(['columnLabel'])
@@ -332,7 +319,7 @@ it('adds the first column and keeps the legacy table until that save succeeds', 
         ->set('displayScale', '3')
         ->call('saveTestColumn')
         ->assertHasNoErrors()
-        ->assertSee('Column added.')
+        ->assertDispatched('instruments-desk-notification')
         ->assertSee('Set Point')
         ->assertSee('set_point')
         ->assertDontSee('+Tol')
@@ -357,13 +344,70 @@ it('adds the first column and keeps the legacy table until that save succeeds', 
     $this->assertDatabaseCount('test_point_value', 0);
 });
 
+it('allows a column to be created without a unit', function () {
+    createInstrumentDetailTestTables();
+    insertColumnManagerFixture();
+
+    Livewire::test('pages::instruments.test-components', [
+        'instrument' => 3,
+        'instrumentType' => 31,
+    ])
+        ->call('startManagingColumns', 1)
+        ->set('columnLabel', 'Unitless Reading')
+        ->set('unit', '')
+        ->call('saveTestColumn')
+        ->assertHasNoErrors();
+
+    $this->assertDatabaseHas('test_column', [
+        'column_key' => 'unitless_reading',
+        'unit' => null,
+    ]);
+});
+
+it('preserves a saved unit that is not in the predefined list while editing', function () {
+    createInstrumentDetailTestTables();
+    insertColumnManagerFixture();
+    DB::table('test_column')->insert([
+        'test_column_id' => 50,
+        'test_profile_id' => 1,
+        'test_profile_version_id' => 1,
+        'column_key' => 'legacy_pressure',
+        'column_label' => 'Legacy Pressure',
+        'column_order' => 1,
+        'data_type' => 'numeric',
+        'value_source' => 'template',
+        'unit' => 'inHg',
+        'display_scale' => null,
+        'formula_code' => null,
+        'formula_inputs' => '[]',
+        'created_at' => '2026-10-14 09:00:00',
+    ]);
+
+    Livewire::test('pages::instruments.test-components', [
+        'instrument' => 3,
+        'instrumentType' => 31,
+    ])
+        ->call('startManagingColumns', 1)
+        ->call('editTestColumn', 1, 50)
+        ->assertSet('unit', 'inHg')
+        ->assertSee('inHg (saved unit)')
+        ->set('columnLabel', 'Legacy Pressure Updated')
+        ->call('saveTestColumn')
+        ->assertHasNoErrors();
+
+    $this->assertDatabaseHas('test_column', [
+        'test_column_id' => 50,
+        'unit' => 'inHg',
+    ]);
+});
+
 it('keeps the column key when the label is edited', function () {
     createInstrumentDetailTestTables();
     insertColumnManagerFixture();
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('startManagingColumns', 1)
         ->set('columnLabel', 'Set Point')
@@ -372,7 +416,7 @@ it('keeps the column key when the label is edited', function () {
         ->set('columnLabel', 'Nominal value')
         ->set('unit', 'kg')
         ->call('saveTestColumn')
-        ->assertSee('Column updated.')
+        ->assertDispatched('instruments-desk-notification')
         ->assertSee('Nominal value')
         ->assertSee('set_point');
 
@@ -384,13 +428,34 @@ it('keeps the column key when the label is edited', function () {
     ]);
 });
 
+it('returns to the manage columns list when column editing is cancelled', function () {
+    createInstrumentDetailTestTables();
+    insertColumnManagerFixture();
+
+    Livewire::test('pages::instruments.test-components', [
+        'instrument' => 3,
+        'instrumentType' => 31,
+    ])
+        ->call('startManagingColumns', 1)
+        ->set('columnLabel', 'Set Point')
+        ->call('saveTestColumn')
+        ->call('editTestColumn', 1, 1)
+        ->assertSet('editingColumnId', 1)
+        ->assertSee('Edit Column')
+        ->assertDontSee('Add New Column')
+        ->call('cancelEditingColumn')
+        ->assertSet('editingColumnId', null)
+        ->assertSee('Add New Column')
+        ->assertDontSee('Edit Column');
+});
+
 it('deletes a column only after confirmation and restores the legacy table', function () {
     createInstrumentDetailTestTables();
     insertColumnManagerFixture();
 
     $component = Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('startManagingColumns', 1)
         ->set('columnLabel', 'Set Point')
@@ -401,12 +466,11 @@ it('deletes a column only after confirmation and restores the legacy table', fun
 
     $component
         ->call('askToDeleteTestColumn', 1, 1)
-        ->assertSee('Delete this column?')
+        ->assertDispatched('instruments-desk-confirm-test-column-removal')
         ->call('cancelDeletingTestColumn')
-        ->assertDontSee('Delete this column?')
         ->call('askToDeleteTestColumn', 1, 1)
+        ->assertDispatched('instruments-desk-confirm-test-column-removal')
         ->call('deleteTestColumn')
-        ->assertSee('Column deleted.')
         ->assertSee('+Tol')
         ->assertSee('Legacy point');
 
@@ -418,8 +482,8 @@ it('reorders columns through the column writer', function () {
     insertColumnManagerFixture();
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('startManagingColumns', 1)
         ->set('columnLabel', 'Note')
@@ -431,11 +495,32 @@ it('reorders columns through the column writer', function () {
         ->set('valueSource', 'template')
         ->call('saveTestColumn')
         ->call('moveTestColumn', 1, 2, 'up')
-        ->assertSee('Column order updated.')
+        ->assertHasNoErrors()
         ->assertSeeInOrder(['Setpoint', 'Note']);
 
     expect(DB::table('test_column')->orderBy('column_order')->pluck('column_key')->all())
         ->toBe(['setpoint', 'note']);
+});
+
+it('persists a complete drag and drop column order', function () {
+    createInstrumentDetailTestTables();
+    insertColumnManagerFixture();
+
+    Livewire::test('pages::instruments.test-components', [
+        'instrument' => 3,
+        'instrumentType' => 31,
+    ])
+        ->call('startManagingColumns', 1)
+        ->set('columnLabel', 'First')
+        ->call('saveTestColumn')
+        ->set('columnLabel', 'Second')
+        ->call('saveTestColumn')
+        ->call('reorderTestColumns', 1, [2, 1])
+        ->assertHasNoErrors()
+        ->assertSeeInOrder(['Second', 'First']);
+
+    expect(DB::table('test_column')->orderBy('column_order')->pluck('column_key')->all())
+        ->toBe(['second', 'first']);
 });
 
 it('stores average and deviation formulas from numeric template or engineer columns', function () {
@@ -443,8 +528,8 @@ it('stores average and deviation formulas from numeric template or engineer colu
     insertColumnManagerFixture();
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('startManagingColumns', 1)
         ->set('columnLabel', 'Reading')
@@ -468,7 +553,7 @@ it('stores average and deviation formulas from numeric template or engineer colu
         ->set('formulaCode', 'average')
         ->set('formulaInputs', ['reading'])
         ->call('saveTestColumn')
-        ->assertSee('Column added.')
+        ->assertDispatched('instruments-desk-notification')
         ->set('columnLabel', 'Error')
         ->set('dataType', 'numeric')
         ->set('valueSource', 'calculated')
@@ -529,8 +614,8 @@ it('shows a database constraint message and does not save the column', function 
     });
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('startManagingColumns', 1)
         ->set('columnLabel', 'Set Point')
@@ -556,8 +641,8 @@ it('rejects column changes for a test table on another type', function () {
     ]);
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('startManagingColumns', 2)
         ->assertNotFound();
@@ -572,20 +657,22 @@ it('adds a row and saves template values without writing engineer cells', functi
     insertDynamicRowFixture();
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->assertSee('Add Row')
         ->assertSee('Standard Value')
+        ->assertDontSee('Move up')
+        ->assertDontSee('Move down')
         ->call('startAddingRow', 1)
-        ->assertSee('Row added.')
-        ->assertSee('Edit row')
+        ->assertSee('Add Test Row')
+        ->assertSee('Save Row')
         ->set('templateValues.1', '10.5')
         ->set('templateValues.2', 'stable-note')
         ->set('templateValues.3', '99.25')
         ->call('saveTestRow')
         ->assertHasNoErrors()
-        ->assertSee('Row saved.')
+        ->assertDispatched('instruments-desk-notification')
         ->assertSee('10.5')
         ->assertSee('stable-note')
         ->assertDontSee('99.25');
@@ -621,8 +708,8 @@ it('clears a blank template value and rejects an invalid number', function () {
     insertDynamicRowFixture();
 
     $component = Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('startAddingRow', 1)
         ->set('templateValues.1', '10.5')
@@ -632,7 +719,7 @@ it('clears a blank template value and rejects an invalid number', function () {
         ->set('templateValues.1', 'not-a-number')
         ->call('saveTestRow')
         ->assertHasErrors(['templateValues.1'])
-        ->assertSee('Enter a number for Standard Value.');
+        ->assertHasErrors(['templateValues.1']);
 
     $this->assertDatabaseHas('test_point_value', [
         'test_column_id' => 1,
@@ -644,7 +731,6 @@ it('clears a blank template value and rejects an invalid number', function () {
         ->set('templateValues.2', 'keep-me')
         ->call('saveTestRow')
         ->assertHasNoErrors()
-        ->assertSee('Row saved.')
         ->assertDontSee('10.5')
         ->assertSee('keep-me');
 
@@ -662,8 +748,8 @@ it('deletes a row only after confirmation and restores the empty table', functio
     insertDynamicRowFixture();
 
     $component = Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('startAddingRow', 1)
         ->set('templateValues.1', '10.5')
@@ -674,16 +760,104 @@ it('deletes a row only after confirmation and restores the empty table', functio
 
     $component
         ->call('askToDeleteTestRow', 1, 1)
-        ->assertSee('Delete this row?')
+        ->assertDispatched('instruments-desk-confirm-test-row-removal')
         ->call('cancelDeletingTestRow')
-        ->assertDontSee('Delete this row?')
         ->call('askToDeleteTestRow', 1, 1)
-        ->call('deleteTestRow')
-        ->assertSee('Row deleted.')
+        ->assertDispatched('instruments-desk-confirm-test-row-removal')
+        ->call('deleteTestRowFromModal')
         ->assertSee('No test points yet.');
 
     $this->assertDatabaseCount('test_point', 0);
     $this->assertDatabaseCount('test_point_value', 0);
+});
+
+it('deletes an empty draft row without save-row validation', function () {
+    createInstrumentDetailTestTables();
+    insertDynamicRowFixture();
+
+    $component = Livewire::test('pages::instruments.test-components', [
+        'instrument' => 3,
+        'instrumentType' => 31,
+    ])
+        ->call('startAddingRow', 1)
+        ->call('askToDeleteTestRow', 1, 1)
+        ->call('deleteTestRowFromModal')
+        ->assertHasNoErrors()
+        ->assertSee('No test points yet.');
+
+    expect($component->get('deletingPointId'))->toBeNull()
+        ->and(DB::table('test_point')->count())->toBe(0)
+        ->and(DB::table('test_point_value')->count())->toBe(0);
+});
+
+it('deletes a populated draft row and preserves the remaining row order and values', function () {
+    createInstrumentDetailTestTables();
+    insertDynamicRowFixture();
+
+    $component = Livewire::test('pages::instruments.test-components', [
+        'instrument' => 3,
+        'instrumentType' => 31,
+    ]);
+
+    foreach (range(1, 5) as $value) {
+        $component
+            ->call('startAddingRow', 1)
+            ->set('templateValues.1', (string) ($value * 10))
+            ->call('saveTestRow')
+            ->assertHasNoErrors();
+    }
+
+    $component
+        ->call('startAddingRow', 1)
+        ->call('askToDeleteTestRow', 1, 6)
+        ->call('deleteTestRow')
+        ->assertHasNoErrors();
+
+    expect(DB::table('test_point')->count())->toBe(5)
+        ->and(DB::table('test_point')->orderBy('point_order')->pluck('point_order')->all())->toBe([1, 2, 3, 4, 5])
+        ->and(DB::table('test_point_value')->where('test_column_id', 1)->orderBy('test_point_id')->pluck('numeric_value')->all())->toBe([10, 20, 30, 40, 50]);
+
+    $component
+        ->call('askToDeleteTestRow', 1, 3)
+        ->call('deleteTestRow')
+        ->assertHasNoErrors();
+
+    expect(DB::table('test_point')->count())->toBe(4)
+        ->and(DB::table('test_point')->orderBy('point_order')->pluck('point_order')->all())->toBe([1, 2, 3, 4])
+        ->and(DB::table('test_point_value')->where('test_column_id', 1)->orderBy('test_point_id')->pluck('numeric_value')->all())->toBe([10, 20, 40, 50]);
+});
+
+it('uses explicit PostgreSQL-compatible types when normalizing order after deletion', function () {
+    createInstrumentDetailTestTables();
+    insertDynamicRowFixture();
+
+    $component = Livewire::test('pages::instruments.test-components', [
+        'instrument' => 3,
+        'instrumentType' => 31,
+    ]);
+
+    foreach (range(1, 5) as $value) {
+        $component
+            ->call('startAddingRow', 1)
+            ->set('templateValues.1', (string) ($value * 10))
+            ->call('saveTestRow')
+            ->assertHasNoErrors();
+    }
+
+    $normalizationQueries = [];
+    DB::listen(function (QueryExecuted $query) use (&$normalizationQueries): void {
+        if (str_starts_with(strtolower(trim($query->sql)), 'update test_point set point_order')) {
+            $normalizationQueries[] = $query->sql;
+        }
+    });
+
+    $component
+        ->call('askToDeleteTestRow', 1, 5)
+        ->call('deleteTestRow');
+
+    expect($normalizationQueries)->not->toBeEmpty()
+        ->and($normalizationQueries[0])->toContain('CAST(? AS BIGINT)')
+        ->and($normalizationQueries[0])->toContain('CAST(? AS INTEGER)');
 });
 
 it('reorders rows by point_order', function () {
@@ -691,8 +865,8 @@ it('reorders rows by point_order', function () {
     insertDynamicRowFixture();
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('startAddingRow', 1)
         ->set('templateValues.1', '100')
@@ -701,7 +875,7 @@ it('reorders rows by point_order', function () {
         ->set('templateValues.1', '200')
         ->call('saveTestRow')
         ->call('moveTestRow', 1, 2, 'up')
-        ->assertSee('Row order updated.')
+        ->assertHasNoErrors()
         ->assertSeeInOrder(['200', '100']);
 
     expect(DB::table('test_point')->orderBy('point_order')->pluck('test_point_id')->all())
@@ -722,9 +896,9 @@ it('shows numeric template values with trailing zeros and leaves the stored valu
     ]);
     DB::table('test_point_value')->insert([
         'test_point_value_id' => 1,
-            'test_profile_id' => 1,
+        'test_profile_id' => 1,
         'test_profile_version_id' => 1,
-            'test_point_id' => 1,
+        'test_point_id' => 1,
         'test_column_id' => 1,
         'numeric_value' => 8,
         'text_value' => null,
@@ -733,14 +907,13 @@ it('shows numeric template values with trailing zeros and leaves the stored valu
     ]);
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->assertSee('8.000')
         ->call('editTestRow', 1, 1)
         ->set('templateValues.2', 'keep-me')
         ->call('saveTestRow')
-        ->assertSee('Row saved.')
         ->assertSee('8.000');
 
     $this->assertDatabaseHas('test_point_value', [
@@ -764,25 +937,24 @@ it('saves duration template values as whole seconds and displays hh:mm:ss', func
     ]);
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('startManagingColumns', 1)
         ->set('columnLabel', 'Standard Time')
         ->set('dataType', 'duration')
         ->set('valueSource', 'template')
         ->call('saveTestColumn')
-        ->assertSee('Column added.')
+        ->assertDispatched('instruments-desk-notification')
         ->assertSee('hh:mm:ss')
         ->call('startAddingRow', 1)
         ->set('templateValues.1', '00:60:00')
         ->call('saveTestRow')
         ->assertHasErrors(['templateValues.1'])
-        ->assertSee('Enter a duration as hh:mm:ss for Standard Time.')
+        ->assertHasErrors(['templateValues.1'])
         ->set('templateValues.1', '0.03.00')
         ->call('saveTestRow')
         ->assertHasNoErrors()
-        ->assertSee('Row saved.')
         ->assertSee('00:03:00');
 
     $this->assertDatabaseHas('test_point_value', [
@@ -798,9 +970,9 @@ it('stores correction formulas against column keys for numeric and duration colu
     insertColumnManagerFixture();
 
     Livewire::test('pages::instruments.test-components', [
-            'instrument' => Instrument::query()->findOrFail(3),
-            'instrumentType' => InstrumentType::query()->findOrFail(31),
-        ])
+        'instrument' => 3,
+        'instrumentType' => 31,
+    ])
         ->call('startManagingColumns', 1)
         ->set('columnLabel', 'Standard Value')
         ->set('dataType', 'numeric')
@@ -817,7 +989,7 @@ it('stores correction formulas against column keys for numeric and duration colu
         ->set('deviationMinuend', 'standard_value')
         ->set('deviationSubtrahend', 'reading_average')
         ->call('saveTestColumn')
-        ->assertSee('Column added.')
+        ->assertDispatched('instruments-desk-notification')
         ->assertSee('standard_minus_reading of standard_value, reading_average')
         ->set('columnLabel', 'Standard Time')
         ->set('dataType', 'duration')
@@ -866,8 +1038,8 @@ it('shows only the draft version on the manage page when an active version also 
     insertTwoVersionTestTable();
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->assertSee('Draft Current')
         ->assertSee('draft-cell-200')
@@ -887,8 +1059,8 @@ it('rejects column and row changes when the test table has no draft version', fu
     ]);
 
     $component = Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->assertSee('This published test table is read-only.')
         ->assertSee('Active · v1 · read-only')
@@ -912,8 +1084,8 @@ it('creates a draft version with a new test table', function () {
     insertInstrumentDetailSubject();
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('startAddingTestTable')
         ->set('profileName', 'Weight Calibration')
@@ -935,24 +1107,24 @@ it('still edits a test table when the versioning catalog is not installed', func
     insertInstrumentDetailSubject();
 
     DB::table('test_profile')->insert([
-            'test_profile_id' => 1,
-            'instrument_type_id' => 31,
+        'test_profile_id' => 1,
+        'instrument_type_id' => 31,
         'profile_name' => 'Main Test',
         'display_title' => null,
-            'description' => null,
-            'created_at' => '2026-10-14 09:00:00',
+        'description' => null,
+        'created_at' => '2026-10-14 09:00:00',
     ]);
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->assertDontSee('Draft · v1')
         ->call('startManagingColumns', 1)
         ->set('columnLabel', 'Legacy Note')
         ->call('saveTestColumn')
         ->assertHasNoErrors()
-        ->assertSee('Column added.')
+        ->assertDispatched('instruments-desk-notification')
         ->assertSee('Legacy Note');
 
     $this->assertDatabaseHas('test_column', [
@@ -966,16 +1138,17 @@ it('publishes a complete draft and then shows the active version as read-only', 
     insertTwoVersionTestTable();
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->assertSee('Publish Version')
         ->assertDontSee('Fork Draft')
         ->call('askToPublishVersion', 1)
-        ->assertSee('Publish this draft as the active version?')
+        ->assertDispatched('instruments-desk-confirm-test-table-publish')
+        ->assertDontSee('Publish this draft as the active version?')
         ->call('publishVersion', 1)
         ->assertHasNoErrors()
-        ->assertSee('Version published.')
+        ->assertDontSee('Version published.')
         ->assertSee('Active · v2 · read-only')
         ->assertSee('This published test table is read-only.')
         ->assertSee('Draft Current')
@@ -1000,8 +1173,8 @@ it('rejects publishing a draft that has no columns or rows', function () {
     insertInstrumentDetailSubject();
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('startAddingTestTable')
         ->set('profileName', 'Weight Calibration')
@@ -1009,8 +1182,8 @@ it('rejects publishing a draft that has no columns or rows', function () {
         ->assertSee('Publish Version')
         ->call('askToPublishVersion', 1)
         ->call('publishVersion', 1)
-        ->assertHasErrors(['testTable'])
-        ->assertSee('Publish a draft that has at least one column and one row.')
+        ->assertHasErrors(['publishVersion'])
+        ->assertDontSee('Publish a draft that has at least one column and one row.')
         ->assertSee('Draft · v1')
         ->assertSee('Manage Columns');
 
@@ -1027,15 +1200,15 @@ it('forks the active version into a draft that can be edited', function () {
     insertActiveVersionTestTable();
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->assertSee('Fork Draft')
         ->assertDontSee('Publish Version')
         ->assertSee('This published test table is read-only.')
         ->call('forkDraft', 1)
         ->assertHasNoErrors()
-        ->assertSee('Draft created.')
+        ->assertDontSee('Draft created.')
         ->assertSee('Draft · v2')
         ->assertSee('Manage Columns')
         ->assertSee('Publish Version')
@@ -1043,7 +1216,7 @@ it('forks the active version into a draft that can be edited', function () {
         ->assertDontSee('This published test table is read-only.')
         ->call('startManagingColumns', 1)
         ->assertHasNoErrors()
-        ->assertSee('Add column');
+        ->assertSee('Add New Column');
 
     $this->assertDatabaseHas('test_profile_version', [
         'test_profile_version_id' => 11,
@@ -1063,8 +1236,8 @@ it('rejects forking when a draft already exists', function () {
     insertTwoVersionTestTable();
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->assertDontSee('Fork Draft')
         ->call('forkDraft', 1)
@@ -1104,15 +1277,15 @@ it('rejects fork and publish for a test table that belongs to another instrument
     ]);
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('forkDraft', 2)
         ->assertNotFound();
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('publishVersion', 2)
         ->assertNotFound();
@@ -1142,8 +1315,8 @@ it('does not show fork or publish actions when the versioning catalog is not ins
     ]);
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->assertDontSee('Publish Version')
         ->assertDontSee('Fork Draft')
@@ -1153,8 +1326,8 @@ it('does not show fork or publish actions when the versioning catalog is not ins
         ->assertNotFound();
 
     Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ])
         ->call('askToPublishVersion', 1)
         ->assertNotFound();

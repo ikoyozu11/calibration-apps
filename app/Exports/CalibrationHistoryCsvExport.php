@@ -3,6 +3,8 @@
 namespace App\Exports;
 
 use App\Models\Calibration;
+use Illuminate\Database\Connection;
+use InvalidArgumentException;
 
 class CalibrationHistoryCsvExport
 {
@@ -26,9 +28,9 @@ class CalibrationHistoryCsvExport
     /**
      * @return list<list<string>>
      */
-    public static function rows(): array
+    public static function rows(Connection $connection): array
     {
-        $calibrations = Calibration::query()
+        $calibrations = Calibration::on(self::connectionName($connection))
             ->completed()
             ->select([
                 'calibration_id',
@@ -63,5 +65,16 @@ class CalibrationHistoryCsvExport
         }
 
         return $rows;
+    }
+
+    private static function connectionName(Connection $connection): string
+    {
+        $name = $connection->getName();
+
+        if (! is_string($name) || $name === '') {
+            throw new InvalidArgumentException('Calibration CSV export requires a named connection.');
+        }
+
+        return $name;
     }
 }

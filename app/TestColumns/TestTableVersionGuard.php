@@ -4,17 +4,18 @@ namespace App\TestColumns;
 
 use App\Models\TestProfile;
 use App\Models\TestProfileVersion;
-use Illuminate\Support\Facades\DB;
 
 class TestTableVersionGuard
 {
+    use WritesThroughHttpConnection;
+
     public function __construct(private TestTableVersioning $versioning) {}
 
     public function lockForkSource(int $sourceVersionId): TestProfileVersion
     {
         $this->assertEnabled();
 
-        $source = TestProfileVersion::query()
+        $source = TestProfileVersion::on($this->writeConnectionName())
             ->where('test_profile_version_id', $sourceVersionId)
             ->lockForUpdate()
             ->first();
@@ -33,7 +34,7 @@ class TestTableVersionGuard
             throw new TestTableVersionWriteException('Fork the active version, not a retired version.');
         }
 
-        $draftExists = TestProfileVersion::query()
+        $draftExists = TestProfileVersion::on($this->writeConnectionName())
             ->where('test_profile_id', $source->test_profile_id)
             ->where('status', TestProfileVersion::STATUS_DRAFT)
             ->lockForUpdate()
@@ -54,7 +55,7 @@ class TestTableVersionGuard
         $this->assertEnabled();
         $this->lockProfile($profileId);
 
-        $draft = TestProfileVersion::query()
+        $draft = TestProfileVersion::on($this->writeConnectionName())
             ->where('test_profile_id', $profileId)
             ->where('status', TestProfileVersion::STATUS_DRAFT)
             ->lockForUpdate()
@@ -64,10 +65,10 @@ class TestTableVersionGuard
             throw new TestTableVersionWriteException('This test table has no draft version to publish.');
         }
 
-        $columnCount = (int) DB::table('test_column')
+        $columnCount = (int) $this->writeConnection()->table('test_column')
             ->where('test_profile_version_id', $draft->test_profile_version_id)
             ->count();
-        $pointCount = (int) DB::table('test_point')
+        $pointCount = (int) $this->writeConnection()->table('test_point')
             ->where('test_profile_version_id', $draft->test_profile_version_id)
             ->count();
 
@@ -75,7 +76,7 @@ class TestTableVersionGuard
             throw new TestTableVersionWriteException('Publish a draft that has at least one column and one row.');
         }
 
-        $active = TestProfileVersion::query()
+        $active = TestProfileVersion::on($this->writeConnectionName())
             ->where('test_profile_id', $profileId)
             ->where('status', TestProfileVersion::STATUS_ACTIVE)
             ->lockForUpdate()
@@ -96,7 +97,7 @@ class TestTableVersionGuard
 
     private function lockProfile(int $profileId): TestProfile
     {
-        $profile = TestProfile::query()
+        $profile = TestProfile::on($this->writeConnectionName())
             ->where('test_profile_id', $profileId)
             ->lockForUpdate()
             ->first();

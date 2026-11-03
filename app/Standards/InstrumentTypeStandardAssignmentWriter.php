@@ -2,11 +2,13 @@
 
 namespace App\Standards;
 
+use App\CalibrationSessions\CalibrationHttpConnection;
 use App\Models\InstrumentType;
 use App\Models\InstrumentTypeStandardAssignment;
 use App\Models\StandardMaster;
+use Illuminate\Database\Connection;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\QueryException;
-use Illuminate\Support\Facades\DB;
 
 class InstrumentTypeStandardAssignmentWriter
 {
@@ -16,25 +18,32 @@ class InstrumentTypeStandardAssignmentWriter
 
     public const DISPLAY_NAME_MAX = 255;
 
+    public function __construct(
+        private ?CalibrationHttpConnection $httpConnection = null,
+    ) {}
+
     public function assign(
         InstrumentType $instrumentType,
         StandardMaster $standard,
         ?string $defaultRange = null,
         ?string $defaultUnit = null,
     ): InstrumentTypeStandardAssignment {
-        try {
-            return DB::transaction(function () use ($instrumentType, $standard, $defaultRange, $defaultUnit): InstrumentTypeStandardAssignment {
-                $this->lockType($instrumentType);
+        $connection = $this->connection();
 
-                if ($this->alreadyAssigned($instrumentType, $standard)) {
+        try {
+            return $connection->transaction(function () use ($connection, $instrumentType, $standard, $defaultRange, $defaultUnit): InstrumentTypeStandardAssignment {
+                $this->lockType($connection, $instrumentType);
+
+                if ($this->alreadyAssigned($connection, $instrumentType, $standard)) {
                     throw new InstrumentTypeStandardAssignmentException('This standard is already assigned.');
                 }
 
                 $assignment = new InstrumentTypeStandardAssignment;
+                $assignment->setConnection($connection->getName());
                 $assignment->instrument_type_id = $instrumentType->instrument_type_id;
                 $assignment->standard_id = $standard->standard_id;
                 $assignment->standard_instrument_id = null;
-                $assignment->assignment_order = $this->nextOrder($instrumentType);
+                $assignment->assignment_order = $this->nextOrder($connection, $instrumentType);
                 $assignment->default_range = $this->nullableText($defaultRange, self::RANGE_MAX, 'defaultRange');
                 $assignment->default_unit = $this->nullableText($defaultUnit, self::UNIT_MAX, 'defaultUnit');
                 $assignment->save();
@@ -56,9 +65,11 @@ class InstrumentTypeStandardAssignmentWriter
         ?string $defaultRange,
         ?string $defaultUnit,
     ): InstrumentTypeStandardAssignment {
+        $connection = $this->connection();
+
         try {
-            return DB::transaction(function () use ($instrumentType, $assignmentId, $defaultRange, $defaultUnit): InstrumentTypeStandardAssignment {
-                $assignment = $this->lockedAssignment($instrumentType, $assignmentId);
+            return $connection->transaction(function () use ($connection, $instrumentType, $assignmentId, $defaultRange, $defaultUnit): InstrumentTypeStandardAssignment {
+                $assignment = $this->lockedAssignment($connection, $instrumentType, $assignmentId);
                 $assignment->default_range = $this->nullableText($defaultRange, self::RANGE_MAX, 'defaultRange');
                 $assignment->default_unit = $this->nullableText($defaultUnit, self::UNIT_MAX, 'defaultUnit');
                 $assignment->save();
@@ -81,9 +92,11 @@ class InstrumentTypeStandardAssignmentWriter
         ?string $defaultRange,
         ?string $defaultUnit,
     ): InstrumentTypeStandardAssignment {
+        $connection = $this->connection();
+
         try {
-            return DB::transaction(function () use ($instrumentType, $assignmentId, $standardDisplayName, $defaultRange, $defaultUnit): InstrumentTypeStandardAssignment {
-                $assignment = $this->lockedAssignment($instrumentType, $assignmentId);
+            return $connection->transaction(function () use ($connection, $instrumentType, $assignmentId, $standardDisplayName, $defaultRange, $defaultUnit): InstrumentTypeStandardAssignment {
+                $assignment = $this->lockedAssignment($connection, $instrumentType, $assignmentId);
                 $assignment->standard_display_name = $this->nullableText($standardDisplayName, self::DISPLAY_NAME_MAX, 'standardDisplayName');
                 $assignment->default_range = $this->nullableText($defaultRange, self::RANGE_MAX, 'defaultRange');
                 $assignment->default_unit = $this->nullableText($defaultUnit, self::UNIT_MAX, 'defaultUnit');
@@ -102,11 +115,13 @@ class InstrumentTypeStandardAssignmentWriter
 
     public function remove(InstrumentType $instrumentType, int $assignmentId): void
     {
+        $connection = $this->connection();
+
         try {
-            DB::transaction(function () use ($instrumentType, $assignmentId): void {
-                $assignment = $this->lockedAssignment($instrumentType, $assignmentId);
+            $connection->transaction(function () use ($connection, $instrumentType, $assignmentId): void {
+                $assignment = $this->lockedAssignment($connection, $instrumentType, $assignmentId);
                 $assignment->delete();
-                $this->writeOrder($instrumentType, $this->orderedIds($instrumentType));
+                $this->writeOrder($connection, $instrumentType, $this->orderedIds($connection, $instrumentType));
             });
         } catch (InstrumentTypeStandardAssignmentException $exception) {
             throw $exception;
@@ -123,10 +138,12 @@ class InstrumentTypeStandardAssignmentWriter
             throw new InstrumentTypeStandardAssignmentException('The standard order could not be updated. Refresh the page and try again.');
         }
 
+        $connection = $this->connection();
+
         try {
-            DB::transaction(function () use ($instrumentType, $assignmentId, $direction): void {
-                $this->lockType($instrumentType);
-                $ids = $this->orderedIds($instrumentType);
+            $connection->transaction(function () use ($connection, $instrumentType, $assignmentId, $direction): void {
+                $this->lockType($connection, $instrumentType);
+                $ids = $this->orderedIds($connection, $instrumentType);
                 $index = array_search($assignmentId, $ids, true);
 
                 if ($index === false) {
@@ -141,7 +158,7 @@ class InstrumentTypeStandardAssignmentWriter
 
                 $ids[$index] = $ids[$swapWith];
                 $ids[$swapWith] = $assignmentId;
-                $this->writeOrder($instrumentType, array_values($ids));
+                $this->writeOrder($connection, $instrumentType, array_values($ids));
             });
         } catch (InstrumentTypeStandardAssignmentException $exception) {
             throw $exception;
@@ -152,17 +169,30 @@ class InstrumentTypeStandardAssignmentWriter
         }
     }
 
-    private function alreadyAssigned(InstrumentType $instrumentType, StandardMaster $standard): bool
+    private function connection(): Connection
     {
-        return InstrumentTypeStandardAssignment::query()
+        return ($this->httpConnection ?? app(CalibrationHttpConnection::class))->resolve();
+    }
+
+    /**
+     * @return Builder<InstrumentTypeStandardAssignment>
+     */
+    private function assignments(Connection $connection): Builder
+    {
+        return InstrumentTypeStandardAssignment::on($connection->getName());
+    }
+
+    private function alreadyAssigned(Connection $connection, InstrumentType $instrumentType, StandardMaster $standard): bool
+    {
+        return $this->assignments($connection)
             ->where('instrument_type_id', $instrumentType->instrument_type_id)
             ->where('standard_id', $standard->standard_id)
             ->exists();
     }
 
-    private function nextOrder(InstrumentType $instrumentType): int
+    private function nextOrder(Connection $connection, InstrumentType $instrumentType): int
     {
-        $max = InstrumentTypeStandardAssignment::query()
+        $max = $this->assignments($connection)
             ->where('instrument_type_id', $instrumentType->instrument_type_id)
             ->max('assignment_order');
 
@@ -172,9 +202,9 @@ class InstrumentTypeStandardAssignmentWriter
     /**
      * @return list<int>
      */
-    private function orderedIds(InstrumentType $instrumentType): array
+    private function orderedIds(Connection $connection, InstrumentType $instrumentType): array
     {
-        return InstrumentTypeStandardAssignment::query()
+        return $this->assignments($connection)
             ->where('instrument_type_id', $instrumentType->instrument_type_id)
             ->orderBy('assignment_order')
             ->orderBy('instrument_type_standard_assignment_id')
@@ -187,9 +217,9 @@ class InstrumentTypeStandardAssignmentWriter
     /**
      * @param  list<int>  $orderedIds
      */
-    private function writeOrder(InstrumentType $instrumentType, array $orderedIds): void
+    private function writeOrder(Connection $connection, InstrumentType $instrumentType, array $orderedIds): void
     {
-        $assignments = InstrumentTypeStandardAssignment::query()
+        $assignments = $this->assignments($connection)
             ->where('instrument_type_id', $instrumentType->instrument_type_id)
             ->lockForUpdate()
             ->get()
@@ -224,9 +254,9 @@ class InstrumentTypeStandardAssignmentWriter
         }
     }
 
-    private function lockType(InstrumentType $instrumentType): void
+    private function lockType(Connection $connection, InstrumentType $instrumentType): void
     {
-        $locked = InstrumentType::query()
+        $locked = InstrumentType::on($connection->getName())
             ->where('instrument_type_id', $instrumentType->instrument_type_id)
             ->lockForUpdate()
             ->first();
@@ -235,15 +265,15 @@ class InstrumentTypeStandardAssignmentWriter
             throw new InstrumentTypeStandardAssignmentException('This instrument type could not be found.');
         }
 
-        InstrumentTypeStandardAssignment::query()
+        $this->assignments($connection)
             ->where('instrument_type_id', $instrumentType->instrument_type_id)
             ->lockForUpdate()
             ->get();
     }
 
-    private function lockedAssignment(InstrumentType $instrumentType, int $assignmentId): InstrumentTypeStandardAssignment
+    private function lockedAssignment(Connection $connection, InstrumentType $instrumentType, int $assignmentId): InstrumentTypeStandardAssignment
     {
-        $assignment = InstrumentTypeStandardAssignment::query()
+        $assignment = $this->assignments($connection)
             ->where('instrument_type_id', $instrumentType->instrument_type_id)
             ->where('instrument_type_standard_assignment_id', $assignmentId)
             ->lockForUpdate()

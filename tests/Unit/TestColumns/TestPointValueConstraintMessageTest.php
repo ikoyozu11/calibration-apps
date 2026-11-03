@@ -10,3 +10,10 @@ it('maps postgresql template value errors to a readable message', function () {
         ->and(TestPointValueConstraintMessage::fromDatabaseMessage('something unexpected'))
         ->toBe('The row could not be saved. Check the values and try again.');
 });
+
+it('maps delete failures to delete-specific messages', function () {
+    expect(TestPointValueConstraintMessage::fromDeleteDatabaseMessage('violates unique constraint "uq_test_point_order"'))
+        ->toBe('The remaining row order could not be normalized. Refresh the page and try again.')
+        ->and(TestPointValueConstraintMessage::fromDeleteDatabaseMessage('unexpected delete failure'))
+        ->toBe('The row could not be deleted. Check the draft row and try again.');
+});

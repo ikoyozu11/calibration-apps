@@ -170,13 +170,24 @@ it('assigns temperature as required on the supplied connection', function () {
     expect(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
 });
 
-it('assigns relative humidity as optional', function () {
+it('assigns relative humidity as required', function () {
     $connection = environmentAssignmentConnection();
 
-    environmentAssignmentWriter()->assign(11, 2, InstrumentTypeRequirement::MODE_OPTIONAL, 2, $connection);
+    environmentAssignmentWriter()->assign(11, 2, InstrumentTypeRequirement::MODE_REQUIRED, 2, $connection);
 
-    expect(environmentAssignmentMode($connection, 2))->toBe('optional');
+    expect(environmentAssignmentMode($connection, 2))->toBe('required');
 });
+
+it('assigns temperature or relative humidity as optional on the master', function (int $parameterId) {
+    $connection = environmentAssignmentConnection();
+
+    environmentAssignmentWriter()->assign(11, $parameterId, InstrumentTypeRequirement::MODE_OPTIONAL, 1, $connection);
+
+    expect(environmentAssignmentMode($connection, $parameterId))->toBe('optional');
+})->with([
+    'temperature' => 1,
+    'relative humidity' => 2,
+]);
 
 it('rejects a duplicate assignment', function () {
     $connection = environmentAssignmentConnection();
@@ -190,13 +201,34 @@ it('rejects a duplicate assignment', function () {
 
 it('changes an optional assignment to required', function () {
     $connection = environmentAssignmentConnection();
+    $connection->table('environment_parameter')->insert([
+        'parameter_id' => 3,
+        'parameter_code' => 'pressure',
+        'parameter_name' => 'Pressure',
+        'unit' => 'hPa',
+        'data_type' => 'numeric',
+        'is_system' => false,
+    ]);
     $writer = environmentAssignmentWriter();
-    $writer->assign(11, 2, InstrumentTypeRequirement::MODE_OPTIONAL, 1, $connection);
+    $writer->assign(11, 3, InstrumentTypeRequirement::MODE_OPTIONAL, 1, $connection);
 
-    $writer->changeMode(11, 2, InstrumentTypeRequirement::MODE_REQUIRED, $connection);
+    $writer->changeMode(11, 3, InstrumentTypeRequirement::MODE_REQUIRED, $connection);
 
-    expect(environmentAssignmentMode($connection, 2))->toBe('required');
+    expect(environmentAssignmentMode($connection, 3))->toBe('required');
 });
+
+it('can downgrade temperature or relative humidity to optional on the master', function (int $parameterId) {
+    $connection = environmentAssignmentConnection();
+    $writer = environmentAssignmentWriter();
+    $writer->assign(11, $parameterId, InstrumentTypeRequirement::MODE_REQUIRED, 1, $connection);
+
+    $writer->changeMode(11, $parameterId, InstrumentTypeRequirement::MODE_OPTIONAL, $connection);
+
+    expect(environmentAssignmentMode($connection, $parameterId))->toBe('optional');
+})->with([
+    'temperature' => 1,
+    'relative humidity' => 2,
+]);
 
 it('rejects not configured as an assignment mode', function () {
     $connection = environmentAssignmentConnection();
@@ -223,56 +255,111 @@ it('rejects a missing environment parameter', function () {
 
 it('removes an optional assignment', function () {
     $connection = environmentAssignmentConnection();
+    $connection->table('environment_parameter')->insert([
+        'parameter_id' => 3,
+        'parameter_code' => 'pressure',
+        'parameter_name' => 'Pressure',
+        'unit' => 'hPa',
+        'data_type' => 'numeric',
+        'is_system' => false,
+    ]);
     $writer = environmentAssignmentWriter();
-    $writer->assign(11, 2, InstrumentTypeRequirement::MODE_OPTIONAL, 1, $connection);
+    $writer->assign(11, 3, InstrumentTypeRequirement::MODE_OPTIONAL, 1, $connection);
 
-    $writer->remove(11, 2, $connection);
+    $writer->remove(11, 3, $connection);
 
     expect($connection->table('instrument_type_environment_parameter')->count())->toBe(0);
 });
 
+it('can remove temperature or relative humidity from the master', function (int $parameterId) {
+    $connection = environmentAssignmentConnection();
+    $writer = environmentAssignmentWriter();
+    $writer->assign(11, $parameterId, InstrumentTypeRequirement::MODE_REQUIRED, 1, $connection);
+
+    $writer->remove(11, $parameterId, $connection);
+
+    expect($connection->table('instrument_type_environment_parameter')->where('parameter_id', $parameterId)->exists())->toBeFalse();
+})->with([
+    'temperature' => 1,
+    'relative humidity' => 2,
+]);
+
 it('rejects removal of the last required parameter when environment is required', function () {
     $connection = environmentAssignmentConnection();
     environmentCategory($connection, InstrumentTypeRequirement::MODE_REQUIRED);
+    $connection->table('environment_parameter')->insert([
+        'parameter_id' => 3,
+        'parameter_code' => 'pressure',
+        'parameter_name' => 'Pressure',
+        'unit' => 'hPa',
+        'data_type' => 'numeric',
+        'is_system' => false,
+    ]);
     $writer = environmentAssignmentWriter();
-    $writer->assign(11, 1, InstrumentTypeRequirement::MODE_REQUIRED, 1, $connection);
+    $writer->assign(11, 3, InstrumentTypeRequirement::MODE_REQUIRED, 1, $connection);
 
-    expect(fn () => $writer->remove(11, 1, $connection))
+    expect(fn () => $writer->remove(11, 3, $connection))
         ->toThrow(AssignInstrumentTypeEnvironmentParameterException::class, 'Environment required needs at least one required environment parameter.');
-    expect(environmentAssignmentMode($connection, 1))->toBe('required');
+    expect(environmentAssignmentMode($connection, 3))->toBe('required');
 });
 
 it('rejects downgrading the last required parameter when environment is required', function () {
     $connection = environmentAssignmentConnection();
     environmentCategory($connection, InstrumentTypeRequirement::MODE_REQUIRED);
+    $connection->table('environment_parameter')->insert([
+        'parameter_id' => 3,
+        'parameter_code' => 'pressure',
+        'parameter_name' => 'Pressure',
+        'unit' => 'hPa',
+        'data_type' => 'numeric',
+        'is_system' => false,
+    ]);
     $writer = environmentAssignmentWriter();
-    $writer->assign(11, 1, InstrumentTypeRequirement::MODE_REQUIRED, 1, $connection);
+    $writer->assign(11, 3, InstrumentTypeRequirement::MODE_REQUIRED, 1, $connection);
 
-    expect(fn () => $writer->changeMode(11, 1, InstrumentTypeRequirement::MODE_OPTIONAL, $connection))
+    expect(fn () => $writer->changeMode(11, 3, InstrumentTypeRequirement::MODE_OPTIONAL, $connection))
         ->toThrow(AssignInstrumentTypeEnvironmentParameterException::class, 'Environment required needs at least one required environment parameter.');
-    expect(environmentAssignmentMode($connection, 1))->toBe('required');
+    expect(environmentAssignmentMode($connection, 3))->toBe('required');
 });
 
 it('removes a required parameter when another required parameter remains', function () {
     $connection = environmentAssignmentConnection();
     environmentCategory($connection, InstrumentTypeRequirement::MODE_REQUIRED);
+    $connection->table('environment_parameter')->insert([
+        'parameter_id' => 3,
+        'parameter_code' => 'pressure',
+        'parameter_name' => 'Pressure',
+        'unit' => 'hPa',
+        'data_type' => 'numeric',
+        'is_system' => false,
+    ]);
     $writer = environmentAssignmentWriter();
     $writer->assign(11, 1, InstrumentTypeRequirement::MODE_REQUIRED, 1, $connection);
     $writer->assign(11, 2, InstrumentTypeRequirement::MODE_REQUIRED, 2, $connection);
+    $writer->assign(11, 3, InstrumentTypeRequirement::MODE_REQUIRED, 3, $connection);
 
-    $writer->remove(11, 2, $connection);
+    $writer->remove(11, 3, $connection);
 
     expect(environmentAssignmentMode($connection, 1))->toBe('required')
-        ->and(environmentAssignmentMode($connection, 2))->toBeNull();
+        ->and(environmentAssignmentMode($connection, 2))->toBe('required')
+        ->and(environmentAssignmentMode($connection, 3))->toBeNull();
 });
 
 it('removes the last required parameter when environment is optional', function () {
     $connection = environmentAssignmentConnection();
     environmentCategory($connection, InstrumentTypeRequirement::MODE_OPTIONAL);
+    $connection->table('environment_parameter')->insert([
+        'parameter_id' => 3,
+        'parameter_code' => 'pressure',
+        'parameter_name' => 'Pressure',
+        'unit' => 'hPa',
+        'data_type' => 'numeric',
+        'is_system' => false,
+    ]);
     $writer = environmentAssignmentWriter();
-    $writer->assign(11, 1, InstrumentTypeRequirement::MODE_REQUIRED, 1, $connection);
+    $writer->assign(11, 3, InstrumentTypeRequirement::MODE_REQUIRED, 1, $connection);
 
-    $writer->remove(11, 1, $connection);
+    $writer->remove(11, 3, $connection);
 
     expect($connection->table('instrument_type_environment_parameter')->count())->toBe(0)
         ->and($connection->table('instrument_type_requirement')->value('requirement_mode'))->toBe('optional');
@@ -281,10 +368,18 @@ it('removes the last required parameter when environment is optional', function 
 it('removes the last required parameter when environment is not configured', function () {
     $connection = environmentAssignmentConnection();
     environmentCategory($connection, InstrumentTypeRequirement::MODE_NOT_CONFIGURED);
+    $connection->table('environment_parameter')->insert([
+        'parameter_id' => 3,
+        'parameter_code' => 'pressure',
+        'parameter_name' => 'Pressure',
+        'unit' => 'hPa',
+        'data_type' => 'numeric',
+        'is_system' => false,
+    ]);
     $writer = environmentAssignmentWriter();
-    $writer->assign(11, 1, InstrumentTypeRequirement::MODE_REQUIRED, 1, $connection);
+    $writer->assign(11, 3, InstrumentTypeRequirement::MODE_REQUIRED, 1, $connection);
 
-    $writer->remove(11, 1, $connection);
+    $writer->remove(11, 3, $connection);
 
     expect($connection->table('instrument_type_environment_parameter')->count())->toBe(0)
         ->and($connection->table('instrument_type_requirement')->value('requirement_mode'))->toBe('not_configured');
@@ -302,7 +397,7 @@ it('reorders two assignments without duplicating display order', function () {
     $connection = environmentAssignmentConnection();
     $writer = environmentAssignmentWriter();
     $writer->assign(11, 1, InstrumentTypeRequirement::MODE_REQUIRED, 1, $connection);
-    $writer->assign(11, 2, InstrumentTypeRequirement::MODE_OPTIONAL, 2, $connection);
+    $writer->assign(11, 2, InstrumentTypeRequirement::MODE_REQUIRED, 2, $connection);
 
     $writer->reorder(11, [2, 1], $connection);
 
@@ -323,7 +418,7 @@ it('reorders three assignments onto positions starting at 1', function () {
     ]);
     $writer = environmentAssignmentWriter();
     $writer->assign(11, 1, InstrumentTypeRequirement::MODE_REQUIRED, 1, $connection);
-    $writer->assign(11, 2, InstrumentTypeRequirement::MODE_OPTIONAL, 2, $connection);
+    $writer->assign(11, 2, InstrumentTypeRequirement::MODE_REQUIRED, 2, $connection);
     $writer->assign(11, 3, InstrumentTypeRequirement::MODE_OPTIONAL, 3, $connection);
 
     $writer->reorder(11, [3, 1, 2], $connection);
@@ -337,7 +432,7 @@ it('rejects a reorder list that omits an assignment', function () {
     $connection = environmentAssignmentConnection();
     $writer = environmentAssignmentWriter();
     $writer->assign(11, 1, InstrumentTypeRequirement::MODE_REQUIRED, 1, $connection);
-    $writer->assign(11, 2, InstrumentTypeRequirement::MODE_OPTIONAL, 2, $connection);
+    $writer->assign(11, 2, InstrumentTypeRequirement::MODE_REQUIRED, 2, $connection);
 
     expect(fn () => $writer->reorder(11, [1], $connection))
         ->toThrow(AssignInstrumentTypeEnvironmentParameterException::class, 'Reorder must include every current environment parameter assignment once.');
@@ -349,7 +444,7 @@ it('rejects a reorder list that repeats a parameter', function () {
     $connection = environmentAssignmentConnection();
     $writer = environmentAssignmentWriter();
     $writer->assign(11, 1, InstrumentTypeRequirement::MODE_REQUIRED, 1, $connection);
-    $writer->assign(11, 2, InstrumentTypeRequirement::MODE_OPTIONAL, 2, $connection);
+    $writer->assign(11, 2, InstrumentTypeRequirement::MODE_REQUIRED, 2, $connection);
 
     expect(fn () => $writer->reorder(11, [1, 1], $connection))
         ->toThrow(AssignInstrumentTypeEnvironmentParameterException::class, 'Reorder contains a duplicate environment parameter.');
@@ -369,7 +464,7 @@ it('rolls back a reorder when a later display order update fails', function () {
     $connection = environmentAssignmentConnection();
     $writer = environmentAssignmentWriter();
     $writer->assign(11, 1, InstrumentTypeRequirement::MODE_REQUIRED, 1, $connection);
-    $writer->assign(11, 2, InstrumentTypeRequirement::MODE_OPTIONAL, 2, $connection);
+    $writer->assign(11, 2, InstrumentTypeRequirement::MODE_REQUIRED, 2, $connection);
     $connection->unprepared("
         CREATE TRIGGER abort_environment_reorder_to_one
         BEFORE UPDATE ON instrument_type_environment_parameter
@@ -409,12 +504,19 @@ it('leaves session snapshots unchanged after assignment changes', function () {
         'frozen_mode' => 'required',
         'resolved_mode' => null,
     ]);
+    $connection->table('environment_parameter')->insert([
+        'parameter_id' => 3,
+        'parameter_code' => 'pressure',
+        'parameter_name' => 'Pressure',
+        'unit' => 'hPa',
+        'data_type' => 'numeric',
+        'is_system' => false,
+    ]);
     $writer = environmentAssignmentWriter();
-    $writer->assign(11, 1, InstrumentTypeRequirement::MODE_OPTIONAL, 1, $connection);
-    $writer->changeMode(11, 1, InstrumentTypeRequirement::MODE_REQUIRED, $connection);
-    $writer->assign(11, 2, InstrumentTypeRequirement::MODE_OPTIONAL, 2, $connection);
-    $writer->reorder(11, [2, 1], $connection);
-    $writer->remove(11, 2, $connection);
+    $writer->assign(11, 1, InstrumentTypeRequirement::MODE_REQUIRED, 1, $connection);
+    $writer->assign(11, 3, InstrumentTypeRequirement::MODE_OPTIONAL, 2, $connection);
+    $writer->reorder(11, [3, 1], $connection);
+    $writer->remove(11, 3, $connection);
 
     expect($connection->table('calibration_environment_parameter_snapshot')->where('calibration_id', 40)->value('requirement_mode'))->toBe('required')
         ->and($connection->table('calibration_environment_parameter_snapshot')->where('calibration_id', 40)->value('display_order'))->toBe(1)

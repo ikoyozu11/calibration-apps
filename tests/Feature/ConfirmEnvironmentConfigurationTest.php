@@ -246,7 +246,6 @@ it('confirms a frozen required environment once and stores the domain actor', fu
         ->and($connection->table('calibration_environment_value')->value('numeric_value'))->toBeNull()
         ->and(CalibrationSessionCompleteness::environmentReadyForInternalComplete(
             'required',
-            true,
             [['requirement_mode' => 'required', 'value' => null]],
         ))->toBeFalse()
         ->and($calibrationPosition)->toBeInt()

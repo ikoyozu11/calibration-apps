@@ -7,6 +7,8 @@ use App\Authorization\LiveDatabaseIdentity;
 use App\Authorization\ResolveApplicationRole;
 use App\Authorization\ResolvesLiveDatabaseIdentity;
 use App\Authorization\StagingAuthConnection;
+use App\CalibrationSessions\CalibrationHttpConnection;
+use App\CalibrationSessions\CalibrationHttpConnectionException;
 use App\CalibrationSessions\CalibrationNumberAllocator;
 use App\CalibrationSessions\PostgresCalibrationNumberAllocator;
 use App\Database\DestructiveCommandGuard;
@@ -49,13 +51,13 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(TestTableVersioning::class);
 
         $this->app->bind(TestColumnWriter::class, function (): TestColumnWriter {
-            return DB::connection()->getDriverName() === 'pgsql'
+            return $this->testTableWriterDriver() === 'pgsql'
                 ? new PostgresTestColumnWriter
                 : new SqliteTestColumnWriter($this->app->make(TestTableVersioning::class));
         });
 
         $this->app->bind(TestPointValueWriter::class, function (): TestPointValueWriter {
-            return DB::connection()->getDriverName() === 'pgsql'
+            return $this->testTableWriterDriver() === 'pgsql'
                 ? new PostgresTestPointValueWriter
                 : new SqliteTestPointValueWriter($this->app->make(TestTableVersioning::class));
         });
@@ -63,13 +65,13 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(TestTableVersionWriter::class, function (): TestTableVersionWriter {
             $guard = $this->app->make(TestTableVersionGuard::class);
 
-            return DB::connection()->getDriverName() === 'pgsql'
+            return $this->testTableWriterDriver() === 'pgsql'
                 ? new PostgresTestTableVersionWriter($guard)
                 : new SqliteTestTableVersionWriter($guard);
         });
 
         $this->app->bind(TestProfileLifecycle::class, function (): TestProfileLifecycle {
-            return DB::connection()->getDriverName() === 'pgsql'
+            return $this->testTableWriterDriver() === 'pgsql'
                 ? new PostgresTestProfileLifecycle
                 : new SqliteTestProfileLifecycle;
         });
@@ -86,6 +88,31 @@ class AppServiceProvider extends ServiceProvider
         Livewire::addPersistentMiddleware([
             EnsureApplicationRole::class,
         ]);
+    }
+
+    /**
+     * Choose Test Table writers from config metadata only.
+     * Does not open PDO and does not fall back to the default connection.
+     */
+    private function testTableWriterDriver(): string
+    {
+        $config = $this->app->make('config');
+
+        if (DestructiveCommandGuard::defaultConnectionIsSqliteMemory($config)) {
+            return 'sqlite';
+        }
+
+        $default = $config->get('database.default');
+        $connection = is_string($default) && $default !== ''
+            ? $config->get('database.connections.'.$default)
+            : null;
+        $driver = is_array($connection) ? ($connection['driver'] ?? null) : null;
+
+        if ($driver === 'pgsql' && CalibrationHttpConnection::STAGING_HTTP_ACTIVATION) {
+            return 'pgsql';
+        }
+
+        throw CalibrationHttpConnectionException::unavailable();
     }
 
     /**

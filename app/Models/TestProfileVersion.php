@@ -16,6 +16,7 @@ use Illuminate\Support\Carbon;
  * @property string $profile_name
  * @property string|null $display_title
  * @property string|null $description
+ * @property string|null $remarks
  * @property Carbon|null $published_at
  * @property Carbon $created_at
  * @property-read TestProfile $testProfile
@@ -47,6 +48,7 @@ class TestProfileVersion extends Model
         'profile_name',
         'display_title',
         'description',
+        'remarks',
         'published_at',
     ];
 

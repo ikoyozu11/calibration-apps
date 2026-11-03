@@ -5,7 +5,6 @@ use App\Authorization\AssignApplicationRole;
 use App\CalibrationSessions\CalibrationNumberAllocator;
 use App\CalibrationSessions\CompleteCalibrationSession;
 use App\CalibrationSessions\CompleteCalibrationSessionException;
-use App\CalibrationSessions\ConfirmEnvironmentConfiguration;
 use App\CalibrationSessions\MaterializeCalibrationTestTemplateValues;
 use App\CalibrationSessions\PinCalibrationTestTables;
 use App\CalibrationSessions\PinCalibrationTestTablesException;
@@ -22,6 +21,7 @@ use App\CalibrationSessions\StartCalibrationSession;
 use App\CalibrationSessions\StoreExternalCalibrationDocument;
 use App\CalibrationSessions\StoreExternalCalibrationDocumentException;
 use App\Models\Calibration;
+use App\Models\EnvironmentParameter;
 use App\Models\InstrumentTypeRequirement;
 use App\Models\User;
 use Illuminate\Database\Connection;
@@ -567,19 +567,38 @@ function calibrationSessionE2eInstrument(
 
     if ($environmentMode !== null) {
         $connection->table('environment_parameter')->insert([
-            'parameter_id' => 1,
-            'parameter_code' => 'TEMP',
-            'parameter_name' => 'Temperature',
-            'unit' => 'C',
-            'data_type' => 'numeric',
-            'is_system' => 1,
-            'created_at' => '2026-01-01 00:00:00',
+            [
+                'parameter_id' => 1,
+                'parameter_code' => EnvironmentParameter::CODE_TEMPERATURE,
+                'parameter_name' => 'Temperature',
+                'unit' => 'C',
+                'data_type' => 'numeric',
+                'is_system' => 1,
+                'created_at' => '2026-01-01 00:00:00',
+            ],
+            [
+                'parameter_id' => 2,
+                'parameter_code' => EnvironmentParameter::CODE_RELATIVE_HUMIDITY,
+                'parameter_name' => 'Relative Humidity',
+                'unit' => '%RH',
+                'data_type' => 'numeric',
+                'is_system' => 1,
+                'created_at' => '2026-01-01 00:00:00',
+            ],
         ]);
         $connection->table('instrument_type_environment_parameter')->insert([
-            'instrument_type_id' => 11,
-            'parameter_id' => 1,
-            'requirement_mode' => $environmentMode,
-            'display_order' => 1,
+            [
+                'instrument_type_id' => 11,
+                'parameter_id' => 1,
+                'requirement_mode' => InstrumentTypeRequirement::MODE_REQUIRED,
+                'display_order' => 1,
+            ],
+            [
+                'instrument_type_id' => 11,
+                'parameter_id' => 2,
+                'requirement_mode' => InstrumentTypeRequirement::MODE_REQUIRED,
+                'display_order' => 2,
+            ],
         ]);
     }
 
@@ -765,10 +784,10 @@ function calibrationSessionE2eSupport(Connection $connection, int $calibrationId
 {
     app(RecordCalibrationStandardUsage::class)->add($calibrationId, 1, null, null, 'working standard', null, $connection);
     app(RecordCalibrationActivity::class)->add($calibrationId, 1, 'Adjusted zero', 'pass', $connection);
-    app(ConfirmEnvironmentConfiguration::class)->confirm($calibrationId, 'environment checked', $laravelUserId, $connection);
 
     if ($recordEnvironment) {
         app(RecordCalibrationEnvironmentMeasurement::class)->record($calibrationId, 1, '23.5', $connection);
+        app(RecordCalibrationEnvironmentMeasurement::class)->record($calibrationId, 2, '55', $connection);
     }
 }
 
@@ -832,7 +851,12 @@ it('completes a fully configured internal session through the existing services'
         ->and($session->snapshot_detail_location_code)->toBe('LAB')
         ->and($session->snapshot_detail_location_name)->toBe('Laboratory')
         ->and($connection->table('calibration_requirement_snapshot')->where('calibration_id', $calibrationId)->count())->toBe(4)
-        ->and($connection->table('calibration_requirement_snapshot')->where('calibration_id', $calibrationId)->pluck('frozen_mode')->unique()->all())->toBe([InstrumentTypeRequirement::MODE_REQUIRED])
+        ->and($connection->table('calibration_requirement_snapshot')->where('calibration_id', $calibrationId)->pluck('frozen_mode', 'requirement_category')->all())->toMatchArray([
+            InstrumentTypeRequirement::CATEGORY_STANDARDS => InstrumentTypeRequirement::MODE_REQUIRED,
+            InstrumentTypeRequirement::CATEGORY_ACTIVITY => InstrumentTypeRequirement::MODE_OPTIONAL,
+            InstrumentTypeRequirement::CATEGORY_ENVIRONMENT => InstrumentTypeRequirement::MODE_REQUIRED,
+            InstrumentTypeRequirement::CATEGORY_TEST_PROFILE => InstrumentTypeRequirement::MODE_REQUIRED,
+        ])
         ->and($connection->table('calibration_requirement_snapshot')->whereNotNull('resolved_mode')->count())->toBe(0);
 
     calibrationSessionE2eSupport($connection, $calibrationId, true, $starterId);
@@ -1140,7 +1164,7 @@ it('keeps recorded evidence when complete is rejected for an unpinned test profi
         ->and($after['snapshot_detail_location_name'])->toBe('Laboratory')
         ->and($connection->table('calibration_standard_usage')->where('calibration_id', $calibrationId)->count())->toBe(1)
         ->and($connection->table('calibration_activity')->where('calibration_id', $calibrationId)->count())->toBe(1)
-        ->and($connection->table('calibration_environment_value')->where('calibration_id', $calibrationId)->count())->toBe(1)
+        ->and($connection->table('calibration_environment_value')->where('calibration_id', $calibrationId)->count())->toBe(2)
         ->and($connection->table('calibration_scope')->count())->toBe(0)
         ->and($connection->table('calibration_test_result')->count())->toBe(0)
         ->and($connection->table('calibration_result_value')->count())->toBe(0)
@@ -1166,7 +1190,8 @@ it('completes optional categories without standards, activities, or test tables'
 
     expect($connection->table('calibration_requirement_snapshot')->where('calibration_id', $calibrationId)->pluck('frozen_mode')->unique()->all())->toBe([InstrumentTypeRequirement::MODE_OPTIONAL]);
 
-    app(ConfirmEnvironmentConfiguration::class)->confirm($calibrationId, 'optional environment checked', $starterId, $connection);
+    app(RecordCalibrationEnvironmentMeasurement::class)->record($calibrationId, 1, '23.5', $connection);
+    app(RecordCalibrationEnvironmentMeasurement::class)->record($calibrationId, 2, '55', $connection);
     app(CompleteCalibrationSession::class)->complete($calibrationId, '2026-10-22', '2027-10-22', $connection);
 
     $completed = calibrationSessionE2eRow($connection, $calibrationId);
@@ -1177,9 +1202,9 @@ it('completes optional categories without standards, activities, or test tables'
         ->and($connection->table('calibration_standard_usage')->count())->toBe(0)
         ->and($connection->table('calibration_activity')->count())->toBe(0)
         ->and($connection->table('calibration_scope')->count())->toBe(0)
-        ->and($connection->table('calibration_environment_value')->count())->toBe(0)
+        ->and($connection->table('calibration_environment_value')->count())->toBe(2)
         ->and($connection->table('calibration_requirement_snapshot')->where('calibration_id', $calibrationId)->pluck('frozen_mode')->unique()->all())->toBe([InstrumentTypeRequirement::MODE_OPTIONAL])
-        ->and($connection->table('calibration_requirement_snapshot')->where('requirement_category', InstrumentTypeRequirement::CATEGORY_ENVIRONMENT)->value('configuration_confirmed_at'))->not->toBeNull()
+        ->and($connection->table('calibration_requirement_snapshot')->where('requirement_category', InstrumentTypeRequirement::CATEGORY_ENVIRONMENT)->value('configuration_confirmed_at'))->toBeNull()
         ->and($connection->getName())->toBe(CALIBRATION_SESSION_E2E_CONNECTION)
         ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
 });

@@ -2,14 +2,15 @@
 
 namespace App\StagingRuntime;
 
+use App\Database\DestructiveCommandGuard;
 use Illuminate\Contracts\Config\Repository;
 use RuntimeException;
 
 /**
- * Config-only staging browser runtime gate.
+ * Config-only HTTP runtime gates.
  *
- * Validates resolved Laravel configuration without opening a database
- * connection. Active only when the staging launcher enables isolation.
+ * Production-name refusal is always on and never opens PDO. The stricter
+ * staging isolation checks still run only when the launcher enables them.
  */
 final class StagingRuntimeIsolation
 {
@@ -100,6 +101,54 @@ final class StagingRuntimeIsolation
     }
 
     /**
+     * Always-on, config-only refusal of production database targeting.
+     *
+     * @return list<string>
+     */
+    public function productionTargetViolations(Repository $config): array
+    {
+        $connections = $config->get('database.connections');
+
+        if (! is_array($connections) || $connections === []) {
+            return ['Database connection configuration is ambiguous.'];
+        }
+
+        $violations = [];
+        $default = $config->get('database.default');
+
+        if (! is_string($default) || $default === '' || ! array_key_exists($default, $connections)) {
+            $violations[] = 'Database connection configuration is ambiguous.';
+        } else {
+            $violations = array_merge(
+                $violations,
+                $this->connectionProductionViolations($connections[$default]),
+            );
+        }
+
+        foreach ($connections as $connection) {
+            $violations = array_merge($violations, $this->connectionProductionViolations($connection));
+        }
+
+        return array_values(array_unique($violations));
+    }
+
+    /**
+     * @throws RuntimeException
+     */
+    public function assertNoProductionTarget(Repository $config): void
+    {
+        $violations = $this->productionTargetViolations($config);
+
+        if ($violations === []) {
+            return;
+        }
+
+        throw new RuntimeException(
+            'Unsafe database configuration refused: '.implode(' ', $violations),
+        );
+    }
+
+    /**
      * @throws RuntimeException
      */
     public function assertSafe(Repository $config, bool $configurationIsCached, string $configCachePath): void
@@ -118,6 +167,41 @@ final class StagingRuntimeIsolation
     public function enabled(Repository $config): bool
     {
         return (bool) $config->get('database.staging_runtime_isolation', false);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function connectionProductionViolations(mixed $connection): array
+    {
+        if (! is_array($connection)) {
+            return ['Database connection configuration is ambiguous.'];
+        }
+
+        if (DestructiveCommandGuard::connectionIsSqliteMemory($connection)) {
+            return [];
+        }
+
+        $url = $connection['url'] ?? null;
+        $fromUrl = DestructiveCommandGuard::databaseNameFromUrl($url);
+        $fromDatabase = DestructiveCommandGuard::normalizedDatabaseName($connection['database'] ?? null);
+
+        if ($fromUrl === self::FORBIDDEN_PRODUCTION_DATABASE
+            || $fromDatabase === self::FORBIDDEN_PRODUCTION_DATABASE) {
+            return ['Refusing production database '.self::FORBIDDEN_PRODUCTION_DATABASE.'.'];
+        }
+
+        if (is_string($url) && $url !== '' && $fromUrl === null) {
+            return ['Database connection configuration is ambiguous.'];
+        }
+
+        $driver = $connection['driver'] ?? null;
+
+        if ($driver === 'pgsql' && $fromDatabase === null && $this->isBlank($url)) {
+            return ['Database connection configuration is ambiguous.'];
+        }
+
+        return [];
     }
 
     private function isBlank(mixed $value): bool

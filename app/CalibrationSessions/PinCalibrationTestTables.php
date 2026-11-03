@@ -16,8 +16,8 @@ use ReflectionProperty;
  *
  * The instrument type comes from the locked calibration. Each eligible profile
  * contributes one scope with its Active version id and a schema-version 2
- * snapshot from TestTableSnapshotBuilder. A not-configured column, a missing
- * required template value, or an invalid template value rejects the pin before
+ * snapshot from TestTableSnapshotBuilder. A missing required template value or
+ * an invalid template value rejects the pin before
  * any scope is inserted. A later Active version does not replace a consistent
  * frozen pin, and an existing pin is not revalidated. Effective mode comes from
  * CalibrationSessionCompleteness::effectiveMode only. This service does not
@@ -112,10 +112,25 @@ class PinCalibrationTestTables
 
     private function assertEffectiveMode(object $requirement): void
     {
+        if ((string) $requirement->frozen_mode === InstrumentTypeRequirement::MODE_NOT_CONFIGURED
+            && $requirement->resolved_mode === null) {
+            return;
+        }
+
         $resolvedMode = $requirement->resolved_mode !== null ? (string) $requirement->resolved_mode : null;
-        $effectiveMode = CalibrationSessionCompleteness::effectiveMode(
+
+        if ($resolvedMode !== null && ! in_array($resolvedMode, [
+            InstrumentTypeRequirement::MODE_REQUIRED,
+            InstrumentTypeRequirement::MODE_OPTIONAL,
+        ], true)) {
+            throw PinCalibrationTestTablesException::invalidEffectiveMode();
+        }
+
+        $effectiveMode = CalibrationSessionRequirementPolicy::effectiveMode(
+            InstrumentTypeRequirement::CATEGORY_TEST_PROFILE,
             (string) $requirement->frozen_mode,
             $resolvedMode,
+            Calibration::METHOD_INTERNAL,
         );
 
         if ($effectiveMode === CalibrationSessionCompleteness::MODE_NOT_CONFIGURED) {
@@ -289,8 +304,12 @@ class PinCalibrationTestTables
 
             $rule = $column['completion_rule'] ?? null;
 
-            if ($rule === InstrumentTypeRequirement::MODE_NOT_CONFIGURED) {
-                throw PinCalibrationTestTablesException::unconfiguredColumn();
+            if (! in_array($rule, [
+                InstrumentTypeRequirement::MODE_REQUIRED,
+                InstrumentTypeRequirement::MODE_OPTIONAL,
+                InstrumentTypeRequirement::MODE_NOT_CONFIGURED,
+            ], true)) {
+                throw PinCalibrationTestTablesException::invalidTemplateValue();
             }
 
             if (($column['value_source'] ?? null) !== 'template') {
@@ -301,11 +320,7 @@ class PinCalibrationTestTables
             $dataType = $column['data_type'] ?? null;
 
             if (! is_string($columnKey)
-                || ! in_array($dataType, ['numeric', 'text', 'duration'], true)
-                || ! in_array($rule, [
-                    InstrumentTypeRequirement::MODE_REQUIRED,
-                    InstrumentTypeRequirement::MODE_OPTIONAL,
-                ], true)) {
+                || ! in_array($dataType, ['numeric', 'text', 'duration'], true)) {
                 throw PinCalibrationTestTablesException::invalidTemplateValue();
             }
 

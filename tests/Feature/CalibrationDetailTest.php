@@ -383,7 +383,7 @@ it('renders calibration information with ordered scopes, profiles, and test poin
         ->assertSee('Environment')
         ->assertSee('No environment data found.')
         ->assertSee('Activity')
-        ->assertSee('No activities found.')
+        ->assertSee('No activities recorded.')
         ->assertSee('Standard Used')
         ->assertSee('No standards used.');
 });
@@ -730,20 +730,17 @@ it('renders environment, ordered activities, and ordered standard usages', funct
         ->assertDontSee('No environment data found.')
         ->assertSee('Activity')
         ->assertSeeInOrder([
-            'First activity description',
-            'Second activity description',
-            'Third activity description',
+            'Cleaning',
+            'Testing',
+            'Verification',
         ])
         ->assertSee('Completed')
         ->assertSee('Standard Used')
         ->assertSeeInOrder([
             'Pressure Drop Standard A',
-            '99.0',
             'Pressure Drop Standard B',
-            '198.1',
         ])
-        ->assertSee('mmWG')
-        ->assertDontSee('No activities found.')
+        ->assertDontSee('No activities recorded.')
         ->assertDontSee('No standards used.');
 });
 

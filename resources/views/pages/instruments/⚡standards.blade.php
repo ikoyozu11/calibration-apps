@@ -1,8 +1,10 @@
 <?php
 
+use App\CalibrationSessions\CalibrationSessionHttpRead;
 use App\Livewire\Concerns\ManagesStandardAssignments;
 use App\Models\Instrument;
 use App\Models\InstrumentType;
+use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 
@@ -11,16 +13,34 @@ new class extends Component
     use ManagesStandardAssignments;
 
     #[Locked]
-    public Instrument $instrument;
+    public int $instrumentId = 0;
 
     #[Locked]
-    public InstrumentType $instrumentType;
+    public int $instrumentTypeId = 0;
 
-    public function mount(Instrument $instrument, InstrumentType $instrumentType): void
+    private ?Instrument $loadedInstrument = null;
+
+    private ?InstrumentType $loadedInstrumentType = null;
+
+    public function mount(int $instrument, int $instrumentType): void
     {
-        $this->instrument = $instrument;
-        $this->instrumentType = $instrumentType;
+        $this->instrumentId = $instrument;
+        $this->instrumentTypeId = $instrumentType;
+        $this->currentInstrument();
+        $this->currentInstrumentType();
         $this->reloadAssignments();
+    }
+
+    #[Computed]
+    public function instrument(): Instrument
+    {
+        return $this->currentInstrument();
+    }
+
+    #[Computed]
+    public function instrumentType(): InstrumentType
+    {
+        return $this->currentInstrumentType();
     }
 
     public function hydrate(): void
@@ -36,20 +56,66 @@ new class extends Component
     {
         $this->reloadAssignments();
     }
+
+    private function currentInstrument(): Instrument
+    {
+        if ($this->loadedInstrument instanceof Instrument
+            && (int) $this->loadedInstrument->getKey() === $this->instrumentId) {
+            return $this->loadedInstrument;
+        }
+
+        $this->loadedInstrument = app(CalibrationSessionHttpRead::class)->instrument($this->instrumentId);
+
+        return $this->loadedInstrument;
+    }
+
+    private function currentInstrumentType(): InstrumentType
+    {
+        if ($this->loadedInstrumentType instanceof InstrumentType
+            && (int) $this->loadedInstrumentType->getKey() === $this->instrumentTypeId) {
+            return $this->loadedInstrumentType;
+        }
+
+        $this->loadedInstrumentType = app(CalibrationSessionHttpRead::class)
+            ->instrumentType($this->instrumentTypeId, $this->instrumentId);
+
+        return $this->loadedInstrumentType;
+    }
 };
 ?>
 
-<div class="px-4 py-8 sm:px-6 lg:px-10">
+<div
+    class="px-4 py-8 sm:px-6 lg:px-10"
+    data-component-id="{{ $this->getId() }}"
+    x-data="{
+        addingStandard: $wire.entangle('addingStandard'),
+        requestCloseStandardModal() {
+            window.instrumentsDeskNotifications.standardDiscardConfirmation({
+                componentId: $root.dataset.componentId,
+            });
+        },
+    }"
+    x-on:keydown.escape.window="if (addingStandard) requestCloseStandardModal()"
+    x-init="$watch('addingStandard', (open) => {
+        $nextTick(() => {
+            if (open) {
+                $refs.standardName?.focus();
+            } else {
+                $refs.addStandardButton?.focus();
+            }
+        });
+    })"
+>
     <div class="mx-auto flex max-w-6xl flex-col gap-8">
         <header>
-            <a href="{{ route('instruments.types.show', [$instrument, $instrumentType]) }}" class="ui-button-secondary w-fit gap-2 shadow-[0_10px_18px_-14px_rgb(22_49_114/0.9)]">
+            <a href="{{ route('instruments.types.show', ['instrument' => $this->instrumentId, 'instrumentType' => $this->instrumentTypeId]) }}" class="ui-button-secondary w-fit gap-2 shadow-[0_10px_18px_-14px_rgb(22_49_114/0.9)]">
                 <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M15 6 9 12l6 6" />
                 </svg>
                 Back to instrument detail
             </a>
             <h1 class="mt-4 text-2xl font-semibold tracking-tight text-navy">Manage Standards</h1>
-            <p class="mt-1 text-sm text-muted">{{ $instrument->instrument_name }} · {{ $instrumentType->type_name }}</p>
+            <p class="mt-1 text-sm text-muted">{{ $this->currentInstrument()->instrument_name }} · {{ $this->currentInstrumentType()->type_name }}</p>
         </header>
 
         @if ($status)
@@ -88,21 +154,18 @@ new class extends Component
                                     <td class="px-5 py-3.5 text-navy">{{ filled($assignment->typeSpecification()) ? $assignment->typeSpecification() : '—' }}</td>
                                     <td class="px-5 py-3.5 text-navy">{{ filled($assignment->serialNumber()) ? $assignment->serialNumber() : '—' }}</td>
                                     <td class="px-5 py-3.5">
-                                        @if ((int) $removingAssignmentId === (int) $assignment->instrument_type_standard_assignment_id)
-                                            <div class="flex flex-col gap-2">
-                                                <p class="text-sm text-navy">Remove this standard assignment? The master standard stays registered.</p>
-                                                <div class="flex flex-wrap gap-2">
-                                                    <button type="button" wire:click="removeAssignment" class="ui-button-danger" wire:loading.attr="disabled" wire:target="removeAssignment">Remove assignment</button>
-                                                    <button type="button" wire:click="cancelRemoving" class="ui-button-secondary">Cancel</button>
-                                                </div>
-                                            </div>
-                                        @else
-                                            <div class="flex flex-wrap gap-2">
-                                                <button type="button" wire:click="moveAssignment({{ $assignment->instrument_type_standard_assignment_id }}, -1)" class="ui-button-outline" @disabled($loop->first)>Move up</button>
-                                                <button type="button" wire:click="moveAssignment({{ $assignment->instrument_type_standard_assignment_id }}, 1)" class="ui-button-outline" @disabled($loop->last)>Move down</button>
-                                                <button type="button" wire:click="askToRemove({{ $assignment->instrument_type_standard_assignment_id }})" class="ui-button-danger">Remove</button>
-                                            </div>
-                                        @endif
+                                        <button
+                                            type="button"
+                                            data-component-id="{{ $this->getId() }}"
+                                            data-assignment-id="{{ $assignment->instrument_type_standard_assignment_id }}"
+                                            data-standard-name="{{ $assignment->instrumentName() }}"
+                                            x-on:click="window.instrumentsDeskNotifications.standardAssignmentRemovalConfirmation({
+                                                componentId: $el.dataset.componentId,
+                                                assignmentId: Number($el.dataset.assignmentId),
+                                                standardName: $el.dataset.standardName,
+                                            })"
+                                            class="ui-button-danger"
+                                        >Remove</button>
                                     </td>
                                 </tr>
                             @endforeach
@@ -124,59 +187,14 @@ new class extends Component
                         <label for="standard-search" class="ui-label">Search</label>
                         <input id="standard-search" type="search" wire:model.live.debounce.300ms="search" maxlength="100" class="ui-input" placeholder="Name, type / specification, or serial">
                     </div>
-                    <button type="button" wire:click="startAddingStandard" class="ui-button-outline">Add New Standard</button>
+                    <button
+                        type="button"
+                        x-ref="addStandardButton"
+                        x-on:click="addingStandard = true"
+                        wire:click="startAddingStandard"
+                        class="ui-button-outline"
+                    >Add New Standard</button>
                 </div>
-
-                @if ($addingStandard)
-                    <form wire:submit="createStandard" class="flex flex-col gap-3 rounded-xl border border-white/70 bg-[#edf4fa] p-4">
-                        <p class="text-sm font-semibold text-navy">Add New Standard</p>
-                        <div class="grid gap-3 sm:grid-cols-3">
-                            <div>
-                                <label for="assign-new-name" class="ui-label">Instrument Name</label>
-                                <input id="assign-new-name" type="text" wire:model="newInstrumentName" maxlength="150" required class="ui-input">
-                                @error('newInstrumentName')
-                                    <p class="ui-error">{{ $message }}</p>
-                                @enderror
-                            </div>
-                            <div>
-                                <label for="assign-new-type" class="ui-label">Type / Specification <span class="font-normal text-muted">(optional)</span></label>
-                                <input id="assign-new-type" type="text" wire:model="newTypeSpecification" maxlength="150" class="ui-input">
-                                @error('newTypeSpecification')
-                                    <p class="ui-error">{{ $message }}</p>
-                                @enderror
-                            </div>
-                            <div>
-                                <label for="assign-new-serial" class="ui-label">Serial Number <span class="font-normal text-muted">(optional)</span></label>
-                                <input id="assign-new-serial" type="text" wire:model="newSerialNumber" maxlength="150" class="ui-input">
-                                @error('newSerialNumber')
-                                    <p class="ui-error">{{ $message }}</p>
-                                @enderror
-                            </div>
-                        </div>
-                        <div class="flex flex-wrap gap-2">
-                            <button type="submit" class="ui-button-primary" wire:loading.attr="disabled" wire:target="createStandard">Save Standard</button>
-                            <button type="button" wire:click="cancelAddingStandard" class="ui-button-secondary">Cancel</button>
-                        </div>
-                    </form>
-                @endif
-
-                @php($selected = $this->selectedCandidate())
-                @if ($selected !== null)
-                    <form wire:submit="assignStandard" class="flex flex-col gap-3 rounded-xl border border-white/70 bg-[#edf4fa] p-4">
-                        <div>
-                            <p class="ui-label">Selected Standard</p>
-                            <p class="text-sm font-semibold text-navy">{{ $selected->standard_code }} · {{ $selected->instrument_name }}</p>
-                            <p class="text-sm text-muted">{{ filled($selected->type_specification) ? $selected->type_specification : '—' }} · {{ filled($selected->serial_number) ? $selected->serial_number : '—' }}</p>
-                        </div>
-                        @error('selectedStandardId')
-                            <p class="ui-error">{{ $message }}</p>
-                        @enderror
-                        <div class="flex flex-wrap gap-2">
-                            <button type="submit" class="ui-button-primary" wire:loading.attr="disabled" wire:target="assignStandard">Assign Standard</button>
-                            <button type="button" wire:click="clearSelection" class="ui-button-secondary">Clear</button>
-                        </div>
-                    </form>
-                @endif
 
                 @if ($this->candidates()->isEmpty())
                     <p class="py-4 text-sm text-navy/70">No matching standards found. Add a new standard if it is not in the master list.</p>
@@ -200,7 +218,7 @@ new class extends Component
                                         <td class="px-5 py-3.5 text-navy">{{ filled($candidate->type_specification) ? $candidate->type_specification : '—' }}</td>
                                         <td class="px-5 py-3.5 text-navy">{{ filled($candidate->serial_number) ? $candidate->serial_number : '—' }}</td>
                                         <td class="px-5 py-3.5">
-                                            <button type="button" wire:click="selectCandidate({{ $candidate->standard_id }})" class="ui-button-outline">Select</button>
+                                            <button type="button" wire:click="selectCandidate({{ $candidate->standard_id }})" wire:loading.attr="disabled" wire:target="selectCandidate" class="ui-button-outline">Select</button>
                                         </td>
                                     </tr>
                                 @endforeach
@@ -213,5 +231,82 @@ new class extends Component
                 @endif
             </div>
         </section>
+    </div>
+
+    <div
+        x-show="addingStandard"
+        x-cloak
+        x-on:click.self="requestCloseStandardModal()"
+        x-transition:enter="transition-opacity ease-out duration-[200ms] motion-reduce:duration-0"
+        x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100"
+        x-transition:leave="transition-opacity ease-in duration-[180ms] motion-reduce:duration-0"
+        x-transition:leave-start="opacity-100"
+        x-transition:leave-end="opacity-0"
+        class="fixed inset-0 z-50 overflow-y-auto bg-navy/35 p-4 sm:p-8"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-standard-modal-title"
+        aria-describedby="add-standard-modal-subtitle"
+    >
+        <div
+            x-transition:enter="transition ease-out duration-[200ms] motion-reduce:duration-0"
+            x-transition:enter-start="scale-[0.96] opacity-0"
+            x-transition:enter-end="scale-100 opacity-100"
+            x-transition:leave="transition ease-in duration-[180ms] motion-reduce:duration-0"
+            x-transition:leave-start="scale-100 opacity-100"
+            x-transition:leave-end="scale-[0.96] opacity-0"
+            class="mx-auto flex max-h-[calc(100vh-4rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-brand/20 bg-brand-soft shadow-2xl"
+        >
+            <div class="flex items-start justify-between bg-navy px-5 py-4 text-white sm:px-6">
+                <div>
+                    <h2 id="add-standard-modal-title" class="text-base font-semibold">Add New Standard</h2>
+                    <p id="add-standard-modal-subtitle" class="mt-1 text-sm text-brand-soft">Create a new standard in the Standard Master.</p>
+                </div>
+                <button
+                    type="button"
+                    x-on:click="requestCloseStandardModal()"
+                    class="rounded-lg px-3 py-2 text-xl leading-none text-white transition hover:bg-white/15"
+                    aria-label="Close Add New Standard modal"
+                >&times;</button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-5 sm:p-6">
+                <form wire:submit="prepareNewStandardCreation" class="flex flex-col gap-4">
+                    <div>
+                        <label for="assign-new-name" class="ui-label">Instrument Name <span class="text-red-700">*</span></label>
+                        <input id="assign-new-name" x-ref="standardName" type="text" wire:model="newInstrumentName" maxlength="150" required class="ui-input">
+                        @error('newInstrumentName')
+                            <p class="ui-error">{{ $message }}</p>
+                        @enderror
+                    </div>
+
+                    <div class="grid gap-4 sm:grid-cols-2">
+                        <div>
+                            <label for="assign-new-type" class="ui-label">Type / Specification <span class="font-normal text-muted">(optional)</span></label>
+                            <input id="assign-new-type" type="text" wire:model="newTypeSpecification" maxlength="150" class="ui-input">
+                            @error('newTypeSpecification')
+                                <p class="ui-error">{{ $message }}</p>
+                            @enderror
+                        </div>
+                        <div>
+                            <label for="assign-new-serial" class="ui-label">Serial Number <span class="font-normal text-muted">(optional)</span></label>
+                            <input id="assign-new-serial" type="text" wire:model="newSerialNumber" maxlength="150" class="ui-input">
+                            @error('newSerialNumber')
+                                <p class="ui-error">{{ $message }}</p>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <div class="mt-1 flex flex-wrap gap-2 border-t border-brand/20 pt-4">
+                        <button type="submit" class="ui-button-primary" wire:loading.attr="disabled" wire:target="prepareNewStandardCreation,createStandard">
+                            <span wire:loading.remove wire:target="prepareNewStandardCreation,createStandard">Save Standard</span>
+                            <span wire:loading wire:target="prepareNewStandardCreation,createStandard">Saving...</span>
+                        </button>
+                        <button type="button" x-on:click="requestCloseStandardModal()" class="ui-button-secondary" wire:loading.attr="disabled">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
 </div>

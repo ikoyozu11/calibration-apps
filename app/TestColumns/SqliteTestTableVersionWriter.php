@@ -3,23 +3,24 @@
 namespace App\TestColumns;
 
 use App\Models\TestProfileVersion;
-use Illuminate\Support\Facades\DB;
 use stdClass;
 
 class SqliteTestTableVersionWriter implements TestTableVersionWriter
 {
+    use WritesThroughHttpConnection;
+
     public function __construct(private TestTableVersionGuard $guard) {}
 
     public function fork(int $sourceVersionId): int
     {
-        return DB::transaction(function () use ($sourceVersionId): int {
+        return $this->writeConnection()->transaction(function () use ($sourceVersionId): int {
             $source = $this->guard->lockForkSource($sourceVersionId);
             $newVersionId = $this->nextId('test_profile_version', 'test_profile_version_id');
-            $nextNumber = ((int) DB::table('test_profile_version')
+            $nextNumber = ((int) $this->writeConnection()->table('test_profile_version')
                 ->where('test_profile_id', $source->test_profile_id)
                 ->max('version_number')) + 1;
 
-            DB::table('test_profile_version')->insert([
+            $payload = [
                 'test_profile_version_id' => $newVersionId,
                 'test_profile_id' => $source->test_profile_id,
                 'version_number' => $nextNumber,
@@ -29,7 +30,13 @@ class SqliteTestTableVersionWriter implements TestTableVersionWriter
                 'description' => $source->description,
                 'published_at' => null,
                 'created_at' => now(),
-            ]);
+            ];
+
+            if ($this->writeConnection()->getSchemaBuilder()->hasColumn('test_profile_version', 'remarks')) {
+                $payload['remarks'] = $source->remarks ?? null;
+            }
+
+            $this->writeConnection()->table('test_profile_version')->insert($payload);
 
             $columnMap = $this->copyColumns($sourceVersionId, (int) $source->test_profile_id, $newVersionId);
             $pointMap = $this->copyPoints($sourceVersionId, (int) $source->test_profile_id, $newVersionId);
@@ -41,25 +48,25 @@ class SqliteTestTableVersionWriter implements TestTableVersionWriter
 
     public function publish(int $profileId): int
     {
-        return DB::transaction(function () use ($profileId): int {
+        return $this->writeConnection()->transaction(function () use ($profileId): int {
             $locked = $this->guard->lockPublishableDraft($profileId);
             $draft = $locked['draft'];
             $active = $locked['active'];
 
             if ($active !== null) {
-                DB::table('test_profile_version')
+                $this->writeConnection()->table('test_profile_version')
                     ->where('test_profile_version_id', $active->test_profile_version_id)
                     ->update(['status' => TestProfileVersion::STATUS_RETIRED]);
             }
 
-            DB::table('test_profile_version')
+            $this->writeConnection()->table('test_profile_version')
                 ->where('test_profile_version_id', $draft->test_profile_version_id)
                 ->update([
                     'status' => TestProfileVersion::STATUS_ACTIVE,
                     'published_at' => now(),
                 ]);
 
-            DB::table('test_profile')
+            $this->writeConnection()->table('test_profile')
                 ->where('test_profile_id', $profileId)
                 ->update([
                     'profile_name' => $draft->profile_name,
@@ -76,7 +83,7 @@ class SqliteTestTableVersionWriter implements TestTableVersionWriter
      */
     private function copyColumns(int $sourceVersionId, int $profileId, int $newVersionId): array
     {
-        $columns = DB::table('test_column')
+        $columns = $this->writeConnection()->table('test_column')
             ->where('test_profile_version_id', $sourceVersionId)
             ->orderByRaw("case when value_source = 'calculated' then 1 else 0 end")
             ->orderBy('column_order')
@@ -89,7 +96,7 @@ class SqliteTestTableVersionWriter implements TestTableVersionWriter
             $newId = $this->nextId('test_column', 'test_column_id');
             $map[(int) $column->test_column_id] = $newId;
 
-            DB::table('test_column')->insert([
+            $this->writeConnection()->table('test_column')->insert([
                 'test_column_id' => $newId,
                 'test_profile_id' => $profileId,
                 'test_profile_version_id' => $newVersionId,
@@ -114,7 +121,7 @@ class SqliteTestTableVersionWriter implements TestTableVersionWriter
      */
     private function copyPoints(int $sourceVersionId, int $profileId, int $newVersionId): array
     {
-        $points = DB::table('test_point')
+        $points = $this->writeConnection()->table('test_point')
             ->where('test_profile_version_id', $sourceVersionId)
             ->orderBy('point_order')
             ->orderBy('test_point_id')
@@ -126,7 +133,7 @@ class SqliteTestTableVersionWriter implements TestTableVersionWriter
             $newId = $this->nextId('test_point', 'test_point_id');
             $map[(int) $point->test_point_id] = $newId;
 
-            DB::table('test_point')->insert([
+            $this->writeConnection()->table('test_point')->insert([
                 'test_point_id' => $newId,
                 'test_profile_id' => $profileId,
                 'test_profile_version_id' => $newVersionId,
@@ -154,7 +161,7 @@ class SqliteTestTableVersionWriter implements TestTableVersionWriter
         array $columnMap,
         array $pointMap,
     ): void {
-        $cells = DB::table('test_point_value')
+        $cells = $this->writeConnection()->table('test_point_value')
             ->where('test_profile_version_id', $sourceVersionId)
             ->orderBy('test_point_value_id')
             ->get();
@@ -162,7 +169,7 @@ class SqliteTestTableVersionWriter implements TestTableVersionWriter
         foreach ($cells as $cell) {
             $this->assertMappedCell($cell, $columnMap, $pointMap);
 
-            DB::table('test_point_value')->insert([
+            $this->writeConnection()->table('test_point_value')->insert([
                 'test_point_value_id' => $this->nextId('test_point_value', 'test_point_value_id'),
                 'test_profile_id' => $profileId,
                 'test_profile_version_id' => $newVersionId,
@@ -189,6 +196,6 @@ class SqliteTestTableVersionWriter implements TestTableVersionWriter
 
     private function nextId(string $table, string $column): int
     {
-        return ((int) DB::table($table)->max($column)) + 1;
+        return ((int) $this->writeConnection()->table($table)->max($column)) + 1;
     }
 }

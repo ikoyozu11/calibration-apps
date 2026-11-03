@@ -73,6 +73,8 @@ beforeEach(function (): void {
 afterEach(function (): void {
     Config::set('database.staging_runtime_isolation', false);
     Config::set('database.default', 'sqlite');
+    Config::set('database.connections.pgsql.database', ':memory:');
+    Config::set('database.connections.pgsql.url', '');
     Config::set('session.driver', 'array');
     Config::set('cache.default', 'array');
     Config::set('queue.default', 'sync');
@@ -229,6 +231,110 @@ it('keeps EnsureStagingRuntimeIsolation ahead of StartSession and Authenticate i
         ->and($authPos)->toBeInt()
         ->and($isolationPos)->toBeLessThan($sessionPos)
         ->and($isolationPos)->toBeLessThan($authPos);
+});
+
+it('always refuses a production database name from configuration metadata', function () {
+    $isolation = new StagingRuntimeIsolation;
+    $config = stagingIsolationRepository([
+        'database' => [
+            'staging_runtime_isolation' => false,
+            'default' => 'pgsql',
+            'connections' => [
+                'pgsql' => [
+                    'driver' => 'pgsql',
+                    'database' => StagingRuntimeIsolation::FORBIDDEN_PRODUCTION_DATABASE,
+                    'url' => null,
+                ],
+            ],
+        ],
+    ]);
+
+    expect($isolation->productionTargetViolations($config))
+        ->toContain('Refusing production database calibration_db.')
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('refuses production even when staging isolation is off', function () {
+    Config::set('database.staging_runtime_isolation', false);
+    Config::set('database.default', 'pgsql');
+    Config::set('database.connections.pgsql.database', StagingRuntimeIsolation::FORBIDDEN_PRODUCTION_DATABASE);
+    Config::set('database.connections.pgsql.url', null);
+    Config::set('session.driver', 'database');
+
+    try {
+        app(EnsureStagingRuntimeIsolation::class)->handle(
+            Request::create('/login', 'GET'),
+            fn () => response('ok', 200),
+        );
+        expect(false)->toBeTrue();
+    } catch (HttpException $exception) {
+        expect($exception->getStatusCode())->toBe(503)
+            ->and($exception->getMessage())->toContain('calibration_db')
+            ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+    }
+});
+
+it('refuses a postgresql url that points at production', function () {
+    $config = stagingIsolationRepository([
+        'database' => [
+            'staging_runtime_isolation' => false,
+            'default' => 'pgsql',
+            'connections' => [
+                'pgsql' => [
+                    'driver' => 'pgsql',
+                    'database' => 'laravel',
+                    'url' => 'pgsql://user:secret@127.0.0.1:5432/calibration_db',
+                ],
+            ],
+        ],
+    ]);
+
+    expect((new StagingRuntimeIsolation)->productionTargetViolations($config))
+        ->toContain('Refusing production database calibration_db.');
+});
+
+it('fails closed when a postgresql connection name cannot be resolved', function () {
+    $config = stagingIsolationRepository([
+        'database' => [
+            'staging_runtime_isolation' => false,
+            'default' => 'pgsql',
+            'connections' => [
+                'pgsql' => [
+                    'driver' => 'pgsql',
+                    'database' => null,
+                    'url' => null,
+                ],
+            ],
+        ],
+    ]);
+
+    expect((new StagingRuntimeIsolation)->productionTargetViolations($config))
+        ->toContain('Database connection configuration is ambiguous.');
+});
+
+it('accepts sqlite memory without treating it as production', function () {
+    $config = new Repository([
+        'database' => [
+            'default' => 'sqlite',
+            'connections' => [
+                'sqlite' => [
+                    'driver' => 'sqlite',
+                    'database' => ':memory:',
+                    'url' => null,
+                ],
+            ],
+        ],
+    ]);
+
+    expect((new StagingRuntimeIsolation)->productionTargetViolations($config))->toBe([]);
+
+    $response = app(EnsureStagingRuntimeIsolation::class)->handle(
+        Request::create('/login', 'GET'),
+        fn () => response('ok', 200),
+    );
+
+    expect($response->getStatusCode())->toBe(200)
+        ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
 });
 
 it('does not leak credentials in isolation refusal messages', function () {

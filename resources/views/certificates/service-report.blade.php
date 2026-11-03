@@ -175,28 +175,6 @@
         </tr>
     </table>
 
-    <h2>ACTIVITY</h2>
-    <table class="data">
-        <thead>
-            <tr>
-                <th style="width: 8%;">No.</th>
-                <th>Description</th>
-            </tr>
-        </thead>
-        <tbody>
-            @forelse ($report->activities() as $activity)
-                <tr>
-                    <td>{{ $loop->iteration }}</td>
-                    <td>{{ $activity }}</td>
-                </tr>
-            @empty
-                <tr>
-                    <td colspan="2">—</td>
-                </tr>
-            @endforelse
-        </tbody>
-    </table>
-
     <h2>STANDARD(S) USED</h2>
     <table class="data">
         <thead>
@@ -252,6 +230,9 @@
         </table>
         @if (filled($group['tolerance']))
             <div class="note">Correction Tolerance: {{ $group['tolerance'] }}</div>
+        @endif
+        @if (filled($group['remarks']))
+            <div class="note">Remarks: {{ $group['remarks'] }}</div>
         @endif
     @empty
         <div>—</div>

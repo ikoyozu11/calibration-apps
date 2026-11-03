@@ -4,20 +4,21 @@ namespace App\CalibrationSessions;
 
 use App\Models\Calibration;
 use App\Models\InstrumentTypeRequirement;
+use App\TestColumns\ColumnFormula;
 use App\TestColumns\TestTableSnapshotBuilder;
 use Illuminate\Database\Connection;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 
 /**
- * Records or clears one manual test-component cell on a pinned schema version 2 scope.
+ * Records or clears one test-component cell on a pinned schema version 2 scope.
  *
  * Identity is the calibration, the calibration scope, the frozen test point, and
- * the frozen column key. Calculated columns are stored as engineer entries and
- * formulas are not evaluated. A null value deletes the cell. The parent result
- * row is deleted only when it has no remaining cells and no remarks, legacy
- * values, or readings. This service does not pin, resolve requirements, write
- * legacy result columns, or call CompleteCalibrationSession. SQLite compiles
+ * the frozen column key. The configured standard-minus-reading formula is recalculated
+ * from frozen inputs after engineer writes. A null value deletes the cell. The parent
+ * result row is deleted only when it has no remaining cells and no remarks, legacy
+ * values, or readings. This service does not pin, resolve requirements, or call
+ * CompleteCalibrationSession. SQLite compiles
  * lockForUpdate() without a real row lock or the PostgreSQL checks.
  */
 class RecordCalibrationTestResult
@@ -77,6 +78,10 @@ class RecordCalibrationTestResult
             if ($value === null) {
                 $this->clear($connection, $calibrationScopeId, $testPointId, $columnKey, $parent, $cell);
 
+                if ($parent !== null) {
+                    $this->recalculateStandardMinusReading($connection, $snapshot, $testPointId, (int) $parent->calibration_test_result_id);
+                }
+
                 return;
             }
 
@@ -88,21 +93,21 @@ class RecordCalibrationTestResult
 
             if ($cell === null) {
                 $this->insertCell($connection, $resultId, $columnKey, (string) $column['data_type'], $numericValue, $textValue, $unit);
-
-                return;
+            } else {
+                $connection->table('calibration_result_value')
+                    ->where('calibration_result_value_id', $cell->calibration_result_value_id)
+                    ->where('calibration_test_result_id', $resultId)
+                    ->where('column_key', $columnKey)
+                    ->update([
+                        'numeric_value' => $numericValue,
+                        'text_value' => $textValue,
+                        'unit' => $unit,
+                        'data_type' => $column['data_type'],
+                        'value_source' => 'engineer',
+                    ]);
             }
 
-            $connection->table('calibration_result_value')
-                ->where('calibration_result_value_id', $cell->calibration_result_value_id)
-                ->where('calibration_test_result_id', $resultId)
-                ->where('column_key', $columnKey)
-                ->update([
-                    'numeric_value' => $numericValue,
-                    'text_value' => $textValue,
-                    'unit' => $unit,
-                    'data_type' => $column['data_type'],
-                    'value_source' => 'engineer',
-                ]);
+            $this->recalculateStandardMinusReading($connection, $snapshot, $testPointId, $resultId);
         });
     }
 
@@ -148,36 +153,22 @@ class RecordCalibrationTestResult
     {
         $frozen = (string) $snapshot->frozen_mode;
         $resolved = $snapshot->resolved_mode !== null ? (string) $snapshot->resolved_mode : null;
-        $mode = $this->effectiveMode($frozen, $resolved);
+        $mode = CalibrationSessionRequirementPolicy::effectiveMode(
+            InstrumentTypeRequirement::CATEGORY_TEST_PROFILE,
+            $frozen,
+            $resolved,
+            Calibration::METHOD_INTERNAL,
+        );
 
-        if (in_array($mode, [InstrumentTypeRequirement::MODE_REQUIRED, InstrumentTypeRequirement::MODE_OPTIONAL], true)) {
+        if (in_array($mode, [
+            InstrumentTypeRequirement::MODE_REQUIRED,
+            InstrumentTypeRequirement::MODE_OPTIONAL,
+            InstrumentTypeRequirement::MODE_NOT_CONFIGURED,
+        ], true)) {
             return;
         }
 
-        if ($frozen === InstrumentTypeRequirement::MODE_NOT_CONFIGURED) {
-            throw RecordCalibrationTestResultException::unresolvedTestProfileMode();
-        }
-
         throw RecordCalibrationTestResultException::invalidEffectiveMode();
-    }
-
-    /**
-     * PostgreSQL calibration_requirement_effective_mode CASE.
-     */
-    private function effectiveMode(string $frozenMode, ?string $resolvedMode): string
-    {
-        if (in_array($frozenMode, [InstrumentTypeRequirement::MODE_REQUIRED, InstrumentTypeRequirement::MODE_OPTIONAL], true)) {
-            return $frozenMode;
-        }
-
-        if (
-            $frozenMode === InstrumentTypeRequirement::MODE_NOT_CONFIGURED
-            && in_array($resolvedMode, [InstrumentTypeRequirement::MODE_REQUIRED, InstrumentTypeRequirement::MODE_OPTIONAL], true)
-        ) {
-            return $resolvedMode;
-        }
-
-        return InstrumentTypeRequirement::MODE_NOT_CONFIGURED;
     }
 
     /**
@@ -411,17 +402,22 @@ class RecordCalibrationTestResult
             throw RecordCalibrationTestResultException::templateColumnNotEditable();
         }
 
+        if ($valueSource === 'calculated'
+            && ($column['formula_code'] ?? null) === ColumnFormula::StandardMinusReading) {
+            throw RecordCalibrationTestResultException::calculatedColumnNotEditable();
+        }
+
         if (! in_array($valueSource, ['engineer', 'calculated'], true)) {
             throw RecordCalibrationTestResultException::unsupportedValueSource();
         }
 
         $completionRule = $column['completion_rule'] ?? null;
 
-        if ($completionRule === InstrumentTypeRequirement::MODE_NOT_CONFIGURED) {
-            throw RecordCalibrationTestResultException::notConfiguredColumn();
-        }
-
-        if (! in_array($completionRule, [InstrumentTypeRequirement::MODE_REQUIRED, InstrumentTypeRequirement::MODE_OPTIONAL], true)) {
+        if (! in_array($completionRule, [
+            InstrumentTypeRequirement::MODE_REQUIRED,
+            InstrumentTypeRequirement::MODE_OPTIONAL,
+            InstrumentTypeRequirement::MODE_NOT_CONFIGURED,
+        ], true)) {
             throw RecordCalibrationTestResultException::unsupportedCompletionRule();
         }
 
@@ -656,5 +652,129 @@ class RecordCalibrationTestResult
         }
 
         $connection->table('calibration_result_value')->insert($payload);
+    }
+
+    /**
+     * Recalculates only the configured standard-minus-reading formula.
+     *
+     * @param  array<string, mixed>  $snapshot
+     */
+    private function recalculateStandardMinusReading(
+        Connection $connection,
+        array $snapshot,
+        int $testPointId,
+        int $resultId,
+    ): void {
+        $row = collect($snapshot['rows'] ?? [])->first(
+            fn (mixed $candidate): bool => is_array($candidate)
+                && (int) ($candidate['test_point_id'] ?? 0) === $testPointId,
+        );
+
+        if (! is_array($row)) {
+            return;
+        }
+
+        $cells = $connection->table('calibration_result_value')
+            ->where('calibration_test_result_id', $resultId)
+            ->get()
+            ->keyBy('column_key');
+
+        foreach ($snapshot['columns'] ?? [] as $column) {
+            if (! is_array($column)
+                || ($column['value_source'] ?? null) !== 'calculated'
+                || ($column['formula_code'] ?? null) !== ColumnFormula::StandardMinusReading
+            ) {
+                continue;
+            }
+
+            $inputs = $column['formula_inputs'] ?? [];
+            if (! is_array($inputs) || count($inputs) !== 2) {
+                continue;
+            }
+
+            $operands = [];
+            foreach ($inputs as $inputKey) {
+                $cell = $cells->get($inputKey);
+                $templateValue = $row['template_values'][$inputKey] ?? null;
+                $value = $cell?->numeric_value
+                    ?? (is_array($templateValue) ? ($templateValue['numeric_value'] ?? null) : null);
+
+                if ($value === null || $value === '') {
+                    $this->clearCalculatedCell($connection, $resultId, (string) $column['column_key']);
+
+                    continue 2;
+                }
+
+                $operands[] = (string) $value;
+            }
+
+            $scale = array_key_exists('display_scale', $column) && $column['display_scale'] !== null
+                ? (int) $column['display_scale']
+                : 12;
+            $calculated = bcadd(
+                ColumnFormula::numericResult((string) $column['formula_code'], $operands),
+                '0',
+                max(0, min(12, $scale)),
+            );
+            $columnKey = (string) $column['column_key'];
+
+            $payload = [
+                'value_source' => 'calculated',
+                'data_type' => 'numeric',
+                'numeric_value' => $calculated,
+                'text_value' => null,
+                'unit' => $column['unit'] ?? null,
+            ];
+
+            $updated = $connection->table('calibration_result_value')
+                ->where('calibration_test_result_id', $resultId)
+                ->where('column_key', $columnKey)
+                ->update($payload);
+
+            if ($updated === 0) {
+                $payload['calibration_test_result_id'] = $resultId;
+                $payload['column_key'] = $columnKey;
+                $payload['created_at'] = now();
+
+                if ($connection->getDriverName() !== 'pgsql') {
+                    $payload['calibration_result_value_id'] = ((int) $connection->table('calibration_result_value')->max('calibration_result_value_id')) + 1;
+                }
+
+                $connection->table('calibration_result_value')->insert($payload);
+            }
+
+            $connection->table('calibration_test_result')
+                ->where('calibration_test_result_id', $resultId)
+                ->update(['correction_value' => $calculated]);
+        }
+    }
+
+    private function clearCalculatedCell(Connection $connection, int $resultId, string $columnKey): void
+    {
+        $connection->table('calibration_result_value')
+            ->where('calibration_test_result_id', $resultId)
+            ->where('column_key', $columnKey)
+            ->delete();
+
+        $connection->table('calibration_test_result')
+            ->where('calibration_test_result_id', $resultId)
+            ->update(['correction_value' => null]);
+
+        $parent = $connection->table('calibration_test_result')
+            ->where('calibration_test_result_id', $resultId)
+            ->first();
+
+        if ($parent === null
+            || $this->parentRetainsHistory($connection, $parent)
+            || $connection->table('calibration_result_value')
+                ->where('calibration_test_result_id', $resultId)
+                ->exists()
+        ) {
+            return;
+        }
+
+        $connection->table('calibration_test_result')
+            ->where('calibration_test_result_id', $resultId)
+            ->delete();
     }
 }

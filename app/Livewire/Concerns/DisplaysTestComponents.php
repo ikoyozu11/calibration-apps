@@ -12,6 +12,7 @@ use App\TestColumns\NumericDisplay;
 use App\TestColumns\TestTableVersioning;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Schema\Builder;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -43,16 +44,22 @@ trait DisplaysTestComponents
                 if ($versioning->enabled()) {
                     $query->with([
                         'versions' => function (HasMany $versions): void {
+                            $columns = [
+                                'test_profile_version_id',
+                                'test_profile_id',
+                                'version_number',
+                                'status',
+                                'profile_name',
+                                'display_title',
+                                'published_at',
+                            ];
+
+                            if ($this->testComponentSchema()->hasColumn('test_profile_version', 'remarks')) {
+                                $columns[] = 'remarks';
+                            }
+
                             $versions
-                                ->select([
-                                    'test_profile_version_id',
-                                    'test_profile_id',
-                                    'version_number',
-                                    'status',
-                                    'profile_name',
-                                    'display_title',
-                                    'published_at',
-                                ])
+                                ->select($columns)
                                 ->orderBy('version_number')
                                 ->orderBy('test_profile_version_id');
                         },
@@ -139,6 +146,16 @@ trait DisplaysTestComponents
         }
 
         return $profile->display_title;
+    }
+
+    public function testTableRemarks(TestProfile $profile): ?string
+    {
+        $versioning = app(TestTableVersioning::class);
+        $version = $this->testTableViewPurpose() === TestTableVersioning::PURPOSE_MANAGE
+            ? ($versioning->draft($profile) ?? $versioning->active($profile))
+            : ($versioning->active($profile) ?? $versioning->draft($profile));
+
+        return filled($version?->remarks) ? (string) $version->remarks : null;
     }
 
     public function testTableVersionCaption(TestProfile $profile): ?string
@@ -231,7 +248,7 @@ trait DisplaysTestComponents
             'display_title',
         ];
 
-        if (Schema::hasColumn((new TestProfile)->getTable(), 'archived_at')) {
+        if ($this->testComponentSchema()->hasColumn((new TestProfile)->getTable(), 'archived_at')) {
             $columns[] = 'archived_at';
         }
 
@@ -290,5 +307,16 @@ trait DisplaysTestComponents
             'numeric_value',
             'text_value',
         ];
+    }
+
+    private function testComponentSchema(): Builder
+    {
+        $name = $this->instrumentType?->getConnectionName();
+
+        if (! is_string($name) || $name === '') {
+            abort(503, 'Reading this calibration session is not available in this environment.');
+        }
+
+        return Schema::connection($name);
     }
 }

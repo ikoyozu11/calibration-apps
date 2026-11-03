@@ -107,6 +107,11 @@ class RecordCalibrationTestResultException extends RuntimeException implements S
         return new self('A template column cannot be entered manually.');
     }
 
+    public static function calculatedColumnNotEditable(): self
+    {
+        return new self('This calculated column is read-only.');
+    }
+
     public static function unsupportedValueSource(): self
     {
         return new self('The frozen column value source cannot be entered manually.');

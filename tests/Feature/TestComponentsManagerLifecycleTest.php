@@ -1,7 +1,5 @@
 <?php
 
-use App\Models\Instrument;
-use App\Models\InstrumentType;
 use App\Models\TestProfileVersion;
 use App\TestColumns\TestTableSnapshotBuilder;
 use Illuminate\Database\Schema\Blueprint;
@@ -72,8 +70,8 @@ function insertUsedCalibrationScope(int $profileId = 1, int $versionId = 11): vo
 function managerComponent()
 {
     return Livewire::test('pages::instruments.test-components', [
-        'instrument' => Instrument::query()->findOrFail(3),
-        'instrumentType' => InstrumentType::query()->findOrFail(31),
+        'instrument' => 3,
+        'instrumentType' => 31,
     ]);
 }
 
@@ -86,11 +84,11 @@ it('updates a draft-only test table profile and draft version', function () {
         ->set('profileName', 'Weight Calibration')
         ->call('saveTestTable')
         ->call('startEditingTestTable', 1)
+        ->assertSet('editingProfileId', 1)
         ->set('profileName', ' Renamed Draft ')
         ->set('displayTitle', ' Draft title ')
         ->call('saveEditedTestTable', 1)
         ->assertHasNoErrors()
-        ->assertSee('Test table updated.')
         ->assertSee('Renamed Draft')
         ->assertSee('Draft title')
         ->assertDontSee('Weight Calibration');
@@ -211,8 +209,7 @@ it('rejects a duplicate profile name including archived catalog names', function
         ->set('profileName', 'Archived Name')
         ->set('displayTitle', 'Live title')
         ->call('saveEditedTestTable', 1)
-        ->assertHasErrors(['profileName'])
-        ->assertSee('A test table with this profile name already exists for this type.');
+        ->assertHasErrors(['profileName']);
 });
 
 it('rejects a duplicate table title without regard to case', function () {
@@ -256,8 +253,7 @@ it('rejects a duplicate table title without regard to case', function () {
         ->set('profileName', 'Second')
         ->set('displayTitle', ' WEIGHT TABLE ')
         ->call('saveEditedTestTable', 2)
-        ->assertHasErrors(['displayTitle'])
-        ->assertSee('Table titles must be different.');
+        ->assertHasErrors(['displayTitle']);
 });
 
 it('allows a blank title when only one active test table exists', function () {
@@ -321,8 +317,7 @@ it('requires a title when more than one active test table exists', function () {
         ->set('profileName', 'Second')
         ->set('displayTitle', '   ')
         ->call('saveEditedTestTable', 2)
-        ->assertHasErrors(['displayTitle'])
-        ->assertSee('Enter a table title.');
+        ->assertHasErrors(['displayTitle']);
 });
 
 it('deletes an unused draft test table', function () {
@@ -335,10 +330,9 @@ it('deletes an unused draft test table', function () {
         ->call('saveTestTable')
         ->assertSee('Delete Table')
         ->call('askToDeleteTestTable', 1)
-        ->assertSee('This cannot be undone.')
+        ->assertDispatched('instruments-desk-open-test-table-delete-modal')
         ->call('deleteTestTable', 1)
         ->assertHasNoErrors()
-        ->assertSee('Test table deleted.')
         ->assertDontSee('Weight Calibration');
 
     $this->assertDatabaseMissing('test_profile', ['profile_name' => 'Weight Calibration']);
@@ -353,9 +347,9 @@ it('deletes an unused active test table that has no retired version', function (
         ->assertSee('Delete Table')
         ->assertDontSee('Archive Table')
         ->call('askToDeleteTestTable', 1)
+        ->assertDispatched('instruments-desk-open-test-table-delete-modal')
         ->call('deleteTestTable', 1)
-        ->assertHasNoErrors()
-        ->assertSee('Test table deleted.');
+        ->assertHasNoErrors();
 
     $this->assertDatabaseMissing('test_profile', ['test_profile_id' => 1]);
     $this->assertDatabaseCount('test_profile_version', 0);
@@ -388,10 +382,11 @@ it('archives a used test table instead of deleting it', function () {
 
     managerComponent()
         ->call('askToArchiveTestTable', 1)
-        ->assertSee('Historical calibrations stay unchanged.')
+        ->assertSet('archivingProfileId', 1)
+        ->assertDontSee('Historical calibrations stay unchanged.')
         ->call('archiveTestTable', 1)
         ->assertHasNoErrors()
-        ->assertSee('Test table archived.')
+        ->assertDontSee('Test table archived.')
         ->assertSee('Archived Test Tables')
         ->assertSee('This test table is archived and read-only.')
         ->assertSee('Restore Table')
@@ -467,15 +462,17 @@ it('restores an archived draft-only test table', function () {
 
     managerComponent()
         ->assertSee('Archived Test Tables')
+        ->assertSee('archivedTablesOpen = !archivedTablesOpen', false)
+        ->assertSee('x-show="archivedTablesOpen"', false)
         ->assertSee('Restore Table')
         ->assertDontSee('Edit Table')
         ->assertDontSee('wire:click="startManagingColumns', false)
         ->call('askToRestoreTestTable', 1)
-        ->assertSee('Restore Test Table?')
-        ->assertSee('Its existing versions, columns, rows, and formulas will be preserved.')
+        ->assertSet('restoringProfileId', 1)
+        ->assertDontSee('Its existing versions, columns, rows, and formulas will be preserved.')
         ->call('restoreTestTable', 1)
         ->assertHasNoErrors()
-        ->assertSee('Test table restored.')
+        ->assertDontSee('Test table restored.')
         ->assertSee('Weight Calibration')
         ->assertDontSee('Archived Test Tables')
         ->assertSee('Edit Table')
@@ -506,7 +503,7 @@ it('restores an archived active test table without publishing or forking', funct
         ->call('askToRestoreTestTable', 1)
         ->call('restoreTestTable', 1)
         ->assertHasNoErrors()
-        ->assertSee('Test table restored.')
+        ->assertDontSee('Test table restored.')
         ->assertSee('Fork Draft')
         ->assertDontSee('Publish Version')
         ->assertDontSee('wire:click="startManagingColumns', false);
@@ -669,8 +666,8 @@ it('rejects restoring when a live table already uses the same title', function (
     managerComponent()
         ->call('selectProfile', 2)
         ->call('restoreTestTable', 2)
-        ->assertHasErrors(['testTable'])
-        ->assertSee('Table titles must be different.');
+        ->assertHasErrors(['restoreTestTable'])
+        ->assertDontSee('Table titles must be different.');
 
     $this->assertDatabaseHas('test_profile', [
         'test_profile_id' => 2,

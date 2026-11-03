@@ -42,12 +42,6 @@ class ConfigureInstrumentTypeRequirement
                 throw ConfigureInstrumentTypeRequirementException::instrumentTypeMissing();
             }
 
-            if ($category === InstrumentTypeRequirement::CATEGORY_ENVIRONMENT
-                && $mode === InstrumentTypeRequirement::MODE_REQUIRED
-                && ! $this->hasRequiredEnvironmentParameter($connection, $instrumentTypeId)) {
-                throw ConfigureInstrumentTypeRequirementException::environmentRequiredParameterMissing();
-            }
-
             $this->upsert($connection, $instrumentTypeId, $category, $mode);
         });
     }
@@ -72,14 +66,6 @@ class ConfigureInstrumentTypeRequirement
         }
 
         return $mode;
-    }
-
-    private function hasRequiredEnvironmentParameter(Connection $connection, int $instrumentTypeId): bool
-    {
-        return $connection->table('instrument_type_environment_parameter')
-            ->where('instrument_type_id', $instrumentTypeId)
-            ->where('requirement_mode', InstrumentTypeRequirement::MODE_REQUIRED)
-            ->exists();
     }
 
     private function upsert(Connection $connection, int $instrumentTypeId, string $category, string $mode): void

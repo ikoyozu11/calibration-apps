@@ -218,18 +218,64 @@ class RecordCalibrationActivity
         ];
     }
 
+    /**
+     * @param  list<int|string>  $activityIds
+     *
+     * @throws RecordCalibrationActivityException
+     * @throws CalibrationSessionConnectionException
+     * @throws QueryException
+     */
+    public function sync(
+        int $calibrationId,
+        array $activityIds,
+        Connection $connection,
+    ): void {
+        $connection = $this->open($connection, $calibrationId);
+        $desired = $this->uniqueActivityIds($activityIds);
+
+        $connection->transaction(function () use ($connection, $calibrationId, $desired): void {
+            $locked = $this->lockSession($connection, $calibrationId);
+            $current = [];
+
+            foreach ($locked['activities'] as $activity) {
+                if ($activity->activity_id !== null) {
+                    $current[(int) $activity->activity_id] = (int) $activity->calibration_activity_id;
+                }
+            }
+
+            foreach ($current as $activityId => $rowId) {
+                if (! in_array($activityId, $desired, true)) {
+                    $this->deleteOwnedActivity($connection, $calibrationId, $rowId);
+                }
+            }
+
+            $activities = $this->lockedActivities($connection, $calibrationId);
+
+            foreach ($desired as $activityId) {
+                if (isset($current[$activityId])) {
+                    continue;
+                }
+
+                $this->assertDistinctActivity($activities, $activityId);
+                $name = $this->activeMasterName($this->lockMaster($connection, $activityId));
+                $this->insertCatalogActivity($connection, $calibrationId, $activityId, $name, $activities);
+                $activities = $this->lockedActivities($connection, $calibrationId);
+            }
+
+            $this->renumberActivities($connection, $calibrationId, $this->lockedActivities($connection, $calibrationId));
+        });
+    }
+
     private function assertOperableMode(object $snapshot): void
     {
         $frozen = (string) $snapshot->frozen_mode;
-        $resolved = $snapshot->resolved_mode !== null ? (string) $snapshot->resolved_mode : null;
-        $mode = $this->effectiveMode($frozen, $resolved);
 
-        if (in_array($mode, [InstrumentTypeRequirement::MODE_REQUIRED, InstrumentTypeRequirement::MODE_OPTIONAL], true)) {
+        if (in_array($frozen, [
+            InstrumentTypeRequirement::MODE_REQUIRED,
+            InstrumentTypeRequirement::MODE_OPTIONAL,
+            InstrumentTypeRequirement::MODE_NOT_CONFIGURED,
+        ], true)) {
             return;
-        }
-
-        if ($frozen === InstrumentTypeRequirement::MODE_NOT_CONFIGURED) {
-            throw RecordCalibrationActivityException::unresolvedActivityMode();
         }
 
         throw RecordCalibrationActivityException::invalidEffectiveMode();
@@ -332,5 +378,100 @@ class RecordCalibrationActivity
         }
 
         throw RecordCalibrationActivityException::foreignSessionActivity();
+    }
+
+    /**
+     * @param  list<int|string>  $activityIds
+     * @return list<int>
+     */
+    private function uniqueActivityIds(array $activityIds): array
+    {
+        $desired = [];
+
+        foreach ($activityIds as $activityId) {
+            $id = (int) $activityId;
+
+            if ($id < 1) {
+                throw RecordCalibrationActivityException::invalidActivityId();
+            }
+
+            if (! in_array($id, $desired, true)) {
+                $desired[] = $id;
+            }
+        }
+
+        return $desired;
+    }
+
+    /**
+     * @return Collection<int, object>
+     */
+    private function lockedActivities(Connection $connection, int $calibrationId): Collection
+    {
+        return $connection->table('calibration_activity')
+            ->where('calibration_id', $calibrationId)
+            ->orderBy('activity_order')
+            ->orderBy('calibration_activity_id')
+            ->lockForUpdate()
+            ->get();
+    }
+
+    /**
+     * @param  Collection<int, object>  $activities
+     */
+    private function insertCatalogActivity(
+        Connection $connection,
+        int $calibrationId,
+        int $activityId,
+        string $name,
+        Collection $activities,
+    ): void {
+        $payload = [
+            'calibration_id' => $calibrationId,
+            'activity_type' => $name,
+            'activity_id' => $activityId,
+            'activity_name' => $name,
+            'activity_description' => null,
+            'activity_result' => null,
+            'activity_order' => $this->nextActivityOrder($activities),
+            'created_at' => now(),
+        ];
+
+        if ($connection->getDriverName() !== 'pgsql') {
+            $payload['calibration_activity_id'] = ((int) $connection->table('calibration_activity')->max('calibration_activity_id')) + 1;
+        }
+
+        $connection->table('calibration_activity')->insert($payload);
+    }
+
+    private function deleteOwnedActivity(Connection $connection, int $calibrationId, int $calibrationActivityId): void
+    {
+        $deleted = $connection->table('calibration_activity')
+            ->where('calibration_activity_id', $calibrationActivityId)
+            ->where('calibration_id', $calibrationId)
+            ->delete();
+
+        if ($deleted !== 1) {
+            throw RecordCalibrationActivityException::missingSessionActivity();
+        }
+    }
+
+    /**
+     * @param  Collection<int, object>  $activities
+     */
+    private function renumberActivities(Connection $connection, int $calibrationId, Collection $activities): void
+    {
+        $order = 1;
+
+        foreach ($activities as $activity) {
+            if ((int) $activity->activity_order !== $order) {
+                $connection->table('calibration_activity')
+                    ->where('calibration_activity_id', $activity->calibration_activity_id)
+                    ->where('calibration_id', $calibrationId)
+                    ->update(['activity_order' => $order]);
+            }
+
+            $order++;
+        }
     }
 }

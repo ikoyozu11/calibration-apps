@@ -99,36 +99,18 @@ class MaterializeCalibrationTestTemplateValues
     {
         $frozen = (string) $snapshot->frozen_mode;
         $resolved = $snapshot->resolved_mode !== null ? (string) $snapshot->resolved_mode : null;
-        $mode = $this->effectiveMode($frozen, $resolved);
+        $mode = CalibrationSessionRequirementPolicy::effectiveMode(
+            InstrumentTypeRequirement::CATEGORY_TEST_PROFILE,
+            $frozen,
+            $resolved,
+            Calibration::METHOD_INTERNAL,
+        );
 
         if (in_array($mode, [InstrumentTypeRequirement::MODE_REQUIRED, InstrumentTypeRequirement::MODE_OPTIONAL], true)) {
             return $mode;
         }
 
-        if ($frozen === InstrumentTypeRequirement::MODE_NOT_CONFIGURED) {
-            throw MaterializeCalibrationTestTemplateValuesException::unresolvedTestProfileMode();
-        }
-
         throw MaterializeCalibrationTestTemplateValuesException::invalidEffectiveMode();
-    }
-
-    /**
-     * PostgreSQL calibration_requirement_effective_mode CASE.
-     */
-    private function effectiveMode(string $frozenMode, ?string $resolvedMode): string
-    {
-        if (in_array($frozenMode, [InstrumentTypeRequirement::MODE_REQUIRED, InstrumentTypeRequirement::MODE_OPTIONAL], true)) {
-            return $frozenMode;
-        }
-
-        if (
-            $frozenMode === InstrumentTypeRequirement::MODE_NOT_CONFIGURED
-            && in_array($resolvedMode, [InstrumentTypeRequirement::MODE_REQUIRED, InstrumentTypeRequirement::MODE_OPTIONAL], true)
-        ) {
-            return $resolvedMode;
-        }
-
-        return InstrumentTypeRequirement::MODE_NOT_CONFIGURED;
     }
 
     /**
@@ -361,7 +343,7 @@ class MaterializeCalibrationTestTemplateValues
         $rule = $column['completion_rule'] ?? null;
 
         if ($rule === InstrumentTypeRequirement::MODE_NOT_CONFIGURED) {
-            throw MaterializeCalibrationTestTemplateValuesException::notConfiguredTemplateColumn();
+            $rule = InstrumentTypeRequirement::MODE_OPTIONAL;
         }
 
         $dataType = $column['data_type'] ?? null;

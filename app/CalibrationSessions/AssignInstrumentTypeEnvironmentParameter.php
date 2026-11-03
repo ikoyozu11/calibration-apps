@@ -178,7 +178,7 @@ class AssignInstrumentTypeEnvironmentParameter
             );
 
             $orderedIds = $this->reorderIds($parameterIds, $assignments->pluck('parameter_id')->map(
-                fn (mixed $parameterId): int => (int) $parameterId,
+                fn(mixed $parameterId): int => (int) $parameterId,
             )->all());
 
             if ($orderedIds === []) {
@@ -187,7 +187,7 @@ class AssignInstrumentTypeEnvironmentParameter
 
             $temporaryOrders = $this->temporaryDisplayOrders(
                 count($orderedIds),
-                $assignments->pluck('display_order')->map(fn (mixed $order): int => (int) $order)->all(),
+                $assignments->pluck('display_order')->map(fn(mixed $order): int => (int) $order)->all(),
             );
 
             foreach ($orderedIds as $index => $parameterId) {

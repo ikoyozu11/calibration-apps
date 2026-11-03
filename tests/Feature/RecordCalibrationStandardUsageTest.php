@@ -490,22 +490,19 @@ it('leaves an existing legacy usage row unchanged when another standard is added
         ]);
 });
 
-it('rejects an unresolved not-configured standards requirement', function (?string $resolved) {
+it('records standard usage when the frozen standards mode is not configured', function () {
     $connection = recordStandardUsageConnection();
     recordStandardUsageSeed($connection, snapshot: [
         'frozen_mode' => InstrumentTypeRequirement::MODE_NOT_CONFIGURED,
-        'resolved_mode' => $resolved,
+        'resolved_mode' => null,
     ]);
 
-    expect(fn () => recordStandardUsageService()->add(40, 5, null, null, null, null, $connection))
-        ->toThrow(RecordCalibrationStandardUsageException::class, 'An unresolved not-configured standards requirement cannot record standard usage.');
+    recordStandardUsageService()->add(40, 5, null, null, null, null, $connection);
 
-    expect($connection->table('calibration_standard_usage')->count())->toBe(0)
-        ->and($connection->table('calibration_requirement_snapshot')->where('calibration_id', 40)->value('resolved_mode'))->toBe($resolved);
-})->with([
-    'null resolved mode' => null,
-    'resolved mode outside required and optional' => 'mandatory',
-]);
+    expect($connection->table('calibration_standard_usage')->where('calibration_id', 40)->value('standard_id'))->toBe(5)
+        ->and($connection->table('calibration_requirement_snapshot')->where('calibration_id', 40)->value('frozen_mode'))->toBe(InstrumentTypeRequirement::MODE_NOT_CONFIGURED)
+        ->and($connection->table('calibration_requirement_snapshot')->where('calibration_id', 40)->value('resolved_mode'))->toBeNull();
+});
 
 it('rejects a frozen standards mode outside the known requirement modes', function () {
     $connection = recordStandardUsageConnection();
@@ -702,6 +699,61 @@ it('rejects a usage id that does not exist', function () {
         ->toThrow(RecordCalibrationStandardUsageException::class, 'The standard usage row does not exist.');
     expect(fn () => recordStandardUsageService()->remove(40, 90, $connection))
         ->toThrow(RecordCalibrationStandardUsageException::class, 'The standard usage row does not exist.');
+});
+
+it('syncs assigned and unassigned catalog standards without rewriting existing snapshots', function () {
+    $connection = recordStandardUsageConnection();
+    recordStandardUsageSeed($connection);
+    recordStandardUsageMaster($connection, 7, 'STD-7', 'Unassigned Calibrator', 'Class 1', 'SN-7');
+    recordStandardUsageService()->add(40, 5, null, null, null, null, $connection);
+    $first = (array) recordStandardUsageUsage($connection, 1);
+
+    recordStandardUsageService()->sync(40, [5, 7], $connection);
+
+    expect($connection->table('calibration_standard_usage')->orderBy('usage_order')->pluck('standard_id')->all())->toBe([5, 7])
+        ->and((array) recordStandardUsageUsage($connection, 1))->toBe($first)
+        ->and(recordStandardUsageUsage($connection, 2))->toMatchArray([
+            'standard_id' => 7,
+            'snapshot_standard_code' => 'STD-7',
+            'snapshot_instrument_name' => 'Unassigned Calibrator',
+            'standard_range' => null,
+            'standard_unit' => null,
+        ]);
+});
+
+it('syncs the same ids twice without duplicating rows', function () {
+    $connection = recordStandardUsageConnection();
+    recordStandardUsageSeed($connection);
+
+    recordStandardUsageService()->sync(40, [5, 6], $connection);
+    recordStandardUsageService()->sync(40, [5, 6], $connection);
+
+    expect($connection->table('calibration_standard_usage')->count())->toBe(2)
+        ->and($connection->table('calibration_standard_usage')->orderBy('usage_order')->pluck('standard_id')->all())->toBe([5, 6]);
+});
+
+it('removes catalog usage rows that are omitted from a later sync', function () {
+    $connection = recordStandardUsageConnection();
+    recordStandardUsageSeed($connection);
+    recordStandardUsageService()->sync(40, [5, 6], $connection);
+
+    recordStandardUsageService()->sync(40, [6], $connection);
+
+    expect($connection->table('calibration_standard_usage')->pluck('standard_id')->all())->toBe([6])
+        ->and($connection->table('calibration_standard_usage')->value('usage_order'))->toBe(1);
+});
+
+it('syncs standards when the frozen standards mode is not configured', function () {
+    $connection = recordStandardUsageConnection();
+    recordStandardUsageSeed($connection, [], [
+        'frozen_mode' => InstrumentTypeRequirement::MODE_NOT_CONFIGURED,
+        'resolved_mode' => null,
+    ]);
+
+    recordStandardUsageService()->sync(40, [5], $connection);
+
+    expect($connection->table('calibration_standard_usage')->where('calibration_id', 40)->value('standard_id'))->toBe(5)
+        ->and($connection->table('calibration_requirement_snapshot')->where('calibration_id', 40)->value('resolved_mode'))->toBeNull();
 });
 
 it('rejects an unsafe connection before querying the session', function () {

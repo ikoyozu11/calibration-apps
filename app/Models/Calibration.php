@@ -16,6 +16,7 @@ use Illuminate\Support\Carbon;
  * @property int $instrument_id
  * @property int|null $instrument_type_id
  * @property int|null $calibration_provider_id
+ * @property string|null $external_vendor_name
  * @property string $calibration_number
  * @property Carbon|null $calibration_date
  * @property Carbon|null $calibration_due

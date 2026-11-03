@@ -26,4 +26,9 @@ class ConfigureInstrumentTypeRequirementException extends RuntimeException imple
     {
         return new self('Environment required needs at least one required environment parameter.');
     }
+
+    public static function environmentRoomMeasurementsMissing(): self
+    {
+        return new self('Internal environment requires Temperature and Relative Humidity as required parameters.');
+    }
 }

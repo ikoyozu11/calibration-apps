@@ -3,10 +3,11 @@
 namespace App\TestColumns;
 
 use Illuminate\Database\QueryException;
-use Illuminate\Support\Facades\DB;
 
 class PostgresTestColumnWriter implements TestColumnWriter
 {
+    use WritesThroughHttpConnection;
+
     public function insert(ColumnDefinition $column): int
     {
         $row = $this->call(
@@ -68,7 +69,7 @@ class PostgresTestColumnWriter implements TestColumnWriter
     private function call(string $sql, array $bindings): object
     {
         try {
-            $row = DB::selectOne($sql, $bindings);
+            $row = $this->writeConnection()->selectOne($sql, $bindings);
         } catch (QueryException $exception) {
             throw new TestColumnWriteException(
                 TestColumnConstraintMessage::fromDatabaseMessage($exception->getMessage()),

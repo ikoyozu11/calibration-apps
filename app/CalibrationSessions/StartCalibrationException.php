@@ -44,6 +44,11 @@ class StartCalibrationException extends RuntimeException implements ShouldntRepo
         return new self('An environment parameter configuration is missing its parameter definition.');
     }
 
+    public static function roomEnvironmentCatalogMissing(): self
+    {
+        return new self('Internal calibration requires Temperature and Relative Humidity in the environment catalog.');
+    }
+
     public static function locationMissing(): self
     {
         return new self('The instrument location does not exist.', 'instrument');

@@ -26,7 +26,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'application.role' => EnsureApplicationRole::class,
         ]);
 
-        // Staging isolation must run before session/auth/CSRF can touch a database.
+        // Production-name refusal and staging isolation must run before session/auth/CSRF can touch a database.
         $middleware->prepend(EnsureStagingRuntimeIsolation::class);
 
         // Deny roleless users before route-model binding hits domain tables.

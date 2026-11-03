@@ -5,6 +5,7 @@ use App\Authorization\AssignApplicationRole;
 use App\Authorization\ResolveApplicationRole;
 use App\CalibrationSessions\CalibrationNumberAllocator;
 use App\CalibrationSessions\CalibrationSessionConnection;
+use App\CalibrationSessions\RecordCalibrationStandardUsage;
 use App\CalibrationSessions\ResolveDomainActor;
 use App\CalibrationSessions\ResolveDomainActorException;
 use App\CalibrationSessions\StartCalibrationException;
@@ -258,6 +259,56 @@ function createStartCalibrationTables(): void
     });
 }
 
+function seedStartCalibrationAssignedStandards(): void
+{
+    Schema::table('calibration_standard_usage', function (Blueprint $table): void {
+        $table->unsignedBigInteger('standard_instrument_id')->nullable();
+        $table->string('usage_purpose')->nullable();
+        $table->text('remarks')->nullable();
+        $table->timestamp('created_at')->nullable();
+        $table->string('standard_range')->nullable();
+        $table->string('standard_unit')->nullable();
+        $table->string('snapshot_standard_code')->nullable();
+        $table->string('snapshot_instrument_name')->nullable();
+        $table->string('snapshot_type_specification')->nullable();
+        $table->string('snapshot_serial_number')->nullable();
+    });
+
+    Schema::create('standard_master', function (Blueprint $table): void {
+        $table->id('standard_id');
+        $table->string('standard_code');
+        $table->string('instrument_name');
+        $table->string('type_specification')->nullable();
+        $table->string('serial_number')->nullable();
+    });
+
+    Schema::create('instrument_type_standard_assignment', function (Blueprint $table): void {
+        $table->id('instrument_type_standard_assignment_id');
+        $table->unsignedBigInteger('instrument_type_id');
+        $table->unsignedBigInteger('standard_id')->nullable();
+        $table->integer('assignment_order');
+        $table->string('default_range')->nullable();
+        $table->string('default_unit')->nullable();
+    });
+
+    DB::table('standard_master')->insert([
+        'standard_id' => 31,
+        'standard_code' => 'STD-0031',
+        'instrument_name' => 'Weight Standard E2 Class',
+        'type_specification' => '0.0001 - 10.0000 gr',
+        'serial_number' => '40488',
+    ]);
+
+    DB::table('instrument_type_standard_assignment')->insert([
+        'instrument_type_standard_assignment_id' => 41,
+        'instrument_type_id' => 11,
+        'standard_id' => 31,
+        'assignment_order' => 1,
+        'default_range' => '0.0001 - 10.0000 gr',
+        'default_unit' => 'gr',
+    ]);
+}
+
 /**
  * @return array{
  *     allocator: FakeCalibrationNumberAllocator,
@@ -449,7 +500,7 @@ function seedStartCalibrationConfiguration(): void
         [
             'instrument_type_id' => 11,
             'parameter_id' => 2,
-            'requirement_mode' => InstrumentTypeRequirement::MODE_OPTIONAL,
+            'requirement_mode' => InstrumentTypeRequirement::MODE_REQUIRED,
             'display_order' => 2,
         ],
     ]);
@@ -715,6 +766,30 @@ it('snapshots all four requirement categories including omitted not_configured r
         ->and(CalibrationRequirementSnapshot::query()->where('calibration_id', $calibration->calibration_id)->whereNotNull('configuration_confirmed_at')->count())->toBe(0);
 });
 
+it('freezes activity as optional for a new internal session even when the type master is required', function () {
+    createStartCalibrationTables();
+    seedStartCalibrationInstrumentType();
+    seedStartCalibrationLocation();
+    seedInternalCalibrationTeam();
+    seedStartCalibrationConfiguration();
+    DB::table('instrument_type_requirement')
+        ->where('instrument_type_id', 11)
+        ->where('requirement_category', InstrumentTypeRequirement::CATEGORY_ACTIVITY)
+        ->update(['requirement_mode' => InstrumentTypeRequirement::MODE_REQUIRED]);
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection, 'appUserId' => $appUserId] = bindStartCalibrationServices();
+
+    $calibration = $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
+
+    expect(CalibrationRequirementSnapshot::query()
+        ->where('calibration_id', $calibration->calibration_id)
+        ->where('requirement_category', InstrumentTypeRequirement::CATEGORY_ACTIVITY)
+        ->value('frozen_mode'))->toBe(InstrumentTypeRequirement::MODE_OPTIONAL)
+        ->and(DB::table('instrument_type_requirement')
+            ->where('instrument_type_id', 11)
+            ->where('requirement_category', InstrumentTypeRequirement::CATEGORY_ACTIVITY)
+            ->value('requirement_mode'))->toBe(InstrumentTypeRequirement::MODE_REQUIRED);
+});
+
 it('keeps frozen requirement modes after the instrument type master changes', function () {
     createStartCalibrationTables();
     seedStartCalibrationInstrumentType();
@@ -771,9 +846,169 @@ it('snapshots environment parameter configuration without measured values', func
         ->and($snapshots[0]->inclusion_confirmed)->toBeTrue()
         ->and($snapshots[0]->inclusion_reason)->toBeNull()
         ->and($snapshots[1]->parameter_code)->toBe('relative_humidity')
-        ->and($snapshots[1]->requirement_mode)->toBe(InstrumentTypeRequirement::MODE_OPTIONAL)
+        ->and($snapshots[1]->requirement_mode)->toBe(InstrumentTypeRequirement::MODE_REQUIRED)
         ->and(DB::table('calibration_environment_value')->count())->toBe(0)
         ->and(DB::table('calibration_environment')->count())->toBe(0);
+});
+
+it('starts an internal session without a temperature type assignment', function () {
+    createStartCalibrationTables();
+    seedStartCalibrationInstrumentType();
+    seedStartCalibrationLocation();
+    seedInternalCalibrationTeam();
+    seedStartCalibrationConfiguration();
+    DB::table('instrument_type_environment_parameter')->where('parameter_id', 1)->delete();
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection] = bindStartCalibrationServices();
+
+    $calibration = $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
+    $snapshots = CalibrationEnvironmentParameterSnapshot::query()
+        ->where('calibration_id', $calibration->calibration_id)
+        ->orderBy('display_order')
+        ->get();
+
+    expect($calibration->session_status)->toBe(Calibration::STATUS_IN_PROGRESS)
+        ->and($snapshots->pluck('parameter_code')->all())->toBe(['temperature', 'relative_humidity'])
+        ->and($snapshots->pluck('requirement_mode')->unique()->all())->toBe([InstrumentTypeRequirement::MODE_REQUIRED])
+        ->and(DB::table('calibration_environment_value')->count())->toBe(0);
+});
+
+it('starts an internal session without a relative humidity type assignment', function () {
+    createStartCalibrationTables();
+    seedStartCalibrationInstrumentType();
+    seedStartCalibrationLocation();
+    seedInternalCalibrationTeam();
+    seedStartCalibrationConfiguration();
+    DB::table('instrument_type_environment_parameter')->where('parameter_id', 2)->delete();
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection] = bindStartCalibrationServices();
+
+    $calibration = $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
+
+    expect(CalibrationEnvironmentParameterSnapshot::query()
+        ->where('calibration_id', $calibration->calibration_id)
+        ->orderBy('display_order')
+        ->pluck('parameter_code')
+        ->all())->toBe(['temperature', 'relative_humidity'])
+        ->and(DB::table('calibration_environment_value')->count())->toBe(0);
+});
+
+it('freezes optional master temperature or humidity assignments as required session fields', function (int $parameterId) {
+    createStartCalibrationTables();
+    seedStartCalibrationInstrumentType();
+    seedStartCalibrationLocation();
+    seedInternalCalibrationTeam();
+    seedStartCalibrationConfiguration();
+    DB::table('instrument_type_environment_parameter')
+        ->where('parameter_id', $parameterId)
+        ->update(['requirement_mode' => InstrumentTypeRequirement::MODE_OPTIONAL]);
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection] = bindStartCalibrationServices();
+
+    $calibration = $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
+
+    expect(CalibrationEnvironmentParameterSnapshot::query()
+        ->where('calibration_id', $calibration->calibration_id)
+        ->pluck('requirement_mode')
+        ->unique()
+        ->all())->toBe([InstrumentTypeRequirement::MODE_REQUIRED])
+        ->and(DB::table('calibration_environment_value')->count())->toBe(0);
+})->with([
+    'temperature' => 1,
+    'relative humidity' => 2,
+]);
+
+it('starts an internal session without type environment assignments', function (string $mode, string $frozen) {
+    createStartCalibrationTables();
+    seedStartCalibrationInstrumentType();
+    seedStartCalibrationLocation();
+    seedInternalCalibrationTeam();
+    seedStartCalibrationConfiguration();
+    DB::table('instrument_type_environment_parameter')->delete();
+    DB::table('instrument_type_requirement')
+        ->where('requirement_category', InstrumentTypeRequirement::CATEGORY_ENVIRONMENT)
+        ->update(['requirement_mode' => $mode]);
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection] = bindStartCalibrationServices();
+
+    $calibration = $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
+    $environment = DB::table('calibration_requirement_snapshot')
+        ->where('calibration_id', $calibration->calibration_id)
+        ->where('requirement_category', InstrumentTypeRequirement::CATEGORY_ENVIRONMENT)
+        ->first();
+
+    expect($environment?->frozen_mode)->toBe($frozen)
+        ->and(CalibrationEnvironmentParameterSnapshot::query()
+            ->where('calibration_id', $calibration->calibration_id)
+            ->orderBy('display_order')
+            ->pluck('parameter_code')
+            ->all())->toBe(['temperature', 'relative_humidity'])
+        ->and(DB::table('calibration_environment_value')->count())->toBe(0);
+})->with([
+    'optional' => [InstrumentTypeRequirement::MODE_OPTIONAL, InstrumentTypeRequirement::MODE_OPTIONAL],
+    'not configured' => [InstrumentTypeRequirement::MODE_NOT_CONFIGURED, InstrumentTypeRequirement::MODE_REQUIRED],
+]);
+
+it('keeps extra assigned environment parameters after injecting room fields', function () {
+    createStartCalibrationTables();
+    seedStartCalibrationInstrumentType();
+    seedStartCalibrationLocation();
+    seedInternalCalibrationTeam();
+    seedStartCalibrationConfiguration();
+    DB::table('environment_parameter')->insert([
+        'parameter_id' => 3,
+        'parameter_code' => 'pressure',
+        'parameter_name' => 'Pressure',
+        'unit' => 'hPa',
+        'data_type' => 'numeric',
+        'is_system' => 0,
+        'created_at' => '2026-10-20 09:00:00',
+    ]);
+    DB::table('instrument_type_environment_parameter')->insert([
+        'instrument_type_id' => 11,
+        'parameter_id' => 3,
+        'requirement_mode' => InstrumentTypeRequirement::MODE_OPTIONAL,
+        'display_order' => 3,
+    ]);
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection] = bindStartCalibrationServices();
+
+    $calibration = $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
+    $snapshots = CalibrationEnvironmentParameterSnapshot::query()
+        ->where('calibration_id', $calibration->calibration_id)
+        ->orderBy('display_order')
+        ->get();
+
+    expect($snapshots->pluck('parameter_code')->all())->toBe(['temperature', 'relative_humidity', 'pressure'])
+        ->and($snapshots[2]->requirement_mode)->toBe(InstrumentTypeRequirement::MODE_OPTIONAL)
+        ->and(DB::table('calibration_environment_value')->count())->toBe(0);
+});
+
+it('rejects internal start when the room environment catalog is missing', function () {
+    createStartCalibrationTables();
+    seedStartCalibrationInstrumentType();
+    seedStartCalibrationLocation();
+    seedInternalCalibrationTeam();
+    seedStartCalibrationConfiguration();
+    DB::table('instrument_type_environment_parameter')->delete();
+    DB::table('environment_parameter')->delete();
+    ['allocator' => $allocator, 'service' => $service, 'starterId' => $starterId, 'connection' => $connection] = bindStartCalibrationServices();
+
+    expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection))
+        ->toThrow(StartCalibrationException::class, 'Internal calibration requires Temperature and Relative Humidity in the environment catalog.')
+        ->and(Calibration::query()->count())->toBe(0)
+        ->and($allocator->calls)->toBe(0);
+});
+
+it('starts an external session without required temperature or relative humidity assignments', function () {
+    createStartCalibrationTables();
+    seedStartCalibrationInstrumentType();
+    seedStartCalibrationLocation();
+    seedInternalCalibrationTeam();
+    seedStartCalibrationConfiguration();
+    DB::table('instrument_type_environment_parameter')->delete();
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection] = bindStartCalibrationServices();
+
+    $calibration = $service->start(11, Calibration::METHOD_EXTERNAL, $starterId, $connection);
+
+    expect($calibration->calibration_method)->toBe(Calibration::METHOD_EXTERNAL)
+        ->and(Calibration::query()->count())->toBe(1)
+        ->and(CalibrationEnvironmentParameterSnapshot::query()->count())->toBe(0);
 });
 
 it('does not calculate due dates from the instrument type interval', function () {
@@ -977,6 +1212,27 @@ it('rolls back when the identity snapshot cannot be stored', function () {
         ->and($allocator->calls)->toBe(1);
 });
 
+it('persists assigned standards when starting an internal calibration', function () {
+    createStartCalibrationTables();
+    seedStartCalibrationInstrumentType();
+    seedStartCalibrationLocation();
+    seedInternalCalibrationTeam();
+    seedStartCalibrationConfiguration();
+    seedStartCalibrationAssignedStandards();
+    ['service' => $service, 'starterId' => $starterId, 'connection' => $connection] = bindStartCalibrationServices();
+
+    $calibration = $service->start(11, Calibration::METHOD_INTERNAL, $starterId, $connection);
+    $usage = DB::table('calibration_standard_usage')->first();
+
+    expect($calibration->session_status)->toBe(Calibration::STATUS_IN_PROGRESS)
+        ->and($usage)->not->toBeNull()
+        ->and($usage->calibration_id)->toBe($calibration->calibration_id)
+        ->and($usage->standard_id)->toBe(31)
+        ->and($usage->usage_order)->toBe(1)
+        ->and($usage->snapshot_standard_code)->toBe('STD-0031')
+        ->and($usage->snapshot_instrument_name)->toBe('Weight Standard E2 Class');
+});
+
 it('refuses the production postgresql database name', function () {
     $connection = Mockery::mock(Connection::class);
     $connection->shouldReceive('getName')->andReturn('guarded_pgsql');
@@ -989,6 +1245,7 @@ it('refuses the production postgresql database name', function () {
         new FakeCalibrationNumberAllocator,
         app(ResolveDomainActor::class),
         app(ResolveApplicationRole::class),
+        app(RecordCalibrationStandardUsage::class),
     );
 
     expect(fn () => $service->start(11, Calibration::METHOD_INTERNAL, 5, $connection))

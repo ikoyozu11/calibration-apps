@@ -1,5 +1,6 @@
 <?php
 
+use App\CalibrationSessions\CalibrationSessionHttpRead;
 use App\Dashboard\InstrumentCalibrationOverview;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
@@ -11,7 +12,10 @@ new class extends Component
     #[Computed]
     public function overview(): InstrumentCalibrationOverview
     {
-        return InstrumentCalibrationOverview::current($this->search);
+        return InstrumentCalibrationOverview::current(
+            app(CalibrationSessionHttpRead::class)->connection(),
+            $this->search,
+        );
     }
 };
 ?>

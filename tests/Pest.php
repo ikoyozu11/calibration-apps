@@ -79,3 +79,5 @@ function actingAsRolelessUser(?User $user = null): User
 
 require_once __DIR__.'/Support/InstrumentDetailFixtures.php';
 require_once __DIR__.'/Support/ApplicationPageTables.php';
+require_once __DIR__.'/Support/StartCalibrationHttpFixtures.php';
+require_once __DIR__.'/Support/CalibrationSessionPinningUiFixtures.php';

@@ -87,6 +87,26 @@ class CompleteCalibrationSessionException extends RuntimeException implements Sh
         return new self('Required environment needs at least one confirmed required parameter.');
     }
 
+    public static function missingFrozenTemperatureMeasurement(): self
+    {
+        return new self('Complete requires a frozen required Temperature measurement.');
+    }
+
+    public static function missingFrozenRelativeHumidityMeasurement(): self
+    {
+        return new self('Complete requires a frozen required Relative Humidity measurement.');
+    }
+
+    public static function optionalFrozenTemperatureMeasurement(): self
+    {
+        return new self('Temperature must be frozen as required before complete.');
+    }
+
+    public static function optionalFrozenRelativeHumidityMeasurement(): self
+    {
+        return new self('Relative Humidity must be frozen as required before complete.');
+    }
+
     public static function missingRequiredPin(): self
     {
         return new self('Required test profile must be pinned.');

@@ -3,6 +3,8 @@
 use App\Authorization\ApplicationRoleName;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 beforeEach(function (): void {
     Auth::logout();
@@ -37,6 +39,15 @@ it('denies guest livewire access to write-capable pages', function () {
     ]))->assertRedirect(route('login'));
 });
 
+it('shows a password visibility toggle and omits remember me', function () {
+    $this->get(route('login'))
+        ->assertSuccessful()
+        ->assertSee('Email or username')
+        ->assertSee('id="password-visibility"', false)
+        ->assertDontSee('Remember me')
+        ->assertDontSee('name="remember"', false);
+});
+
 it('authenticates with valid credentials', function () {
     $user = User::factory()->create([
         'email' => 'engineer@example.com',
@@ -44,12 +55,37 @@ it('authenticates with valid credentials', function () {
     ]);
 
     $response = $this->post(route('login.store'), [
-        'email' => 'engineer@example.com',
+        'login' => 'engineer@example.com',
         'password' => 'secret-password',
     ]);
 
     $response->assertRedirect(route('home'));
     $this->assertAuthenticatedAs($user);
+});
+
+it('authenticates with an active mapped username', function () {
+    $user = seedLoginMappedUser('admin.desk', 'engineer@example.com', 'secret-password');
+
+    $response = $this->post(route('login.store'), [
+        'login' => 'Admin.Desk',
+        'password' => 'secret-password',
+    ]);
+
+    $response->assertRedirect(route('home'));
+    $this->assertAuthenticatedAs($user);
+});
+
+it('rejects an unmapped or inactive username with a generic error', function () {
+    seedLoginMappedUser('admin.desk', 'engineer@example.com', 'secret-password', active: false);
+
+    $response = $this->from(route('login'))->post(route('login.store'), [
+        'login' => 'admin.desk',
+        'password' => 'secret-password',
+    ]);
+
+    $response->assertRedirect(route('login'));
+    $response->assertSessionHasErrors('login');
+    $this->assertGuest();
 });
 
 it('rejects invalid credentials with a generic error', function () {
@@ -59,15 +95,15 @@ it('rejects invalid credentials with a generic error', function () {
     ]);
 
     $response = $this->from(route('login'))->post(route('login.store'), [
-        'email' => 'engineer@example.com',
+        'login' => 'engineer@example.com',
         'password' => 'wrong-password',
     ]);
 
     $response->assertRedirect(route('login'));
-    $response->assertSessionHasErrors('email');
+    $response->assertSessionHasErrors('login');
     $this->assertGuest();
 
-    expect(session('errors')->first('email'))
+    expect(session('errors')->first('login'))
         ->toBe(__('These credentials do not match our records.'));
 });
 
@@ -79,18 +115,18 @@ it('rate limits repeated failed logins', function () {
 
     for ($attempt = 0; $attempt < 5; $attempt++) {
         $this->from(route('login'))->post(route('login.store'), [
-            'email' => $user->email,
+            'login' => $user->email,
             'password' => 'wrong-password',
-        ])->assertSessionHasErrors('email');
+        ])->assertSessionHasErrors('login');
     }
 
     $response = $this->from(route('login'))->post(route('login.store'), [
-        'email' => $user->email,
+        'login' => $user->email,
         'password' => 'wrong-password',
     ]);
 
-    $response->assertSessionHasErrors('email');
-    expect(session('errors')->first('email'))->toContain('Too many login attempts');
+    $response->assertSessionHasErrors('login');
+    expect(session('errors')->first('login'))->toContain('Too many login attempts');
     $this->assertGuest();
 });
 
@@ -102,7 +138,7 @@ it('redirects to the intended url after login', function () {
     $this->get(route('instruments.index'))->assertRedirect(route('login'));
 
     $response = $this->post(route('login.store'), [
-        'email' => $user->email,
+        'login' => $user->email,
         'password' => 'secret-password',
     ]);
 
@@ -119,7 +155,7 @@ it('regenerates the session on login', function () {
     $sessionBefore = session()->getId();
 
     $this->post(route('login.store'), [
-        'email' => $user->email,
+        'login' => $user->email,
         'password' => 'secret-password',
     ])->assertRedirect(route('home'));
 
@@ -177,3 +213,49 @@ it('preserves existing application route names', function () {
     expect(route('login.store', absolute: false))->toBe('/login');
     expect(route('logout', absolute: false))->toBe('/logout');
 });
+
+function seedLoginMappedUser(
+    string $username,
+    string $email,
+    string $password,
+    bool $active = true,
+): User {
+    $user = User::factory()->create([
+        'email' => $email,
+        'password' => $password,
+    ]);
+
+    if (! Schema::hasTable('app_user')) {
+        Schema::create('app_user', function ($table): void {
+            $table->id('app_user_id');
+            $table->string('username', 100)->unique();
+            $table->boolean('is_active');
+        });
+    }
+
+    if (! Schema::hasTable('user_app_user_map')) {
+        Schema::create('user_app_user_map', function ($table): void {
+            $table->id('user_app_user_map_id');
+            $table->unsignedBigInteger('laravel_user_id');
+            $table->unsignedBigInteger('app_user_id');
+            $table->string('status', 20);
+            $table->timestamp('created_at');
+            $table->timestamp('inactivated_at')->nullable();
+        });
+    }
+
+    $appUserId = (int) DB::table('app_user')->insertGetId([
+        'username' => $username,
+        'is_active' => $active ? 1 : 0,
+    ], 'app_user_id');
+
+    DB::table('user_app_user_map')->insert([
+        'laravel_user_id' => $user->id,
+        'app_user_id' => $appUserId,
+        'status' => $active ? 'active' : 'inactive',
+        'created_at' => now(),
+        'inactivated_at' => $active ? null : now(),
+    ]);
+
+    return $user;
+}

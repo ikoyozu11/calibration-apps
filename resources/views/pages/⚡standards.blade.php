@@ -1,6 +1,7 @@
 <?php
 
 use App\Authorization\AuthorizesMasterDataWrites;
+use App\CalibrationSessions\CalibrationSessionHttpRead;
 use App\Models\StandardMaster;
 use App\Standards\StandardMasterException;
 use App\Standards\StandardMasterWriter;
@@ -28,8 +29,6 @@ new class extends Component
     public string $typeSpecification = '';
 
     public string $serialNumber = '';
-
-    public string $status = '';
 
     public function updatedSearch(): void
     {
@@ -60,43 +59,73 @@ new class extends Component
         $this->resetValidation();
     }
 
-    public function saveStandard(): void
+    public function prepareStandardSave(): void
     {
         $this->authorizeMasterDataManage();
 
-        $this->validate([
-            'instrumentName' => ['required', 'string', 'max:'.StandardMasterWriter::NAME_MAX],
-            'typeSpecification' => ['nullable', 'string', 'max:'.StandardMasterWriter::TYPE_MAX],
-            'serialNumber' => ['nullable', 'string', 'max:'.StandardMasterWriter::SERIAL_MAX],
-        ], [
-            'instrumentName.required' => 'Instrument Name is required.',
-        ]);
+        $this->validateStandardForm();
+
+        $standardCode = $this->editingStandardId === null
+            ? null
+            : StandardMaster::on($this->readConnectionName())
+                ->where('standard_id', $this->editingStandardId)
+                ->value('standard_code');
+
+        $this->dispatch(
+            'instruments-desk-confirm-standard-master-save',
+            componentId: $this->getId(),
+            mode: $this->editingStandardId === null ? 'create' : 'update',
+            standardId: $standardCode ?? $this->editingStandardId,
+            instrumentName: $this->instrumentName,
+        );
+    }
+
+    /**
+     * @return array{created?: bool, updated?: bool, validation?: bool, message?: string}
+     */
+    public function saveStandard(): array
+    {
+        $this->authorizeMasterDataManage();
+
+        try {
+            $this->validateStandardForm();
+        } catch (\Illuminate\Validation\ValidationException $exception) {
+            foreach ($exception->errors() as $field => $messages) {
+                foreach ($messages as $message) {
+                    $this->addError($field, $message);
+                }
+            }
+
+            return ['validation' => true];
+        }
 
         $writer = app(StandardMasterWriter::class);
 
         try {
             if ($this->editingStandardId !== null) {
                 $writer->update($this->editingStandardId, $this->instrumentName, $this->typeSpecification, $this->serialNumber);
-                $this->status = 'Standard updated.';
+                $result = ['updated' => true];
             } else {
                 $writer->create($this->instrumentName, $this->typeSpecification, $this->serialNumber);
-                $this->status = 'Standard saved.';
+                $result = ['created' => true];
             }
         } catch (StandardMasterException $exception) {
             $this->addError($exception->field === 'standard' ? 'instrumentName' : $exception->field, $exception->getMessage());
 
-            return;
+            return ['validation' => true, 'message' => $exception->getMessage()];
         }
 
         $this->cancelForm();
         $this->resetPage();
+
+        return $result;
     }
 
     public function startEditing(int $standardId): void
     {
         $this->authorizeMasterDataManage();
 
-        $standard = StandardMaster::query()->find($standardId);
+        $standard = StandardMaster::on($this->readConnectionName())->find($standardId);
 
         if ($standard === null) {
             $this->addError('standard', 'This standard could not be found.');
@@ -123,26 +152,55 @@ new class extends Component
         $this->resetValidation();
     }
 
-    public function removeStandard(): void
+    public function prepareStandardDelete(int $standardId): void
+    {
+        $this->authorizeMasterDataManage();
+
+        $standard = StandardMaster::on($this->readConnectionName())->find($standardId);
+
+        if ($standard === null) {
+            $this->dispatch('instruments-desk-notification', type: 'error', message: 'This standard could not be found.');
+
+            return;
+        }
+
+        $this->removingStandardId = $standardId;
+        $this->adding = false;
+        $this->editingStandardId = null;
+        $this->dispatch(
+            'instruments-desk-confirm-standard-master-delete',
+            componentId: $this->getId(),
+            standardId: $standardId,
+            standardCode: $standard->standard_code,
+            instrumentName: $standard->instrument_name,
+            serialNumber: $standard->serial_number,
+        );
+    }
+
+    /**
+     * @return array{deleted?: bool, message?: string}
+     */
+    public function removeStandard(): array
     {
         $this->authorizeMasterDataManage();
 
         if ($this->removingStandardId === null) {
-            return;
+            return ['deleted' => false, 'message' => 'This standard could not be found.'];
         }
 
         try {
             app(StandardMasterWriter::class)->delete($this->removingStandardId);
         } catch (StandardMasterException $exception) {
-            $this->addError('standard', $exception->getMessage());
+            $message = $exception->getMessage();
             $this->removingStandardId = null;
 
-            return;
+            return ['deleted' => false, 'message' => $message];
         }
 
-        $this->status = 'Standard deleted.';
         $this->removingStandardId = null;
         $this->resetPage();
+
+        return ['deleted' => true];
     }
 
     /**
@@ -150,7 +208,7 @@ new class extends Component
      */
     public function standards(): LengthAwarePaginator
     {
-        return StandardMaster::query()
+        return StandardMaster::on($this->readConnectionName())
             ->with([
                 'assignments' => function (HasMany $query): void {
                     $query->select([
@@ -171,22 +229,44 @@ new class extends Component
             ->orderBy('standard_code')
             ->paginate(10);
     }
+
+    private function readConnectionName(): string
+    {
+        return app(CalibrationSessionHttpRead::class)->connectionName();
+    }
+
+    private function validateStandardForm(): void
+    {
+        $this->validate([
+            'instrumentName' => ['required', 'string', 'max:'.StandardMasterWriter::NAME_MAX],
+            'typeSpecification' => ['nullable', 'string', 'max:'.StandardMasterWriter::TYPE_MAX],
+            'serialNumber' => ['nullable', 'string', 'max:'.StandardMasterWriter::SERIAL_MAX],
+        ], [
+            'instrumentName.required' => 'Instrument Name is required.',
+        ]);
+    }
 };
 ?>
 
-<div class="px-4 py-8 sm:px-6 lg:px-10">
+<div
+    class="px-4 py-8 sm:px-6 lg:px-10"
+    data-component-id="{{ $this->getId() }}"
+    x-data="{
+        adding: $wire.entangle('adding'),
+        editingStandardId: $wire.entangle('editingStandardId'),
+        get standardModalOpen() { return this.adding || this.editingStandardId !== null; },
+        requestCloseStandardModal() {
+            window.instrumentsDeskNotifications.standardMasterDiscardConfirmation({ componentId: $root.dataset.componentId });
+        },
+    }"
+    x-on:keydown.escape.window="if (standardModalOpen) requestCloseStandardModal()"
+    x-init="$watch('standardModalOpen', (open) => $nextTick(() => open ? $refs.standardInstrumentName?.focus() : $refs.addStandardButton?.focus()))"
+>
     <div class="mx-auto flex max-w-6xl flex-col gap-8">
         <header>
             <h1 class="text-2xl font-semibold tracking-tight text-navy">Standard(s) Used</h1>
             <p class="mt-1 text-sm text-muted">Register master standards independently of the Instruments list.</p>
         </header>
-
-        @if ($status)
-            <p class="ui-alert" role="status">{{ $status }}</p>
-        @endif
-        @error('standard')
-            <p class="ui-error">{{ $message }}</p>
-        @enderror
 
         <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="standard-master-heading">
             <div class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -195,42 +275,10 @@ new class extends Component
                     <label for="standard-master-search" class="sr-only">Search by name, type, or serial number</label>
                     <input id="standard-master-search" type="search" wire:model.live.debounce.300ms="search" maxlength="100" class="ui-input" placeholder="Name, type / specification, or serial">
                     @can('masterdata.manage')
-                        <button type="button" wire:click="startAdding" class="ui-button-outline">Add New Standard</button>
+                        <button x-ref="addStandardButton" type="button" wire:click="startAdding" class="ui-button-outline">Add New Standard</button>
                     @endcan
                 </div>
             </div>
-
-            @if ($adding || $editingStandardId !== null)
-                <form wire:submit="saveStandard" class="flex flex-col gap-3 border-t border-white/70 px-5 py-4">
-                    <div class="grid gap-3 sm:grid-cols-3">
-                        <div>
-                            <label for="master-instrument-name" class="ui-label">Instrument Name</label>
-                            <input id="master-instrument-name" type="text" wire:model="instrumentName" maxlength="150" required class="ui-input">
-                            @error('instrumentName')
-                                <p class="ui-error">{{ $message }}</p>
-                            @enderror
-                        </div>
-                        <div>
-                            <label for="master-type-specification" class="ui-label">Type / Specification <span class="font-normal text-muted">(optional)</span></label>
-                            <input id="master-type-specification" type="text" wire:model="typeSpecification" maxlength="150" class="ui-input">
-                            @error('typeSpecification')
-                                <p class="ui-error">{{ $message }}</p>
-                            @enderror
-                        </div>
-                        <div>
-                            <label for="master-serial-number" class="ui-label">Serial Number <span class="font-normal text-muted">(optional)</span></label>
-                            <input id="master-serial-number" type="text" wire:model="serialNumber" maxlength="150" class="ui-input">
-                            @error('serialNumber')
-                                <p class="ui-error">{{ $message }}</p>
-                            @enderror
-                        </div>
-                    </div>
-                    <div class="flex flex-wrap gap-2">
-                        <button type="submit" class="ui-button-primary" wire:loading.attr="disabled" wire:target="saveStandard">{{ $editingStandardId !== null ? 'Save changes' : 'Save Standard' }}</button>
-                        <button type="button" wire:click="cancelForm" class="ui-button-secondary">Cancel</button>
-                    </div>
-                </form>
-            @endif
 
             @if ($this->standards()->isEmpty())
                 <p class="px-5 py-8 text-sm text-navy/70">No standards found.</p>
@@ -266,20 +314,10 @@ new class extends Component
                                         @endif
                                     </td>
                                     <td class="px-5 py-3.5">
-                                        @if ((int) $removingStandardId === (int) $standard->standard_id)
-                                            <div class="flex flex-col gap-2">
-                                                <p class="text-sm text-navy">Delete this standard from the master list?</p>
-                                                <div class="flex flex-wrap gap-2">
-                                                    <button type="button" wire:click="removeStandard" class="ui-button-danger" wire:loading.attr="disabled" wire:target="removeStandard">Delete</button>
-                                                    <button type="button" wire:click="cancelForm" class="ui-button-secondary">Cancel</button>
-                                                </div>
-                                            </div>
-                                        @else
-                                            <div class="flex flex-wrap gap-2">
-                                                <button type="button" wire:click="startEditing({{ $standard->standard_id }})" class="ui-button-outline">Edit</button>
-                                                <button type="button" wire:click="askToRemove({{ $standard->standard_id }})" class="ui-button-danger">Delete</button>
-                                            </div>
-                                        @endif
+                                        <div class="flex flex-wrap gap-2">
+                                            <button type="button" wire:click="startEditing({{ $standard->standard_id }})" class="ui-button-outline">Edit</button>
+                                            <button type="button" wire:click="prepareStandardDelete({{ $standard->standard_id }})" class="ui-button-danger" wire:loading.attr="disabled" wire:target="prepareStandardDelete">Delete</button>
+                                        </div>
                                     </td>
                                 </tr>
                             @endforeach
@@ -291,5 +329,68 @@ new class extends Component
                 </div>
             @endif
         </section>
+    </div>
+
+    <div
+        x-cloak
+        x-show="standardModalOpen"
+        x-transition:enter="transition ease-out duration-200"
+        x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100"
+        x-transition:leave="transition ease-in duration-180"
+        x-transition:leave-start="opacity-100"
+        x-transition:leave-end="opacity-0"
+        class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-navy/40 px-4 py-8 sm:items-center"
+        role="presentation"
+        x-on:click.self="requestCloseStandardModal()"
+    >
+        <div
+            x-show="standardModalOpen"
+            x-transition:enter="transition ease-out duration-200"
+            x-transition:enter-start="scale-95 opacity-0"
+            x-transition:enter-end="scale-100 opacity-100"
+            x-transition:leave="transition ease-in duration-180"
+            x-transition:leave-start="scale-100 opacity-100"
+            x-transition:leave-end="scale-95 opacity-0"
+            class="w-full max-w-2xl overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-2xl motion-reduce:transition-none"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="standard-master-modal-heading"
+            data-standard-master-modal
+            x-on:click.stop
+        >
+            <div class="flex items-start justify-between bg-navy px-5 py-4">
+                <div>
+                    <h2 id="standard-master-modal-heading" class="text-base font-semibold tracking-tight text-white" x-text="editingStandardId !== null ? 'Edit Standard' : 'Add New Standard'"></h2>
+                    <p class="mt-1 text-sm text-white/80" x-text="editingStandardId !== null ? 'Update the selected standard information.' : 'Create a new standard in the Standard Master.'"></p>
+                </div>
+                <button type="button" class="text-xl leading-none text-white/80 hover:text-white" aria-label="Close" x-on:click="requestCloseStandardModal()">&times;</button>
+            </div>
+
+            <form wire:submit="prepareStandardSave" class="max-h-[calc(100vh-9rem)] overflow-y-auto px-5 py-5">
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <div class="sm:col-span-2">
+                        <label for="master-instrument-name" class="ui-label">Instrument Name <span class="text-red-700">*</span></label>
+                        <input x-ref="standardInstrumentName" id="master-instrument-name" data-standard-form-field data-initial-value="{{ $instrumentName }}" type="text" wire:model="instrumentName" maxlength="150" required class="ui-input">
+                        @error('instrumentName') <p class="ui-error">{{ $message }}</p> @enderror
+                    </div>
+                    <div>
+                        <label for="master-type-specification" class="ui-label">Type / Specification <span class="font-normal text-muted">(optional)</span></label>
+                        <input id="master-type-specification" data-standard-form-field data-initial-value="{{ $typeSpecification }}" type="text" wire:model="typeSpecification" maxlength="150" class="ui-input">
+                        @error('typeSpecification') <p class="ui-error">{{ $message }}</p> @enderror
+                    </div>
+                    <div>
+                        <label for="master-serial-number" class="ui-label">Serial Number <span class="font-normal text-muted">(optional)</span></label>
+                        <input id="master-serial-number" data-standard-form-field data-initial-value="{{ $serialNumber }}" type="text" wire:model="serialNumber" maxlength="150" class="ui-input">
+                        @error('serialNumber') <p class="ui-error">{{ $message }}</p> @enderror
+                    </div>
+                </div>
+
+                <div class="mt-6 flex flex-wrap items-center gap-3 border-t border-brand/20 pt-4">
+                    <button type="submit" class="ui-button-primary" wire:loading.attr="disabled" wire:target="prepareStandardSave" x-text="editingStandardId !== null ? 'Save Changes' : 'Save Standard'"></button>
+                    <button type="button" class="ui-button-secondary" x-on:click="requestCloseStandardModal()">Cancel</button>
+                </div>
+            </form>
+        </div>
     </div>
 </div>

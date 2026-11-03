@@ -47,6 +47,16 @@ class AssignInstrumentTypeEnvironmentParameterException extends RuntimeException
         return new self('Environment required needs at least one required environment parameter.');
     }
 
+    public static function systemParameterMustBeRequired(): self
+    {
+        return new self('Temperature and Relative Humidity can only be assigned as required.');
+    }
+
+    public static function systemParameterCannotBeRemoved(): self
+    {
+        return new self('Temperature and Relative Humidity cannot be removed after they are assigned.');
+    }
+
     public static function reorderIncomplete(): self
     {
         return new self('Reorder must include every current environment parameter assignment once.');

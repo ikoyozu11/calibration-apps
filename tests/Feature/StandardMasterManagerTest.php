@@ -29,7 +29,7 @@ it('creates and edits a standard from the master page', function () {
         ->set('typeSpecification', '0.0001 - 10.0000 gr')
         ->set('serialNumber', '40488')
         ->call('saveStandard')
-        ->assertSee('Standard saved.')
+        ->assertSet('adding', false)
         ->assertSee('STD-0001')
         ->assertSee('Weight Standard E2 Class');
 
@@ -40,9 +40,22 @@ it('creates and edits a standard from the master page', function () {
         ->set('instrumentName', 'Weight Standard F1 Class')
         ->set('typeSpecification', '')
         ->call('saveStandard')
-        ->assertSee('Standard updated.')
+        ->assertSet('editingStandardId', null)
         ->assertSee('Weight Standard F1 Class')
         ->assertDontSee('0.0001 - 10.0000 gr');
+});
+
+it('dispatches confirmation events before saving or deleting a standard', function () {
+    createInstrumentDetailTestTables();
+    insertStandardMaster(10, 'STD-0010', 'Pressure Drop Standard', null, 'ET4276');
+
+    Livewire::test('pages::standards')
+        ->call('startAdding')
+        ->set('instrumentName', 'New Standard')
+        ->call('prepareStandardSave')
+        ->assertDispatched('instruments-desk-confirm-standard-master-save')
+        ->call('prepareStandardDelete', 10)
+        ->assertDispatched('instruments-desk-confirm-standard-master-delete');
 });
 
 it('shows where a standard is assigned and blocks deletion', function () {
@@ -59,7 +72,7 @@ it('shows where a standard is assigned and blocks deletion', function () {
         ->assertSee('Sodiline · Weight')
         ->call('askToRemove', 10)
         ->call('removeStandard')
-        ->assertSee('This standard is assigned to an instrument type and cannot be deleted.');
+        ->assertSet('removingStandardId', null);
 
     $this->assertDatabaseHas('standard_master', ['standard_id' => 10]);
 });
@@ -71,7 +84,7 @@ it('deletes an unassigned standard after confirmation', function () {
     Livewire::test('pages::standards')
         ->call('askToRemove', 10)
         ->call('removeStandard')
-        ->assertSee('Standard deleted.');
+        ->assertSet('removingStandardId', null);
 
     $this->assertDatabaseCount('standard_master', 0);
 });

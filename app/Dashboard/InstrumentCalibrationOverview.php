@@ -5,7 +5,9 @@ namespace App\Dashboard;
 use App\Models\Calibration;
 use App\Models\Instrument;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use InvalidArgumentException;
 
 final class InstrumentCalibrationOverview
 {
@@ -21,9 +23,9 @@ final class InstrumentCalibrationOverview
         public array $recent,
     ) {}
 
-    public static function current(?string $name = null): self
+    public static function current(Connection $connection, ?string $name = null): self
     {
-        $instruments = Instrument::query()
+        $instruments = Instrument::on(self::connectionName($connection))
             ->select([
                 'instrument_id',
                 'instrument_name',
@@ -166,5 +168,16 @@ final class InstrumentCalibrationOverview
         }
 
         return $date->format('Y-m-d');
+    }
+
+    private static function connectionName(Connection $connection): string
+    {
+        $name = $connection->getName();
+
+        if (! is_string($name) || $name === '') {
+            throw new InvalidArgumentException('Dashboard overview queries require a named connection.');
+        }
+
+        return $name;
     }
 }

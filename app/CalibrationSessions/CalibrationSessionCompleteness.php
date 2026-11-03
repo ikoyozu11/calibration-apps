@@ -2,6 +2,8 @@
 
 namespace App\CalibrationSessions;
 
+use App\Models\EnvironmentParameter;
+
 final class CalibrationSessionCompleteness
 {
     public const MODE_REQUIRED = 'required';
@@ -27,20 +29,17 @@ final class CalibrationSessionCompleteness
     }
 
     /**
-     * Mirrors public.calibration_session_assert_environment_complete.
+     * Mirrors CompleteCalibrationSession::assertEnvironment, including the
+     * INTERNAL Temperature and Relative Humidity guarantee.
+     * Configuration confirmation is not part of this contract.
      *
-     * @param  list<array{requirement_mode: string, value: mixed, inclusion_confirmed?: bool}>  $parameters
+     * @param  list<array{parameter_code?: string, requirement_mode: string, value: mixed, inclusion_confirmed?: bool}>  $parameters
      */
     public static function environmentReadyForInternalComplete(
         string $effectiveMode,
-        bool $configurationConfirmed,
         array $parameters,
     ): bool {
         if ($effectiveMode === self::MODE_NOT_CONFIGURED) {
-            return false;
-        }
-
-        if (! $configurationConfirmed) {
             return false;
         }
 
@@ -48,6 +47,10 @@ final class CalibrationSessionCompleteness
             if (($parameter['inclusion_confirmed'] ?? true) === false) {
                 return false;
             }
+        }
+
+        if (! self::hasRequiredRoomEnvironment($parameters)) {
+            return false;
         }
 
         $required = array_values(array_filter(
@@ -69,16 +72,44 @@ final class CalibrationSessionCompleteness
     }
 
     /**
+     * @param  list<array{parameter_code?: string, requirement_mode: string, value: mixed, inclusion_confirmed?: bool}>  $parameters
+     */
+    private static function hasRequiredRoomEnvironment(array $parameters): bool
+    {
+        foreach ([
+            EnvironmentParameter::CODE_TEMPERATURE,
+            EnvironmentParameter::CODE_RELATIVE_HUMIDITY,
+        ] as $parameterCode) {
+            $matches = array_values(array_filter(
+                $parameters,
+                fn (array $parameter): bool => ($parameter['parameter_code'] ?? null) === $parameterCode,
+            ));
+
+            if (count($matches) !== 1) {
+                return false;
+            }
+
+            $parameter = $matches[0];
+
+            if (($parameter['requirement_mode'] ?? null) !== self::MODE_REQUIRED) {
+                return false;
+            }
+
+            if (! self::hasValue($parameter['value'] ?? null)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * @param  list<array{completion_rule?: string|null, value?: mixed}>  $cells
      */
     public static function testComponentsReady(array $cells): bool
     {
         foreach ($cells as $cell) {
             $rule = $cell['completion_rule'] ?? self::MODE_NOT_CONFIGURED;
-
-            if ($rule === self::MODE_NOT_CONFIGURED) {
-                return false;
-            }
 
             if ($rule === self::MODE_REQUIRED && ! self::hasValue($cell['value'] ?? null)) {
                 return false;

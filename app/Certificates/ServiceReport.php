@@ -16,13 +16,10 @@ class ServiceReport
     /** @var list<array{type_name: string, brand: string, model: string, serial_number: string, max_capacity: ?string, resolution: ?string}>|null */
     private ?array $instrumentRows = null;
 
-    /** @var list<string>|null */
-    private ?array $activities = null;
-
     /** @var list<array{name: string, range: string, serial_number: string}>|null */
     private ?array $standards = null;
 
-    /** @var list<array{label: string, tolerance: ?string, rows: list<array{standard_value: string, average_value: string, correction_value: string, unit: string}>}>|null */
+    /** @var list<array{label: string, remarks: string, tolerance: ?string, rows: list<array{standard_value: string, average_value: string, correction_value: string, unit: string}>}>|null */
     private ?array $testResultGroups = null;
 
     public function __construct(public Certificate $certificate) {}
@@ -77,6 +74,7 @@ class ServiceReport
                         'instrument_type_id',
                         'test_profile_id',
                         'scope_order',
+                        'test_table_snapshot',
                     ])
                     ->orderBy('scope_order')
                     ->orderBy('calibration_scope_id');
@@ -138,17 +136,6 @@ class ServiceReport
                     'humidity_value',
                     'humidity_unit',
                 ]);
-            },
-            'calibration.activities' => function (HasMany $query): void {
-                $query
-                    ->select([
-                        'calibration_activity_id',
-                        'calibration_id',
-                        'activity_description',
-                        'activity_order',
-                    ])
-                    ->orderBy('activity_order')
-                    ->orderBy('calibration_activity_id');
             },
             'calibration.standardUsages' => function (HasMany $query): void {
                 $query
@@ -274,17 +261,7 @@ class ServiceReport
      */
     public function activities(): array
     {
-        if ($this->activities !== null) {
-            return $this->activities;
-        }
-
-        $this->activities = array_values(
-            $this->certificate->calibration->activities
-                ->map(fn ($activity): string => $this->text($activity->activity_description))
-                ->all()
-        );
-
-        return $this->activities;
+        return [];
     }
 
     /**
@@ -312,7 +289,7 @@ class ServiceReport
     }
 
     /**
-     * @return list<array{label: string, tolerance: ?string, rows: list<array{standard_value: string, average_value: string, correction_value: string, unit: string}>}>
+     * @return list<array{label: string, remarks: string, tolerance: ?string, rows: list<array{standard_value: string, average_value: string, correction_value: string, unit: string}>}>
      */
     public function testResultGroups(): array
     {
@@ -336,6 +313,7 @@ class ServiceReport
 
             $groups[] = [
                 'label' => $this->text($scope->instrumentType->type_name),
+                'remarks' => $this->snapshotRemarks($scope->getAttribute('test_table_snapshot')),
                 'tolerance' => $this->correctionTolerance($scope),
                 'rows' => $rows,
             ];
@@ -349,6 +327,17 @@ class ServiceReport
     public function resume(): string
     {
         return $this->text($this->certificate->calibration->resume);
+    }
+
+    private function snapshotRemarks(mixed $snapshot): string
+    {
+        if (is_string($snapshot)) {
+            $snapshot = json_decode($snapshot, true);
+        }
+
+        return is_array($snapshot) && is_string($snapshot['remarks'] ?? null)
+            ? $this->text($snapshot['remarks'])
+            : '';
     }
 
     private function standardSerialNumber(?Instrument $instrument): string

@@ -2,11 +2,12 @@
 
 namespace App\Activities;
 
+use App\CalibrationSessions\CalibrationHttpConnection;
 use App\Models\CalibrationActivity;
 use App\Models\CalibrationActivityMaster;
+use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\QueryException;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 class CalibrationActivityMasterWriter
@@ -15,12 +16,19 @@ class CalibrationActivityMasterWriter
 
     public const CODE_MAX = 30;
 
+    public function __construct(
+        private ?CalibrationHttpConnection $httpConnection = null,
+    ) {}
+
     public function create(string $activityName, ?string $activityCode = null): CalibrationActivityMaster
     {
+        $connection = $this->connection();
+
         try {
-            return DB::transaction(function () use ($activityName, $activityCode): CalibrationActivityMaster {
+            return $connection->transaction(function () use ($connection, $activityName, $activityCode): CalibrationActivityMaster {
                 $activity = new CalibrationActivityMaster;
-                $activity->activity_code = $this->uniqueCode($activityCode);
+                $activity->setConnection($connection->getName());
+                $activity->activity_code = $this->uniqueCode($connection, $activityCode);
                 $activity->activity_name = $this->requiredName($activityName);
                 $activity->is_active = true;
                 $activity->save();
@@ -36,9 +44,11 @@ class CalibrationActivityMasterWriter
 
     public function update(int $activityId, string $activityName): CalibrationActivityMaster
     {
+        $connection = $this->connection();
+
         try {
-            return DB::transaction(function () use ($activityId, $activityName): CalibrationActivityMaster {
-                $activity = $this->locked($activityId);
+            return $connection->transaction(function () use ($connection, $activityId, $activityName): CalibrationActivityMaster {
+                $activity = $this->locked($connection, $activityId);
                 $activity->activity_name = $this->requiredName($activityName);
                 $activity->save();
 
@@ -63,11 +73,13 @@ class CalibrationActivityMasterWriter
 
     public function delete(int $activityId): void
     {
-        try {
-            DB::transaction(function () use ($activityId): void {
-                $activity = $this->locked($activityId);
+        $connection = $this->connection();
 
-                if ($this->isUsedInCalibration($activity)) {
+        try {
+            $connection->transaction(function () use ($connection, $activityId): void {
+                $activity = $this->locked($connection, $activityId);
+
+                if ($this->isUsedInCalibration($connection, $activity)) {
                     throw new CalibrationActivityMasterException('This activity is used in a calibration session and cannot be deleted.');
                 }
 
@@ -82,9 +94,11 @@ class CalibrationActivityMasterWriter
 
     private function setActive(int $activityId, bool $isActive): CalibrationActivityMaster
     {
+        $connection = $this->connection();
+
         try {
-            return DB::transaction(function () use ($activityId, $isActive): CalibrationActivityMaster {
-                $activity = $this->locked($activityId);
+            return $connection->transaction(function () use ($connection, $activityId, $isActive): CalibrationActivityMaster {
+                $activity = $this->locked($connection, $activityId);
                 $activity->is_active = $isActive;
                 $activity->save();
 
@@ -97,9 +111,22 @@ class CalibrationActivityMasterWriter
         }
     }
 
-    private function locked(int $activityId): CalibrationActivityMaster
+    private function connection(): Connection
     {
-        $activity = CalibrationActivityMaster::query()
+        return ($this->httpConnection ?? app(CalibrationHttpConnection::class))->resolve();
+    }
+
+    /**
+     * @return Builder<CalibrationActivityMaster>
+     */
+    private function activities(Connection $connection): Builder
+    {
+        return CalibrationActivityMaster::on($connection->getName());
+    }
+
+    private function locked(Connection $connection, int $activityId): CalibrationActivityMaster
+    {
+        $activity = $this->activities($connection)
             ->where('activity_id', $activityId)
             ->lockForUpdate()
             ->first();
@@ -111,49 +138,53 @@ class CalibrationActivityMasterWriter
         return $activity;
     }
 
-    private function isUsedInCalibration(CalibrationActivityMaster $activity): bool
+    private function isUsedInCalibration(Connection $connection, CalibrationActivityMaster $activity): bool
     {
-        if (! Schema::hasTable((new CalibrationActivity)->getTable())) {
+        $schema = Schema::connection($connection->getName());
+
+        if (! $schema->hasTable((new CalibrationActivity)->getTable())) {
             return false;
         }
 
-        if (Schema::hasColumn('calibration_activity', 'activity_id')) {
-            return CalibrationActivity::query()
+        $query = CalibrationActivity::on($connection->getName());
+
+        if ($schema->hasColumn('calibration_activity', 'activity_id')) {
+            return $query
                 ->where('activity_id', $activity->activity_id)
                 ->exists();
         }
 
-        return CalibrationActivity::query()
-            ->where(function (Builder $query) use ($activity): void {
-                $query
+        return $query
+            ->where(function (Builder $inner) use ($activity): void {
+                $inner
                     ->where('activity_description', $activity->activity_name)
                     ->orWhere('activity_type', $activity->activity_name);
             })
             ->exists();
     }
 
-    private function uniqueCode(?string $activityCode): string
+    private function uniqueCode(Connection $connection, ?string $activityCode): string
     {
         $code = trim((string) $activityCode);
 
         if ($code === '') {
-            return $this->nextCode();
+            return $this->nextCode($connection);
         }
 
         if (mb_strlen($code) > self::CODE_MAX) {
             throw new CalibrationActivityMasterException('The activity code may not be greater than '.self::CODE_MAX.' characters.', 'activityCode');
         }
 
-        if (CalibrationActivityMaster::query()->where('activity_code', $code)->exists()) {
+        if ($this->activities($connection)->where('activity_code', $code)->exists()) {
             throw new CalibrationActivityMasterException('This activity code is already in use.', 'activityCode');
         }
 
         return $code;
     }
 
-    private function nextCode(): string
+    private function nextCode(Connection $connection): string
     {
-        $codes = CalibrationActivityMaster::query()->lockForUpdate()->pluck('activity_code');
+        $codes = $this->activities($connection)->lockForUpdate()->pluck('activity_code');
         $max = 0;
 
         foreach ($codes as $code) {

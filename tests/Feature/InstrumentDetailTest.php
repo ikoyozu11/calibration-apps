@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\DB;
+use Livewire\Livewire;
 
 it('renders one instrument type identity', function () {
     createInstrumentDetailTestTables();
@@ -73,6 +74,65 @@ it('renders one instrument type identity', function () {
         ->assertDontSee('Description')
         ->assertDontSee('DIA-002')
         ->assertSee('No calibration history found.');
+});
+
+it('edits instrument identity without changing the instrument type name', function () {
+    createInstrumentDetailTestTables();
+
+    DB::table('location')->insert([
+        'location_id' => 1,
+        'location_name' => 'Plant A',
+    ]);
+    DB::table('detail_location')->insert([
+        'detail_location_id' => 2,
+        'location_id' => 1,
+        'detail_location_name' => 'Line 2',
+    ]);
+    DB::table('instrument')->insert([
+        'instrument_id' => 3,
+        'instrument_name' => 'Sodiline',
+        'serial_number' => 'OLD-001',
+        'detail_location_id' => 2,
+        'description' => 'Prototype instrument',
+        'created_at' => '2026-10-07 09:17:33',
+    ]);
+    DB::table('instrument_type')->insert([
+        'instrument_type_id' => 31,
+        'instrument_id' => 3,
+        'type_name' => 'Weight',
+        'asset_number' => 'ASSET-9',
+        'max_capacity' => 1000,
+        'max_capacity_unit' => 'g',
+        'resolution' => 0.1,
+        'resolution_unit' => 'g',
+        'brand' => 'Prototype Brand',
+        'model' => 'Prototype Model',
+        'created_at' => '2026-10-07 09:17:33',
+    ]);
+
+    Livewire::test('pages::instruments.show', ['instrument' => 3, 'instrumentType' => 31])
+        ->call('startEditingIdentity')
+        ->set('editInstrumentName', 'Sodiline Updated')
+        ->set('editSerialNumber', 'NEW-001')
+        ->set('editAssetNumber', 'ASSET-10')
+        ->set('editBrand', 'Updated Brand')
+        ->set('editModel', 'Updated Model')
+        ->set('editMaxCapacity', '1200')
+        ->set('editMaxCapacityUnit', 'kg')
+        ->set('editResolution', '0.01')
+        ->set('editResolutionUnit', 'kg')
+        ->call('saveIdentity')
+        ->assertSet('editingIdentity', false)
+        ->assertHasNoErrors();
+
+    expect(DB::table('instrument')->where('instrument_id', 3)->first())
+        ->instrument_name->toBe('Sodiline Updated')
+        ->serial_number->toBe('NEW-001');
+    expect(DB::table('instrument_type')->where('instrument_type_id', 31)->first())
+        ->type_name->toBe('Weight')
+        ->asset_number->toBe('ASSET-10')
+        ->brand->toBe('Updated Brand')
+        ->max_capacity->toBe(1200);
 });
 
 it('opens the first instrument type from the instrument address', function () {

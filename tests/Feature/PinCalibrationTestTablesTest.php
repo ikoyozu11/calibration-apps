@@ -487,16 +487,16 @@ it('pins a test profile that was resolved from not configured', function (string
     'optional' => 'optional',
 ]);
 
-it('rejects an unresolved not configured test profile', function () {
+it('pins an unresolved not configured test profile as optional', function () {
     $connection = pinTestTablesConnection();
     seedPinSession($connection);
     seedPinRequirement($connection, 'not_configured');
     seedActivePinTable($connection, 10, 100);
 
-    expect(fn () => pinTables($connection))
-        ->toThrow(PinCalibrationTestTablesException::class, 'An unresolved not-configured test profile cannot be pinned.');
+    pinTables($connection);
 
-    expect(pinScopes($connection))->toBeEmpty();
+    expect(pinScopes($connection))->toHaveCount(1)
+        ->and($connection->table('calibration_requirement_snapshot')->value('resolved_mode'))->toBeNull();
 });
 
 it('rejects an effective mode that is not required or optional', function () {
@@ -1157,49 +1157,46 @@ it('rejects a required template value when the frozen unit is longer than 50 cha
         ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
 });
 
-it('rejects a not configured template column before inserting a scope', function () {
+it('pins a not configured template column as optional', function () {
     $connection = pinTestTablesConnection();
     seedPinSession($connection);
     seedPinRequirement($connection);
     seedActivePinTable($connection, 10, 100);
     $connection->table('test_column')->where('test_column_id', 1001)->update(['completion_rule' => 'not_configured']);
 
-    expect(fn () => pinTables($connection))
-        ->toThrow(PinCalibrationTestTablesException::class, 'A not-configured test component cannot be pinned.');
+    pinTables($connection);
 
-    expect(pinScopes($connection))->toBeEmpty()
+    expect(pinScopes($connection))->toHaveCount(1)
         ->and($connection->table('test_column')->where('test_column_id', 1001)->value('completion_rule'))->toBe('not_configured')
         ->and($connection->table('test_point_value')->where('test_point_id', 1001)->value('numeric_value'))->toBe('10')
         ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
 });
 
-it('rejects a not configured engineer column before inserting a scope', function () {
+it('pins a not configured engineer column as optional', function () {
     $connection = pinTestTablesConnection();
     seedPinSession($connection);
     seedPinRequirement($connection);
     seedActivePinTable($connection, 10, 100);
     $connection->table('test_column')->where('test_column_id', 1002)->update(['completion_rule' => 'not_configured']);
 
-    expect(fn () => pinTables($connection))
-        ->toThrow(PinCalibrationTestTablesException::class, 'A not-configured test component cannot be pinned.');
+    pinTables($connection);
 
-    expect(pinScopes($connection))->toBeEmpty()
+    expect(pinScopes($connection))->toHaveCount(1)
         ->and($connection->table('test_column')->where('test_column_id', 1002)->value('completion_rule'))->toBe('not_configured')
         ->and($connection->table('test_column')->where('test_column_id', 1002)->value('value_source'))->toBe('engineer')
         ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
 });
 
-it('rejects a not configured calculated column before inserting a scope', function () {
+it('pins a not configured calculated column as optional', function () {
     $connection = pinTestTablesConnection();
     seedPinSession($connection);
     seedPinRequirement($connection);
     seedActivePinTable($connection, 10, 100);
     $connection->table('test_column')->where('test_column_id', 1003)->update(['completion_rule' => 'not_configured']);
 
-    expect(fn () => pinTables($connection))
-        ->toThrow(PinCalibrationTestTablesException::class, 'A not-configured test component cannot be pinned.');
+    pinTables($connection);
 
-    expect(pinScopes($connection))->toBeEmpty()
+    expect(pinScopes($connection))->toHaveCount(1)
         ->and($connection->table('test_column')->where('test_column_id', 1003)->value('completion_rule'))->toBe('not_configured')
         ->and($connection->table('test_column')->where('test_column_id', 1003)->value('value_source'))->toBe('calculated')
         ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);

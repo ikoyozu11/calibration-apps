@@ -1,21 +1,59 @@
 <?php
 
+use App\CalibrationSessions\CalibrationSessionHttpRead;
 use App\Models\Certificate;
 use App\Models\TestPoint;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 new class extends Component
 {
-    public Certificate $certificate;
+    #[Locked]
+    public int $certificateId = 0;
 
-    public function mount(Certificate $certificate): void
+    private ?Certificate $loadedCertificate = null;
+
+    public function mount(int $certificate): void
     {
-        $this->certificate = $certificate;
+        $this->certificateId = $certificate;
+        $this->loadCertificateDetail();
+    }
 
-        $this->certificate->load([
+    #[Computed]
+    public function certificate(): Certificate
+    {
+        return $this->currentCertificate();
+    }
+
+    public function rendering(): void
+    {
+        $this->loadCertificateDetail();
+    }
+
+    private function currentCertificate(): Certificate
+    {
+        if (! $this->loadedCertificate instanceof Certificate
+            || (int) $this->loadedCertificate->getKey() !== $this->certificateId) {
+            $this->loadCertificateDetail();
+        }
+
+        return $this->loadedCertificate ?? abort(404);
+    }
+
+    private function readConnectionName(): string
+    {
+        return app(CalibrationSessionHttpRead::class)->connectionName();
+    }
+
+    private function loadCertificateDetail(): void
+    {
+        $fresh = app(CalibrationSessionHttpRead::class)->certificate($this->certificateId);
+
+        $fresh->load([
             'calibration' => function (BelongsTo $query): void {
                 $query->select([
                     'calibration_id',
@@ -67,6 +105,7 @@ new class extends Component
                         'instrument_type_id',
                         'test_profile_id',
                         'scope_order',
+                        'test_table_snapshot',
                     ])
                     ->orderBy('scope_order')
                     ->orderBy('calibration_scope_id');
@@ -102,7 +141,7 @@ new class extends Component
                         'created_at',
                     ])
                     ->orderBy(
-                        TestPoint::query()
+                        TestPoint::on($this->readConnectionName())
                             ->select('point_order')
                             ->whereColumn('test_point.test_point_id', 'calibration_test_result.test_point_id')
                     )
@@ -151,20 +190,6 @@ new class extends Component
                     'created_at',
                 ]);
             },
-            'calibration.activities' => function (HasMany $query): void {
-                $query
-                    ->select([
-                        'calibration_activity_id',
-                        'calibration_id',
-                        'activity_type',
-                        'activity_description',
-                        'activity_result',
-                        'activity_order',
-                        'created_at',
-                    ])
-                    ->orderBy('activity_order')
-                    ->orderBy('calibration_activity_id');
-            },
             'calibration.standardUsages' => function (HasMany $query): void {
                 $query
                     ->select([
@@ -188,6 +213,8 @@ new class extends Component
                 ]);
             },
         ]);
+
+        $this->loadedCertificate = $fresh;
     }
 };
 ?>
@@ -211,15 +238,15 @@ new class extends Component
             <dl class="grid gap-x-6 gap-y-5 px-5 py-5 sm:grid-cols-2 lg:grid-cols-3">
                 <div>
                     <dt class="text-xs font-medium text-muted">Certificate Number</dt>
-                    <dd class="mt-1 text-sm font-medium">{{ $certificate->certificate_number }}</dd>
+                    <dd class="mt-1 text-sm font-medium">{{ $this->currentCertificate()->certificate_number }}</dd>
                 </div>
                 <div>
                     <dt class="text-xs font-medium text-muted">Certificate Type</dt>
-                    <dd class="mt-1 text-sm">{{ $certificate->certificate_type }}</dd>
+                    <dd class="mt-1 text-sm">{{ $this->currentCertificate()->certificate_type }}</dd>
                 </div>
                 <div>
                     <dt class="text-xs font-medium text-muted">Issued Date</dt>
-                    <dd class="mt-1 text-sm">{{ $certificate->issued_date->format('j F Y') }}</dd>
+                    <dd class="mt-1 text-sm">{{ $this->currentCertificate()->issued_date->format('j F Y') }}</dd>
                 </div>
             </dl>
         </section>
@@ -232,11 +259,11 @@ new class extends Component
             <dl class="grid gap-x-6 gap-y-5 px-5 py-5 sm:grid-cols-2">
                 <div>
                     <dt class="text-xs font-medium text-muted">Customer Name</dt>
-                    <dd class="mt-1 text-sm font-medium">{{ $certificate->calibration?->customer?->customer_name ?? '—' }}</dd>
+                    <dd class="mt-1 text-sm font-medium">{{ $this->currentCertificate()->calibration?->customer?->customer_name ?? '—' }}</dd>
                 </div>
                 <div>
                     <dt class="text-xs font-medium text-muted">Address</dt>
-                    <dd class="mt-1 text-sm">{{ $certificate->calibration?->customer?->address ?? '—' }}</dd>
+                    <dd class="mt-1 text-sm">{{ $this->currentCertificate()->calibration?->customer?->address ?? '—' }}</dd>
                 </div>
             </dl>
         </section>
@@ -249,14 +276,14 @@ new class extends Component
             <dl class="grid gap-x-6 gap-y-5 px-5 py-5 sm:grid-cols-2">
                 <div>
                     <dt class="text-xs font-medium text-muted">Instrument Name</dt>
-                    <dd class="mt-1 text-sm font-medium">{{ $certificate->calibration?->instrument?->instrument_name ?? '—' }}</dd>
+                    <dd class="mt-1 text-sm font-medium">{{ $this->currentCertificate()->calibration?->instrument?->instrument_name ?? '—' }}</dd>
                 </div>
                 <div>
                     <dt class="text-xs font-medium text-muted">Location</dt>
                     <dd class="mt-1 text-sm">
                         {{ collect([
-                            $certificate->calibration?->instrument?->detailLocation?->location?->location_code,
-                            $certificate->calibration?->instrument?->detailLocation?->detail_location_code,
+                            $this->currentCertificate()->calibration?->instrument?->detailLocation?->location?->location_code,
+                            $this->currentCertificate()->calibration?->instrument?->detailLocation?->detail_location_code,
                         ])->filter()->implode(' / ') ?: '—' }}
                     </dd>
                 </div>
@@ -274,12 +301,12 @@ new class extends Component
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
-                        @forelse ($certificate->calibration?->calibrationScopes ?? [] as $calibrationScope)
+                        @forelse ($this->currentCertificate()->calibration?->calibrationScopes ?? [] as $calibrationScope)
                             <tr wire:key="certificate-scope-type-{{ $calibrationScope->calibration_scope_id }}">
                                 <td class="whitespace-nowrap px-4 py-3 font-medium">{{ $calibrationScope->instrumentType?->type_name ?? '—' }}</td>
                                 <td class="whitespace-nowrap px-4 py-3">{{ $calibrationScope->instrumentType?->brand ?? '—' }}</td>
                                 <td class="whitespace-nowrap px-4 py-3">{{ $calibrationScope->instrumentType?->model ?? '—' }}</td>
-                                <td class="whitespace-nowrap px-4 py-3">{{ filled($certificate->calibration->instrument?->serial_number) ? $certificate->calibration->instrument->serial_number : '—' }}</td>
+                                <td class="whitespace-nowrap px-4 py-3">{{ filled($this->currentCertificate()->calibration->instrument?->serial_number) ? $this->currentCertificate()->calibration->instrument->serial_number : '—' }}</td>
                                 <td class="whitespace-nowrap px-4 py-3">{{ $calibrationScope->instrumentType?->asset_number ?? '—' }}</td>
                             </tr>
                         @empty
@@ -302,23 +329,23 @@ new class extends Component
             <dl class="grid gap-x-6 gap-y-5 px-5 py-5 sm:grid-cols-2 lg:grid-cols-3">
                 <div>
                     <dt class="text-xs font-medium text-muted">Calibration Number</dt>
-                    <dd class="mt-1 text-sm font-medium">{{ $certificate->calibration?->calibration_number ?? '—' }}</dd>
+                    <dd class="mt-1 text-sm font-medium">{{ $this->currentCertificate()->calibration?->calibration_number ?? '—' }}</dd>
                 </div>
                 <div>
                     <dt class="text-xs font-medium text-muted">Calibration Date</dt>
-                    <dd class="mt-1 text-sm">{{ $certificate->calibration?->calibration_date?->format('j F Y') ?? '—' }}</dd>
+                    <dd class="mt-1 text-sm">{{ $this->currentCertificate()->calibration?->calibration_date?->format('j F Y') ?? '—' }}</dd>
                 </div>
                 <div>
                     <dt class="text-xs font-medium text-muted">Calibration Due</dt>
-                    <dd class="mt-1 text-sm">{{ $certificate->calibration?->calibration_due?->format('j F Y') ?? '—' }}</dd>
+                    <dd class="mt-1 text-sm">{{ $this->currentCertificate()->calibration?->calibration_due?->format('j F Y') ?? '—' }}</dd>
                 </div>
                 <div>
                     <dt class="text-xs font-medium text-muted">Calibration Method</dt>
-                    <dd class="mt-1 text-sm">{{ $certificate->calibration?->calibration_method ?? '—' }}</dd>
+                    <dd class="mt-1 text-sm">{{ $this->currentCertificate()->calibration?->calibration_method ?? '—' }}</dd>
                 </div>
                 <div>
                     <dt class="text-xs font-medium text-muted">Calibration Result</dt>
-                    <dd class="mt-1 text-sm">{{ $certificate->calibration?->calibration_result ?? '—' }}</dd>
+                    <dd class="mt-1 text-sm">{{ $this->currentCertificate()->calibration?->calibration_result ?? '—' }}</dd>
                 </div>
             </dl>
         </section>
@@ -328,41 +355,41 @@ new class extends Component
                 <h2 class="text-lg font-semibold">Environment</h2>
             </div>
 
-            @if ($certificate->calibration?->environment)
+            @if ($this->currentCertificate()->calibration?->environment)
                 <dl class="grid gap-x-6 gap-y-5 px-5 py-5 sm:grid-cols-2 lg:grid-cols-4">
                     <div>
                         <dt class="text-xs font-medium text-muted">Temperature</dt>
                         <dd class="mt-1 text-sm">
-                            @if (is_null($certificate->calibration->environment->temperature_value))
+                            @if (is_null($this->currentCertificate()->calibration->environment->temperature_value))
                                 —
                             @else
-                                {{ $certificate->calibration->environment->temperature_value }}{{ filled($certificate->calibration->environment->temperature_unit) ? ' '.$certificate->calibration->environment->temperature_unit : '' }}
+                                {{ $this->currentCertificate()->calibration->environment->temperature_value }}{{ filled($this->currentCertificate()->calibration->environment->temperature_unit) ? ' '.$this->currentCertificate()->calibration->environment->temperature_unit : '' }}
                             @endif
                         </dd>
                     </div>
                     <div>
                         <dt class="text-xs font-medium text-muted">Humidity</dt>
                         <dd class="mt-1 text-sm">
-                            @if (is_null($certificate->calibration->environment->humidity_value))
+                            @if (is_null($this->currentCertificate()->calibration->environment->humidity_value))
                                 —
                             @else
-                                {{ $certificate->calibration->environment->humidity_value }}{{ filled($certificate->calibration->environment->humidity_unit) ? ' '.$certificate->calibration->environment->humidity_unit : '' }}
+                                {{ $this->currentCertificate()->calibration->environment->humidity_value }}{{ filled($this->currentCertificate()->calibration->environment->humidity_unit) ? ' '.$this->currentCertificate()->calibration->environment->humidity_unit : '' }}
                             @endif
                         </dd>
                     </div>
                     <div>
                         <dt class="text-xs font-medium text-muted">Pressure</dt>
                         <dd class="mt-1 text-sm">
-                            @if (is_null($certificate->calibration->environment->pressure_value))
+                            @if (is_null($this->currentCertificate()->calibration->environment->pressure_value))
                                 —
                             @else
-                                {{ $certificate->calibration->environment->pressure_value }}{{ filled($certificate->calibration->environment->pressure_unit) ? ' '.$certificate->calibration->environment->pressure_unit : '' }}
+                                {{ $this->currentCertificate()->calibration->environment->pressure_value }}{{ filled($this->currentCertificate()->calibration->environment->pressure_unit) ? ' '.$this->currentCertificate()->calibration->environment->pressure_unit : '' }}
                             @endif
                         </dd>
                     </div>
 <div>
                         <dt class="text-xs font-medium text-muted">Remarks</dt>
-                        <dd class="mt-1 text-sm">{{ $certificate->calibration->environment->remarks ?? '—' }}</dd>
+                        <dd class="mt-1 text-sm">{{ $this->currentCertificate()->calibration->environment->remarks ?? '—' }}</dd>
                     </div>
                 </dl>
             @else
@@ -370,43 +397,6 @@ new class extends Component
                     No environment data found.
                 </p>
             @endif
-        </section>
-
-        <section class="ui-card overflow-hidden">
-            <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-800">
-                <h2 class="text-lg font-semibold">Activity</h2>
-            </div>
-
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200 text-left text-sm dark:divide-gray-800">
-                    <thead class="bg-brand-soft text-xs font-medium text-navy">
-                        <tr>
-                            <th scope="col" class="whitespace-nowrap px-4 py-3">No.</th>
-                            <th scope="col" class="whitespace-nowrap px-4 py-3">Type</th>
-                            <th scope="col" class="min-w-64 px-4 py-3">Description</th>
-                            <th scope="col" class="whitespace-nowrap px-4 py-3">Result</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
-                        @forelse ($certificate->calibration?->activities ?? [] as $activity)
-                            <tr wire:key="certificate-activity-{{ $activity->calibration_activity_id }}">
-                                <td class="whitespace-nowrap px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400">
-                                    {{ $activity->activity_order }}
-                                </td>
-                                <td class="whitespace-nowrap px-4 py-3 font-medium">{{ $activity->activity_type }}</td>
-                                <td class="px-4 py-3">{{ $activity->activity_description ?? '—' }}</td>
-                                <td class="whitespace-nowrap px-4 py-3">{{ $activity->activity_result ?? '—' }}</td>
-                            </tr>
-                        @empty
-                            <tr>
-                                <td colspan="4" class="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
-                                    No activities found.
-                                </td>
-                            </tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
         </section>
 
         <section class="ui-card overflow-hidden">
@@ -427,7 +417,7 @@ new class extends Component
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
-                        @forelse ($certificate->calibration?->standardUsages ?? [] as $standardUsage)
+                        @forelse ($this->currentCertificate()->calibration?->standardUsages ?? [] as $standardUsage)
                             <tr wire:key="certificate-standard-{{ $standardUsage->calibration_standard_usage_id }}">
                                 <td class="whitespace-nowrap px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400">
                                     {{ $standardUsage->usage_order }}
@@ -457,7 +447,7 @@ new class extends Component
                 <h2 class="text-lg font-semibold">Test Result</h2>
             </div>
 
-            @forelse ($certificate->calibration?->calibrationScopes ?? [] as $calibrationScope)
+            @forelse ($this->currentCertificate()->calibration?->calibrationScopes ?? [] as $calibrationScope)
                 <div wire:key="certificate-test-result-scope-{{ $calibrationScope->calibration_scope_id }}" class="border-b border-gray-200 px-5 py-5 last:border-b-0 dark:border-gray-800">
                     <h3 class="mb-3 text-sm font-semibold text-gray-950 dark:text-gray-100">
                         {{ $calibrationScope->instrumentType?->type_name ?? '—' }}
@@ -559,6 +549,14 @@ new class extends Component
                             </tbody>
                         </table>
                     </div>
+                    @php
+                        $frozenTestTable = is_array($calibrationScope->test_table_snapshot)
+                            ? $calibrationScope->test_table_snapshot
+                            : json_decode((string) $calibrationScope->test_table_snapshot, true);
+                    @endphp
+                    @if (is_array($frozenTestTable) && filled($frozenTestTable['remarks'] ?? null))
+                        <p class="mt-3 whitespace-pre-line text-sm text-gray-600 dark:text-gray-400"><span class="font-medium">Remarks:</span> {{ $frozenTestTable['remarks'] }}</p>
+                    @endif
                 </div>
             @empty
                 <p class="px-5 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
@@ -573,7 +571,7 @@ new class extends Component
             </div>
 
             <p class="px-5 py-5 text-sm">
-                {{ filled($certificate->calibration?->resume) ? $certificate->calibration->resume : '—' }}
+                {{ filled($this->currentCertificate()->calibration?->resume) ? $this->currentCertificate()->calibration->resume : '—' }}
             </p>
         </section>
     </main>

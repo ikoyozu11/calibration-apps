@@ -3,6 +3,7 @@
 namespace App\Livewire\Concerns;
 
 use App\Authorization\AuthorizesMasterDataWrites;
+use App\CalibrationSessions\CalibrationHttpConnection;
 use App\Models\InstrumentType;
 use App\Models\TestColumn;
 use App\Models\TestPoint;
@@ -23,13 +24,16 @@ use App\TestColumns\TestProfileLifecycleException;
 use App\TestColumns\TestTableVersioning;
 use App\TestColumns\TestTableVersionWriteException;
 use App\TestColumns\TestTableVersionWriter;
+use Illuminate\Database\Connection;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
+use Throwable;
 
 /**
  * Shared Test Components management for the dedicated editor page.
@@ -47,7 +51,7 @@ trait ManagesTestComponents
 
     public string $displayTitle = '';
 
-    public string $existingDisplayTitle = '';
+    public string $testTableRemarks = '';
 
     public ?string $testTableStatus = null;
 
@@ -82,6 +86,8 @@ trait ManagesTestComponents
 
     public ?int $editingPointId = null;
 
+    public bool $addingTestRow = false;
+
     public ?int $deletingPointId = null;
 
     /** @var array<string, string> */
@@ -92,8 +98,6 @@ trait ManagesTestComponents
     public ?int $rowStatusProfileId = null;
 
     public ?int $selectedProfileId = null;
-
-    public ?int $publishingProfileId = null;
 
     public ?int $editingProfileId = null;
 
@@ -108,7 +112,7 @@ trait ManagesTestComponents
         $this->profileForColumns($profileId);
         $this->resetErrorBag();
         $this->addingTestTable = false;
-        $this->reset('profileName', 'displayTitle', 'existingDisplayTitle');
+        $this->reset('profileName', 'displayTitle', 'testTableRemarks');
         $this->testTableStatus = null;
         $this->managingColumnsProfileId = null;
         $this->resetColumnForm();
@@ -116,7 +120,6 @@ trait ManagesTestComponents
         $this->resetRowForm();
         $this->rowStatus = null;
         $this->rowStatusProfileId = null;
-        $this->publishingProfileId = null;
         $this->editingProfileId = null;
         $this->deletingProfileId = null;
         $this->archivingProfileId = null;
@@ -140,19 +143,13 @@ trait ManagesTestComponents
         $this->resetRowForm();
         $this->rowStatus = null;
         $this->rowStatusProfileId = null;
-        $this->publishingProfileId = null;
         $this->editingProfileId = null;
         $this->deletingProfileId = null;
         $this->archivingProfileId = null;
         $this->restoringProfileId = null;
-        $this->reset('profileName', 'displayTitle', 'existingDisplayTitle');
+        $this->reset('profileName', 'displayTitle', 'testTableRemarks');
         $this->reloadManagedProfiles();
 
-        $activeProfiles = $this->activeTestProfiles();
-        $onlyProfile = $activeProfiles->count() === 1
-            ? $activeProfiles->first()
-            : null;
-        $this->existingDisplayTitle = trim((string) ($onlyProfile?->display_title ?? ''));
         $this->addingTestTable = true;
     }
 
@@ -160,7 +157,7 @@ trait ManagesTestComponents
     {
         $this->addingTestTable = false;
         $this->resetErrorBag();
-        $this->reset('profileName', 'displayTitle', 'existingDisplayTitle');
+        $this->reset('profileName', 'displayTitle', 'testTableRemarks');
     }
 
     public function saveTestTable(): void
@@ -174,8 +171,8 @@ trait ManagesTestComponents
         $typeId = $this->instrumentType->instrument_type_id;
 
         try {
-            DB::transaction(function () use ($typeId): void {
-                $existing = TestProfile::query()
+            $this->testComponentConnection()->transaction(function () use ($typeId): void {
+                $existing = TestProfile::on($this->testComponentConnectionName())
                     ->where('instrument_type_id', $typeId)
                     ->orderBy('test_profile_id')
                     ->lockForUpdate()
@@ -188,18 +185,13 @@ trait ManagesTestComponents
                 $validated = validator([
                     'profileName' => $this->profileName,
                     'displayTitle' => $this->displayTitle,
-                    'existingDisplayTitle' => $this->existingDisplayTitle,
                 ], [
                     'profileName' => ['required', 'string', 'max:150'],
-                    'displayTitle' => [$activeProfiles->isNotEmpty() ? 'required' : 'nullable', 'string', 'max:255'],
-                    'existingDisplayTitle' => [$activeProfiles->count() === 1 ? 'required' : 'nullable', 'string', 'max:255'],
+                    'displayTitle' => ['nullable', 'string', 'max:255'],
                 ], [
                     'profileName.required' => 'Enter a profile name.',
                     'profileName.max' => 'The profile name must be 150 characters or fewer.',
-                    'displayTitle.required' => 'Enter a table title.',
                     'displayTitle.max' => 'The table title must be 255 characters or fewer.',
-                    'existingDisplayTitle.required' => 'Enter a title for the existing test table.',
-                    'existingDisplayTitle.max' => 'The existing table title must be 255 characters or fewer.',
                 ])->validate();
 
                 $name = trim($validated['profileName']);
@@ -218,29 +210,7 @@ trait ManagesTestComponents
 
                 $newTitle = $this->blankToNull($validated['displayTitle'] ?? null);
 
-                if ($activeProfiles->count() === 1) {
-                    $firstTitle = $this->blankToNull($validated['existingDisplayTitle'] ?? null);
-
-                    if ($firstTitle === null) {
-                        throw ValidationException::withMessages([
-                            'existingDisplayTitle' => 'Enter a title for the existing test table.',
-                        ]);
-                    }
-
-                    if ($newTitle === null) {
-                        throw ValidationException::withMessages([
-                            'displayTitle' => 'Enter a table title.',
-                        ]);
-                    }
-
-                    if ($this->titlesMatch($firstTitle, $newTitle)) {
-                        throw ValidationException::withMessages([
-                            'displayTitle' => 'Table titles must be different.',
-                        ]);
-                    }
-
-                    $activeProfiles->first()->update(['display_title' => $firstTitle]);
-                } elseif ($activeProfiles->isNotEmpty() && $newTitle !== null) {
+                if ($newTitle !== null) {
                     $duplicate = $activeProfiles->contains(function (TestProfile $profile) use ($newTitle): bool {
                         return filled($profile->display_title) && $this->titlesMatch((string) $profile->display_title, $newTitle);
                     });
@@ -252,7 +222,7 @@ trait ManagesTestComponents
                     }
                 }
 
-                $created = TestProfile::query()->create([
+                $created = TestProfile::on($this->testComponentConnectionName())->create([
                     'instrument_type_id' => $typeId,
                     'profile_name' => $name,
                     'display_title' => $newTitle,
@@ -267,25 +237,20 @@ trait ManagesTestComponents
         }
 
         $this->reloadManagedProfiles();
-        $this->reset('profileName', 'displayTitle', 'existingDisplayTitle');
+        $this->reset('profileName', 'displayTitle');
         $this->addingTestTable = false;
-        $this->testTableStatus = 'Test table added.';
+        $this->dispatch('instruments-desk-notification', type: 'success', message: 'Test table added.');
 
         $created = $this->instrumentType?->testProfiles->last();
         if ($created !== null) {
             $this->selectProfile((int) $created->test_profile_id);
-            $this->testTableStatus = 'Test table added.';
         }
+
     }
 
     public function tableTitleRequired(): bool
     {
         return $this->activeTestProfiles()->isNotEmpty();
-    }
-
-    public function needsExistingTableTitle(): bool
-    {
-        return $this->activeTestProfiles()->count() === 1;
     }
 
     public function canPublishTestTable(TestProfile $profile): bool
@@ -363,7 +328,6 @@ trait ManagesTestComponents
 
         $this->resetErrorBag();
         $this->addingTestTable = false;
-        $this->publishingProfileId = null;
         $this->deletingProfileId = null;
         $this->archivingProfileId = null;
         $this->restoringProfileId = null;
@@ -372,6 +336,7 @@ trait ManagesTestComponents
         $this->resetRowForm();
         $this->profileName = $this->testTableProfileName($profile);
         $this->displayTitle = (string) ($this->testTableDisplayTitle($profile) ?? '');
+        $this->testTableRemarks = (string) ($this->testTableRemarks($profile) ?? '');
         $this->editingProfileId = $profileId;
         $this->selectedProfileId = $profileId;
         $this->testTableStatus = null;
@@ -381,7 +346,7 @@ trait ManagesTestComponents
     {
         $this->editingProfileId = null;
         $this->resetErrorBag();
-        $this->reset('profileName', 'displayTitle');
+        $this->reset('profileName', 'displayTitle', 'testTableRemarks');
     }
 
     public function saveEditedTestTable(int $profileId): void
@@ -395,8 +360,8 @@ trait ManagesTestComponents
         $typeId = $this->instrumentType->instrument_type_id;
 
         try {
-            DB::transaction(function () use ($typeId, $profileId): void {
-                $existing = TestProfile::query()
+            $this->testComponentConnection()->transaction(function () use ($typeId, $profileId): void {
+                $existing = TestProfile::on($this->testComponentConnectionName())
                     ->where('instrument_type_id', $typeId)
                     ->orderBy('test_profile_id')
                     ->lockForUpdate()
@@ -433,9 +398,11 @@ trait ManagesTestComponents
                 $validated = validator([
                     'profileName' => $this->profileName,
                     'displayTitle' => $this->displayTitle,
+                    'testTableRemarks' => $this->testTableRemarks,
                 ], [
                     'profileName' => ['required', 'string', 'max:150'],
                     'displayTitle' => [$titleRequired ? 'required' : 'nullable', 'string', 'max:255'],
+                    'testTableRemarks' => ['nullable', 'string', 'max:5000'],
                 ], [
                     'profileName.required' => 'Enter a profile name.',
                     'profileName.max' => 'The profile name must be 150 characters or fewer.',
@@ -499,7 +466,7 @@ trait ManagesTestComponents
                 $active = $versioning->active($profile);
 
                 if ($draft !== null) {
-                    $lockedDraft = TestProfileVersion::query()
+                    $lockedDraft = TestProfileVersion::on($this->testComponentConnectionName())
                         ->where('test_profile_version_id', $draft->test_profile_version_id)
                         ->where('status', TestProfileVersion::STATUS_DRAFT)
                         ->lockForUpdate()
@@ -514,6 +481,7 @@ trait ManagesTestComponents
                     $lockedDraft->update([
                         'profile_name' => $name,
                         'display_title' => $newTitle,
+                        ...($this->testTableRemarksColumnExists() ? ['remarks' => $this->blankToNull($validated['testTableRemarks'] ?? null)] : []),
                     ]);
                 }
 
@@ -531,10 +499,10 @@ trait ManagesTestComponents
         }
 
         $this->editingProfileId = null;
-        $this->reset('profileName', 'displayTitle');
+        $this->reset('profileName', 'displayTitle', 'testTableRemarks');
         $this->reloadManagedProfiles();
         $this->selectProfile($profileId);
-        $this->testTableStatus = 'Test table updated.';
+        $this->dispatch('instruments-desk-notification', type: 'success', message: 'Test table updated.');
     }
 
     public function askToDeleteTestTable(int $profileId): void
@@ -551,13 +519,18 @@ trait ManagesTestComponents
 
         $this->resetErrorBag();
         $this->addingTestTable = false;
-        $this->publishingProfileId = null;
         $this->editingProfileId = null;
         $this->archivingProfileId = null;
         $this->restoringProfileId = null;
         $this->deletingProfileId = $profileId;
         $this->selectedProfileId = $profileId;
         $this->testTableStatus = null;
+        $this->dispatch(
+            'instruments-desk-open-test-table-delete-modal',
+            componentId: $this->getId(),
+            profileId: $profileId,
+            profileName: $this->testTableProfileName($profile),
+        );
     }
 
     public function cancelDeletingTestTable(): void
@@ -576,8 +549,8 @@ trait ManagesTestComponents
         $typeId = $this->instrumentType->instrument_type_id;
 
         try {
-            DB::transaction(function () use ($typeId, $profileId, $lifecycle): void {
-                $existing = TestProfile::query()
+            $this->testComponentConnection()->transaction(function () use ($typeId, $profileId, $lifecycle): void {
+                $existing = TestProfile::on($this->testComponentConnectionName())
                     ->where('instrument_type_id', $typeId)
                     ->orderBy('test_profile_id')
                     ->lockForUpdate()
@@ -612,7 +585,28 @@ trait ManagesTestComponents
 
         $this->deletingProfileId = null;
         $this->reloadManagedProfiles();
-        $this->testTableStatus = 'Test table deleted.';
+    }
+
+    /**
+     * Delete a test table from the SweetAlert confirmation and return
+     * validation messages without coupling the modal to Livewire errors.
+     *
+     * @return array{deleted: bool, errors?: array<string, list<string>>}
+     */
+    public function deleteTestTableFromModal(int $profileId, TestProfileLifecycle $lifecycle): array
+    {
+        try {
+            $this->deleteTestTable($profileId, $lifecycle);
+        } catch (ValidationException $exception) {
+            $this->setErrorBag($exception->errors());
+
+            return [
+                'deleted' => false,
+                'errors' => $exception->errors(),
+            ];
+        }
+
+        return ['deleted' => true];
     }
 
     public function askToArchiveTestTable(int $profileId): void
@@ -629,7 +623,6 @@ trait ManagesTestComponents
 
         $this->resetErrorBag();
         $this->addingTestTable = false;
-        $this->publishingProfileId = null;
         $this->editingProfileId = null;
         $this->deletingProfileId = null;
         $this->restoringProfileId = null;
@@ -654,8 +647,8 @@ trait ManagesTestComponents
         $typeId = $this->instrumentType->instrument_type_id;
 
         try {
-            DB::transaction(function () use ($typeId, $profileId, $lifecycle): void {
-                $existing = TestProfile::query()
+            $this->testComponentConnection()->transaction(function () use ($typeId, $profileId, $lifecycle): void {
+                $existing = TestProfile::on($this->testComponentConnectionName())
                     ->where('instrument_type_id', $typeId)
                     ->orderBy('test_profile_id')
                     ->lockForUpdate()
@@ -691,7 +684,7 @@ trait ManagesTestComponents
         $this->archivingProfileId = null;
         $this->reloadManagedProfiles();
         $this->selectProfile($profileId);
-        $this->testTableStatus = 'Test table archived.';
+        $this->testTableStatus = null;
     }
 
     public function askToRestoreTestTable(int $profileId): void
@@ -708,7 +701,6 @@ trait ManagesTestComponents
 
         $this->resetErrorBag();
         $this->addingTestTable = false;
-        $this->publishingProfileId = null;
         $this->editingProfileId = null;
         $this->deletingProfileId = null;
         $this->archivingProfileId = null;
@@ -722,7 +714,10 @@ trait ManagesTestComponents
         $this->restoringProfileId = null;
     }
 
-    public function restoreTestTable(int $profileId, TestProfileLifecycle $lifecycle): void
+    /**
+     * @return array{restored: bool, errors?: array<string, array<int, string>>}
+     */
+    public function restoreTestTable(int $profileId, TestProfileLifecycle $lifecycle): array
     {
         $this->authorizeMasterDataManage();
 
@@ -733,8 +728,8 @@ trait ManagesTestComponents
         $typeId = $this->instrumentType->instrument_type_id;
 
         try {
-            DB::transaction(function () use ($typeId, $profileId, $lifecycle): void {
-                $existing = TestProfile::query()
+            $this->testComponentConnection()->transaction(function () use ($typeId, $profileId, $lifecycle): void {
+                $existing = TestProfile::on($this->testComponentConnectionName())
                     ->where('instrument_type_id', $typeId)
                     ->orderBy('test_profile_id')
                     ->lockForUpdate()
@@ -759,20 +754,47 @@ trait ManagesTestComponents
 
                 $lifecycle->restore((int) $profile->test_profile_id);
             });
+        } catch (ValidationException $exception) {
+            $errors = [
+                'restoreTestTable' => collect($exception->errors())->flatten()->values()->all(),
+            ];
+
+            $this->setErrorBag($errors);
+
+            return [
+                'restored' => false,
+                'errors' => $errors,
+            ];
         } catch (TestProfileLifecycleException $exception) {
-            throw ValidationException::withMessages([
-                $exception->field => $exception->getMessage(),
-            ]);
-        } catch (QueryException $exception) {
-            throw ValidationException::withMessages([
-                'testTable' => 'This test table could not be restored. Refresh the page and try again.',
-            ]);
+            $errors = [
+                'restoreTestTable' => [$exception->getMessage()],
+            ];
+
+            $this->setErrorBag($errors);
+
+            return [
+                'restored' => false,
+                'errors' => $errors,
+            ];
+        } catch (QueryException) {
+            $errors = [
+                'restoreTestTable' => ['This test table could not be restored. Refresh the page and try again.'],
+            ];
+
+            $this->setErrorBag($errors);
+
+            return [
+                'restored' => false,
+                'errors' => $errors,
+            ];
         }
 
         $this->restoringProfileId = null;
         $this->reloadManagedProfiles();
         $this->selectProfile($profileId);
-        $this->testTableStatus = 'Test table restored.';
+        $this->testTableStatus = null;
+
+        return ['restored' => true];
     }
 
     /**
@@ -842,15 +864,19 @@ trait ManagesTestComponents
         }
 
         $this->resetErrorBag();
-        $this->publishingProfileId = $profileId;
+        $this->dispatch(
+            'instruments-desk-confirm-test-table-publish',
+            componentId: $this->getId(),
+            profileId: $profileId,
+            profileName: $this->testTableProfileName($profile),
+            version: $this->testTableVersionCaption($profile) ?? 'Draft',
+        );
     }
 
-    public function cancelPublishingVersion(): void
-    {
-        $this->publishingProfileId = null;
-    }
-
-    public function publishVersion(int $profileId, TestTableVersionWriter $writer): void
+    /**
+     * @return array{published: bool, errors?: array<string, array<int, string>>}
+     */
+    public function publishVersion(int $profileId, TestTableVersionWriter $writer): array
     {
         $this->authorizeMasterDataManage();
 
@@ -864,15 +890,23 @@ trait ManagesTestComponents
         try {
             $writer->publish((int) $profile->test_profile_id);
         } catch (TestTableVersionWriteException $exception) {
-            throw ValidationException::withMessages([
-                $exception->field => $exception->getMessage(),
-            ]);
+            $errors = [
+                'publishVersion' => [$exception->getMessage()],
+            ];
+
+            $this->setErrorBag($errors);
+
+            return [
+                'published' => false,
+                'errors' => $errors,
+            ];
         }
 
-        $this->publishingProfileId = null;
         $this->reloadManagedProfiles();
         $this->selectProfile((int) $profile->test_profile_id);
-        $this->testTableStatus = 'Version published.';
+        $this->testTableStatus = null;
+
+        return ['published' => true];
     }
 
     public function forkDraft(int $profileId, TestTableVersionWriter $writer): void
@@ -903,10 +937,9 @@ trait ManagesTestComponents
             ]);
         }
 
-        $this->publishingProfileId = null;
         $this->reloadManagedProfiles();
         $this->selectProfile((int) $profile->test_profile_id);
-        $this->testTableStatus = 'Draft created.';
+        $this->testTableStatus = null;
     }
 
     private function reloadManagedProfiles(): void
@@ -993,6 +1026,20 @@ trait ManagesTestComponents
         };
     }
 
+    /**
+     * @return array<string, list<string>>
+     */
+    public function measurementUnitGroups(): array
+    {
+        return [
+            'Length / Dimension' => ['mm', 'cm', 'm', 'µm'],
+            'Mass / Weight' => ['mg', 'g', 'kg'],
+            'Temperature / Humidity' => ['°C', '°F', '%RH'],
+            'Pressure' => ['Pa', 'kPa', 'bar', 'mbar', 'mmWG'],
+            'Other' => ['%', 's', 'min', 'rpm', 'V', 'mA'],
+        ];
+    }
+
     protected function testTableViewPurpose(): string
     {
         return TestTableVersioning::PURPOSE_MANAGE;
@@ -1017,6 +1064,13 @@ trait ManagesTestComponents
     public function cancelManagingColumns(): void
     {
         $this->managingColumnsProfileId = null;
+        $this->resetErrorBag();
+        $this->resetColumnForm();
+        $this->columnStatus = null;
+    }
+
+    public function cancelEditingColumn(): void
+    {
         $this->resetErrorBag();
         $this->resetColumnForm();
         $this->columnStatus = null;
@@ -1054,6 +1108,13 @@ trait ManagesTestComponents
         $this->managingColumnsProfileId = $profileId;
         $this->deletingColumnId = $columnId;
         $this->resetErrorBag();
+        $this->dispatch(
+            'instruments-desk-confirm-test-column-removal',
+            componentId: $this->getId(),
+            profileId: $profileId,
+            columnId: $columnId,
+            columnLabel: $this->columnForProfile($profileId, $columnId)->column_label,
+        );
     }
 
     public function cancelDeletingTestColumn(): void
@@ -1091,7 +1152,7 @@ trait ManagesTestComponents
         );
 
         try {
-            DB::transaction(function () use ($columns, $definition, $existing): void {
+            $this->testComponentConnection()->transaction(function () use ($columns, $definition, $existing): void {
                 if ($existing === null) {
                     $columns->insert($definition);
 
@@ -1108,7 +1169,9 @@ trait ManagesTestComponents
 
         $this->reloadManagedProfiles();
         $this->resetColumnForm();
-        $this->columnStatus = $existing === null ? 'Column added.' : 'Column updated.';
+        $message = $existing === null ? 'Column added.' : 'Column updated.';
+        $this->columnStatus = $message;
+        $this->dispatch('instruments-desk-notification', type: 'success', message: $message);
     }
 
     public function deleteTestColumn(TestColumnWriter $columns): void
@@ -1138,7 +1201,7 @@ trait ManagesTestComponents
             ->all();
 
         try {
-            DB::transaction(function () use ($columns, $profile, $column, $remaining): void {
+            $this->testComponentConnection()->transaction(function () use ($columns, $profile, $column, $remaining): void {
                 $columns->delete((int) $column->test_column_id);
 
                 if ($remaining !== []) {
@@ -1154,6 +1217,35 @@ trait ManagesTestComponents
         $this->reloadManagedProfiles();
         $this->resetColumnForm();
         $this->columnStatus = 'Column deleted.';
+    }
+
+    /**
+     * Delete a test column after the browser confirmation resolves.
+     *
+     * @return array{deleted: bool, errors?: array<string, list<string>>}
+     */
+    public function deleteTestColumnFromModal(
+        TestColumnWriter $columns,
+        ?int $profileId = null,
+        ?int $columnId = null,
+    ): array {
+        if ($profileId !== null && $columnId !== null) {
+            $this->managingColumnsProfileId = $profileId;
+            $this->deletingColumnId = $columnId;
+        }
+
+        try {
+            $this->deleteTestColumn($columns);
+        } catch (ValidationException $exception) {
+            $this->setErrorBag($exception->errors());
+
+            return [
+                'deleted' => false,
+                'errors' => $exception->errors(),
+            ];
+        }
+
+        return ['deleted' => true];
     }
 
     public function moveTestColumn(TestColumnWriter $columns, int $profileId, int $columnId, string $direction): void
@@ -1187,7 +1279,44 @@ trait ManagesTestComponents
         [$ids[$index], $ids[$swap]] = [$ids[$swap], $ids[$index]];
 
         try {
-            DB::transaction(fn () => $columns->reorder($profileId, $ids));
+            $this->testComponentConnection()->transaction(fn () => $columns->reorder($profileId, $ids));
+        } catch (TestColumnWriteException $exception) {
+            throw ValidationException::withMessages([
+                'columns' => $exception->getMessage(),
+            ]);
+        }
+
+        $this->managingColumnsProfileId = $profileId;
+        $this->reloadManagedProfiles();
+        $this->columnStatus = 'Column order updated.';
+    }
+
+    /**
+     * Persist a complete column order submitted by the drag-and-drop editor.
+     *
+     * @param  list<int>  $columnIds
+     */
+    public function reorderTestColumns(TestColumnWriter $columns, int $profileId, array $columnIds): void
+    {
+        $this->authorizeMasterDataManage();
+
+        $this->resetErrorBag();
+        $profile = $this->profileForColumns($profileId);
+        $this->assertCanMutateTestTable($profile);
+        $expected = $profile->testColumns
+            ->map(fn (TestColumn $column): int => (int) $column->test_column_id)
+            ->values()
+            ->all();
+        $submitted = array_values(array_map('intval', $columnIds));
+
+        if ($submitted === [] || count($submitted) !== count($expected) || array_diff($submitted, $expected) !== [] || count(array_unique($submitted)) !== count($submitted)) {
+            throw ValidationException::withMessages([
+                'columns' => 'The column order is no longer current. Refresh the page and try again.',
+            ]);
+        }
+
+        try {
+            $this->testComponentConnection()->transaction(fn () => $columns->reorder($profileId, $submitted));
         } catch (TestColumnWriteException $exception) {
             throw ValidationException::withMessages([
                 'columns' => $exception->getMessage(),
@@ -1476,8 +1605,8 @@ trait ManagesTestComponents
         $this->deletingPointId = null;
 
         try {
-            $pointId = DB::transaction(function () use ($profile): int {
-                $locked = TestProfile::query()
+            $pointId = $this->testComponentConnection()->transaction(function () use ($profile): int {
+                $locked = TestProfile::on($this->testComponentConnectionName())
                     ->whereKey($profile->test_profile_id)
                     ->lockForUpdate()
                     ->first();
@@ -1487,7 +1616,7 @@ trait ManagesTestComponents
                 }
 
                 $versionId = app(TestTableVersioning::class)->draftId((int) $locked->test_profile_id);
-                $orderQuery = TestPoint::query()->where('test_profile_id', $locked->test_profile_id);
+                $orderQuery = TestPoint::on($this->testComponentConnectionName())->where('test_profile_id', $locked->test_profile_id);
 
                 if ($versionId !== null) {
                     $orderQuery->where('test_profile_version_id', $versionId);
@@ -1505,7 +1634,7 @@ trait ManagesTestComponents
                     $attributes['test_profile_version_id'] = $versionId;
                 }
 
-                return (int) TestPoint::query()->create($attributes)->test_point_id;
+                return (int) TestPoint::on($this->testComponentConnectionName())->create($attributes)->test_point_id;
             });
         } catch (UniqueConstraintViolationException) {
             throw ValidationException::withMessages([
@@ -1515,6 +1644,7 @@ trait ManagesTestComponents
 
         $this->reloadManagedProfiles();
         $this->editTestRow($profileId, $pointId);
+        $this->addingTestRow = true;
         $this->rowStatusProfileId = $profileId;
         $this->rowStatus = 'Row added.';
     }
@@ -1537,6 +1667,7 @@ trait ManagesTestComponents
         $this->columnStatus = null;
         $this->editingRowProfileId = $profileId;
         $this->editingPointId = $pointId;
+        $this->addingTestRow = false;
         $this->deletingPointId = null;
         $this->templateValues = [];
 
@@ -1574,6 +1705,12 @@ trait ManagesTestComponents
         $this->deletingPointId = $pointId;
         $this->rowStatusProfileId = $profileId;
         $this->resetErrorBag();
+        $this->dispatch(
+            'instruments-desk-confirm-test-row-removal',
+            componentId: $this->getId(),
+            profileId: $profileId,
+            pointId: $pointId,
+        );
     }
 
     public function cancelDeletingTestRow(): void
@@ -1597,7 +1734,7 @@ trait ManagesTestComponents
         $payload = $this->validatedTemplateValues($profile);
 
         try {
-            DB::transaction(function () use ($values, $profile, $point, $payload): void {
+            $this->testComponentConnection()->transaction(function () use ($values, $profile, $point, $payload): void {
                 foreach ($payload as $columnId => $cell) {
                     if ($cell['empty']) {
                         $values->delete(
@@ -1629,6 +1766,7 @@ trait ManagesTestComponents
         $this->resetRowForm();
         $this->rowStatusProfileId = $profileId;
         $this->rowStatus = 'Row saved.';
+        $this->dispatch('instruments-desk-notification', type: 'success', message: 'Test row saved.');
     }
 
     public function deleteTestRow(): void
@@ -1648,8 +1786,8 @@ trait ManagesTestComponents
         $versionId = app(TestTableVersioning::class)->draftId($profileId);
 
         try {
-            DB::transaction(function () use ($profile, $point, $versionId): void {
-                $valueQuery = TestPointValue::query()
+            $this->testComponentConnection()->transaction(function () use ($profile, $point, $versionId): void {
+                $valueQuery = TestPointValue::on($this->testComponentConnectionName())
                     ->where('test_profile_id', $profile->test_profile_id)
                     ->where('test_point_id', $point->test_point_id);
 
@@ -1659,9 +1797,19 @@ trait ManagesTestComponents
 
                 $valueQuery->delete();
 
-                $point->delete();
+                $pointQuery = TestPoint::on($this->testComponentConnectionName())
+                    ->where('test_profile_id', $profile->test_profile_id)
+                    ->where('test_point_id', $point->test_point_id);
 
-                $remainingQuery = TestPoint::query()->where('test_profile_id', $profile->test_profile_id);
+                if ($versionId !== null) {
+                    $pointQuery->where('test_profile_version_id', $versionId);
+                } elseif (app(TestTableVersioning::class)->enabled()) {
+                    $pointQuery->whereNull('test_profile_version_id');
+                }
+
+                $pointQuery->delete();
+
+                $remainingQuery = TestPoint::on($this->testComponentConnectionName())->where('test_profile_id', $profile->test_profile_id);
 
                 if ($versionId !== null) {
                     $remainingQuery->where('test_profile_version_id', $versionId);
@@ -1679,8 +1827,30 @@ trait ManagesTestComponents
                 $this->rewritePointOrder((int) $profile->test_profile_id, $remaining, $versionId);
             });
         } catch (QueryException $exception) {
+            Log::error('Test Components row deletion failed.', [
+                'operation' => 'delete_test_row',
+                'exception_class' => $exception::class,
+                'sqlstate' => $exception->errorInfo[0] ?? (string) $exception->getCode(),
+                'profile_id' => $profileId,
+                'point_id' => (int) $point->test_point_id,
+                'version_id' => $versionId,
+            ]);
+
             throw ValidationException::withMessages([
-                'rows' => TestPointValueConstraintMessage::fromDatabaseMessage($exception->getMessage()),
+                'rows' => TestPointValueConstraintMessage::fromDeleteDatabaseMessage($exception->getMessage()),
+            ]);
+        } catch (Throwable $exception) {
+            Log::error('Test Components row deletion failed.', [
+                'operation' => 'delete_test_row',
+                'exception_class' => $exception::class,
+                'sqlstate' => null,
+                'profile_id' => $profileId,
+                'point_id' => (int) $point->test_point_id,
+                'version_id' => $versionId,
+            ]);
+
+            throw ValidationException::withMessages([
+                'rows' => TestPointValueConstraintMessage::genericDeleteFailure(),
             ]);
         }
 
@@ -1688,6 +1858,32 @@ trait ManagesTestComponents
         $this->resetRowForm();
         $this->rowStatusProfileId = $profileId;
         $this->rowStatus = 'Row deleted.';
+    }
+
+    /**
+     * Delete a test row after the browser confirmation resolves.
+     *
+     * @return array{deleted: bool, errors?: array<string, list<string>>}
+     */
+    public function deleteTestRowFromModal(?int $profileId = null, ?int $pointId = null): array
+    {
+        if ($profileId !== null && $pointId !== null) {
+            $this->editingRowProfileId = $profileId;
+            $this->deletingPointId = $pointId;
+        }
+
+        try {
+            $this->deleteTestRow();
+        } catch (ValidationException $exception) {
+            $this->setErrorBag($exception->errors());
+
+            return [
+                'deleted' => false,
+                'errors' => $exception->errors(),
+            ];
+        }
+
+        return ['deleted' => true];
     }
 
     public function moveTestRow(int $profileId, int $pointId, string $direction): void
@@ -1722,7 +1918,7 @@ trait ManagesTestComponents
         [$ids[$index], $ids[$swap]] = [$ids[$swap], $ids[$index]];
 
         try {
-            DB::transaction(fn () => $this->rewritePointOrder(
+            $this->testComponentConnection()->transaction(fn () => $this->rewritePointOrder(
                 $profileId,
                 $ids,
                 app(TestTableVersioning::class)->draftId($profileId),
@@ -1872,22 +2068,22 @@ trait ManagesTestComponents
         $bindings = [];
 
         foreach ($pointIds as $index => $id) {
-            $case[] = 'when test_point_id = ? then ?';
+            $case[] = 'when test_point_id = CAST(? AS BIGINT) then CAST(? AS INTEGER)';
             $bindings[] = $id;
             $bindings[] = $index + 1;
         }
 
-        $sql = 'update test_point set point_order = case '.implode(' ', $case).' end where test_profile_id = ?';
+        $sql = 'update test_point set point_order = case '.implode(' ', $case).' end where test_profile_id = CAST(? AS BIGINT)';
         $bindings[] = $profileId;
 
         if ($versionId !== null) {
-            $sql .= ' and test_profile_version_id = ?';
+            $sql .= ' and test_profile_version_id = CAST(? AS BIGINT)';
             $bindings[] = $versionId;
         } elseif (app(TestTableVersioning::class)->enabled()) {
             $sql .= ' and test_profile_version_id is null';
         }
 
-        DB::update($sql, $bindings);
+        $this->testComponentConnection()->update($sql, $bindings);
     }
 
     private function assertCanMutateTestTable(TestProfile $profile): void
@@ -1933,6 +2129,7 @@ trait ManagesTestComponents
     {
         $this->editingRowProfileId = null;
         $this->editingPointId = null;
+        $this->addingTestRow = false;
         $this->deletingPointId = null;
         $this->templateValues = [];
     }
@@ -1948,8 +2145,29 @@ trait ManagesTestComponents
         return $trimmed === '' ? null : $trimmed;
     }
 
+    private function testTableRemarksColumnExists(): bool
+    {
+        return Schema::connection($this->testComponentConnectionName())->hasColumn('test_profile_version', 'remarks');
+    }
+
     private function titlesMatch(string $left, string $right): bool
     {
         return mb_strtolower(trim($left)) === mb_strtolower(trim($right));
+    }
+
+    private function testComponentConnection(): Connection
+    {
+        return app(CalibrationHttpConnection::class)->resolve();
+    }
+
+    private function testComponentConnectionName(): string
+    {
+        $name = $this->testComponentConnection()->getName();
+
+        if (! is_string($name) || $name === '') {
+            abort(503, 'This calibration page is not available in this environment.');
+        }
+
+        return $name;
     }
 }

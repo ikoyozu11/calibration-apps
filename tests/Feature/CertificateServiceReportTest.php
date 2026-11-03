@@ -519,7 +519,7 @@ it('renders a one-page service report pdf from stored certificate data', functio
         ->toContain('ENVIRONMENT')
         ->toContain('25 °C')
         ->toContain('65 %')
-        ->toContain('ACTIVITY')
+        ->not->toContain('ACTIVITY')
         ->toContain('STANDARD(S) USED')
         ->toContain('ET4276')
         ->toContain('99.0 mmWG')
@@ -539,7 +539,8 @@ it('renders a one-page service report pdf from stored certificate data', functio
         ->not->toContain('Reference Value')
         ->and($html)->toMatch('/PD[\\s\\S]+Weight/');
 
-    expect($html)->toMatch('/Cleaning All Module[\\s\\S]+Leakage test/');
+    expect($html)->not->toContain('Cleaning All Module')
+        ->and($html)->not->toContain('Leakage test');
     expect($html)->toMatch('/Ambiguous Standard[\\s\\S]+Pressure Drop Standard/');
     expect($html)->toMatch('/99\\.8[\\s\\S]+100[\\s\\S]+500/');
 

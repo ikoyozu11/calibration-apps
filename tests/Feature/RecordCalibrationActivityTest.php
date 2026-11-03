@@ -467,22 +467,49 @@ it('includes a legacy activity when remaining rows are renumbered', function () 
         ->and($connection->table('calibration_activity')->orderBy('activity_order')->pluck('calibration_activity_id')->all())->toBe([8, 9]);
 });
 
-it('rejects an unresolved not-configured activity requirement', function (?string $resolved) {
+it('records activity when the frozen activity mode is not configured', function (?string $resolved) {
     $connection = recordCalibrationActivityConnection();
     recordCalibrationActivitySeed($connection, snapshot: [
         'frozen_mode' => InstrumentTypeRequirement::MODE_NOT_CONFIGURED,
         'resolved_mode' => $resolved,
     ]);
 
-    expect(fn () => recordCalibrationActivityService()->add(40, 5, null, null, $connection))
-        ->toThrow(RecordCalibrationActivityException::class, 'An unresolved not-configured activity requirement cannot record activity.');
+    recordCalibrationActivityService()->add(40, 5, null, null, $connection);
 
-    expect($connection->table('calibration_activity')->count())->toBe(0)
+    expect($connection->table('calibration_activity')->count())->toBe(1)
+        ->and($connection->table('calibration_requirement_snapshot')->where('calibration_id', 40)->value('frozen_mode'))->toBe(InstrumentTypeRequirement::MODE_NOT_CONFIGURED)
         ->and($connection->table('calibration_requirement_snapshot')->where('calibration_id', 40)->value('resolved_mode'))->toBe($resolved);
 })->with([
     'null resolved mode' => null,
     'resolved mode outside required and optional' => 'mandatory',
 ]);
+
+it('syncs multiple catalog selections without rewriting the snapshot', function () {
+    $connection = recordCalibrationActivityConnection();
+    recordCalibrationActivitySeed($connection);
+
+    recordCalibrationActivityService()->sync(40, [5, 6, 5], $connection);
+
+    expect($connection->table('calibration_activity')->orderBy('activity_order')->pluck('activity_id')->all())->toBe([5, 6])
+        ->and($connection->table('calibration_requirement_snapshot')->where('calibration_id', 40)->value('frozen_mode'))->toBe(InstrumentTypeRequirement::MODE_REQUIRED);
+
+    recordCalibrationActivityService()->sync(40, [6], $connection);
+
+    expect($connection->table('calibration_activity')->pluck('activity_id')->all())->toBe([6])
+        ->and($connection->table('calibration_activity')->value('activity_order'))->toBe(1);
+});
+
+it('rejects syncing an inactive master without changing recorded rows', function () {
+    $connection = recordCalibrationActivityConnection();
+    recordCalibrationActivitySeed($connection);
+    recordCalibrationActivityMaster($connection, 8, 'ACT-0008', 'Retired step', 0);
+    recordCalibrationActivityService()->add(40, 5, null, null, $connection);
+
+    expect(fn () => recordCalibrationActivityService()->sync(40, [5, 8], $connection))
+        ->toThrow(RecordCalibrationActivityException::class, 'This activity master is inactive.');
+
+    expect($connection->table('calibration_activity')->pluck('activity_id')->all())->toBe([5]);
+});
 
 it('rejects a frozen activity mode outside the known requirement modes', function () {
     $connection = recordCalibrationActivityConnection();

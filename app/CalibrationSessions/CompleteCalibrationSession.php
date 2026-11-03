@@ -3,6 +3,7 @@
 namespace App\CalibrationSessions;
 
 use App\Models\Calibration;
+use App\Models\EnvironmentParameter;
 use App\Models\InstrumentTypeRequirement;
 use DateTimeImmutable;
 use Illuminate\Database\Connection;
@@ -14,9 +15,15 @@ use Illuminate\Support\Collection;
  * Dates come from the caller. There is no domain actor and no completion
  * reason. External completion requires exactly one active vendor PDF row and
  * does not read the file. Internal completion mirrors
- * calibration_session_assert_complete, including typed environment values and
- * schema version 2 result cells. SQLite compiles lockForUpdate() without the
- * PostgreSQL completion trigger or a real row lock.
+ * calibration_session_assert_complete for typed environment values and
+ * schema version 2 result cells. Configuration confirmation is not a
+ * complete gate; required Temperature and Relative Humidity values still
+ * block complete. Activity is optional for every internal complete and
+ * existing activity snapshots are not rewritten. PostgreSQL
+ * Activity remains optional during completion, including for legacy
+ * snapshots whose stored mode is required. SQLite compiles
+ * lockForUpdate() without the PostgreSQL completion trigger or a real
+ * row lock.
  */
 class CompleteCalibrationSession
 {
@@ -149,13 +156,10 @@ class CompleteCalibrationSession
             ->get();
 
         $this->assertInternalProvider($connection, $calibration);
-        $modes = $this->effectiveModes($snapshots);
+        $modes = $this->effectiveModes($snapshots, (string) $calibration->calibration_method);
 
         $usageCount = ($modes[InstrumentTypeRequirement::CATEGORY_STANDARDS] ?? null) === InstrumentTypeRequirement::MODE_REQUIRED
             ? $this->lockedCount($connection, 'calibration_standard_usage', $calibrationId, 'calibration_standard_usage_id')
-            : null;
-        $activityCount = ($modes[InstrumentTypeRequirement::CATEGORY_ACTIVITY] ?? null) === InstrumentTypeRequirement::MODE_REQUIRED
-            ? $this->lockedCount($connection, 'calibration_activity', $calibrationId, 'calibration_activity_id')
             : null;
 
         $parameters = $connection->table('calibration_environment_parameter_snapshot')
@@ -181,10 +185,6 @@ class CompleteCalibrationSession
 
         if ($usageCount === 0) {
             throw CompleteCalibrationSessionException::missingRequiredStandards();
-        }
-
-        if ($activityCount === 0) {
-            throw CompleteCalibrationSessionException::missingRequiredActivity();
         }
 
         $this->assertTestProfile(
@@ -225,7 +225,7 @@ class CompleteCalibrationSession
      * @param  Collection<int, object>  $snapshots
      * @return array<string, string>
      */
-    private function effectiveModes(Collection $snapshots): array
+    private function effectiveModes(Collection $snapshots, string $calibrationMethod): array
     {
         $present = [];
 
@@ -244,9 +244,11 @@ class CompleteCalibrationSession
         $modes = [];
 
         foreach ($present as $category => $snapshot) {
-            $mode = $this->effectiveMode(
+            $mode = CalibrationSessionRequirementPolicy::effectiveMode(
+                $category,
                 (string) $snapshot->frozen_mode,
                 $snapshot->resolved_mode !== null ? (string) $snapshot->resolved_mode : null,
+                $calibrationMethod,
             );
 
             if (! in_array($mode, [InstrumentTypeRequirement::MODE_REQUIRED, InstrumentTypeRequirement::MODE_OPTIONAL], true)) {
@@ -257,22 +259,6 @@ class CompleteCalibrationSession
         }
 
         return $modes;
-    }
-
-    private function effectiveMode(string $frozenMode, ?string $resolvedMode): string
-    {
-        if (in_array($frozenMode, [InstrumentTypeRequirement::MODE_REQUIRED, InstrumentTypeRequirement::MODE_OPTIONAL], true)) {
-            return $frozenMode;
-        }
-
-        if (
-            $frozenMode === InstrumentTypeRequirement::MODE_NOT_CONFIGURED
-            && in_array($resolvedMode, [InstrumentTypeRequirement::MODE_REQUIRED, InstrumentTypeRequirement::MODE_OPTIONAL], true)
-        ) {
-            return $resolvedMode;
-        }
-
-        return InstrumentTypeRequirement::MODE_NOT_CONFIGURED;
     }
 
     private function lockedCount(Connection $connection, string $table, int $calibrationId, string $orderColumn): int
@@ -357,8 +343,12 @@ class CompleteCalibrationSession
                     );
                 }
 
-                $rule = $column['completion_rule'] ?? null;
+                $rule = $column['completion_rule'] ?? InstrumentTypeRequirement::MODE_NOT_CONFIGURED;
                 $columnKey = $column['column_key'] ?? null;
+
+                if ($rule === InstrumentTypeRequirement::MODE_NOT_CONFIGURED) {
+                    continue;
+                }
 
                 if ($rule !== InstrumentTypeRequirement::MODE_REQUIRED && $rule !== InstrumentTypeRequirement::MODE_OPTIONAL) {
                     throw CompleteCalibrationSessionException::incompleteTestComponents(
@@ -421,15 +411,13 @@ class CompleteCalibrationSession
             throw CompleteCalibrationSessionException::missingRequirementSnapshot();
         }
 
-        if ($snapshot->configuration_confirmed_at === null) {
-            throw CompleteCalibrationSessionException::unconfirmedEnvironment();
-        }
-
         foreach ($parameters as $parameter) {
             if ($this->isExplicitlyFalse($parameter->inclusion_confirmed)) {
                 throw CompleteCalibrationSessionException::unconfirmedEnvironmentInclusion();
             }
         }
+
+        $this->assertRequiredRoomEnvironmentSnapshots($parameters, $values);
 
         $required = $parameters->filter(
             fn (object $parameter): bool => $this->isAffirmative($parameter->inclusion_confirmed)
@@ -452,6 +440,66 @@ class CompleteCalibrationSession
             if ($parameter->data_type === 'text' && ($value === null || $this->blank($value->text_value))) {
                 throw CompleteCalibrationSessionException::incompleteEnvironment();
             }
+        }
+    }
+
+    /**
+     * @param  Collection<int, object>  $parameters
+     * @param  Collection<int, object>  $values
+     */
+    private function assertRequiredRoomEnvironmentSnapshots(Collection $parameters, Collection $values): void
+    {
+        $this->assertRequiredRoomEnvironmentSnapshot(
+            $parameters,
+            $values,
+            EnvironmentParameter::CODE_TEMPERATURE,
+            CompleteCalibrationSessionException::missingFrozenTemperatureMeasurement(),
+            CompleteCalibrationSessionException::optionalFrozenTemperatureMeasurement(),
+        );
+        $this->assertRequiredRoomEnvironmentSnapshot(
+            $parameters,
+            $values,
+            EnvironmentParameter::CODE_RELATIVE_HUMIDITY,
+            CompleteCalibrationSessionException::missingFrozenRelativeHumidityMeasurement(),
+            CompleteCalibrationSessionException::optionalFrozenRelativeHumidityMeasurement(),
+        );
+    }
+
+    /**
+     * @param  Collection<int, object>  $parameters
+     * @param  Collection<int, object>  $values
+     */
+    private function assertRequiredRoomEnvironmentSnapshot(
+        Collection $parameters,
+        Collection $values,
+        string $parameterCode,
+        CompleteCalibrationSessionException $missing,
+        CompleteCalibrationSessionException $optional,
+    ): void {
+        $matches = $parameters->filter(
+            fn (object $parameter): bool => (string) $parameter->parameter_code === $parameterCode,
+        );
+
+        if ($matches->count() !== 1) {
+            throw $missing;
+        }
+
+        $parameter = $matches->first();
+
+        if ((string) $parameter->requirement_mode !== InstrumentTypeRequirement::MODE_REQUIRED) {
+            throw $optional;
+        }
+
+        $value = $values->first(
+            fn (object $row): bool => (int) $row->parameter_id === (int) $parameter->parameter_id,
+        );
+
+        if ((string) $parameter->data_type === 'numeric' && ($value === null || $value->numeric_value === null)) {
+            throw CompleteCalibrationSessionException::incompleteEnvironment();
+        }
+
+        if ((string) $parameter->data_type === 'text' && ($value === null || $this->blank($value->text_value))) {
+            throw CompleteCalibrationSessionException::incompleteEnvironment();
         }
     }
 
