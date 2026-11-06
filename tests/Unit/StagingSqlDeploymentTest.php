@@ -3,6 +3,10 @@
 use App\StagingSqlDeployment\ApprovedStagingSqlArtifacts;
 use App\StagingSqlDeployment\AtomicStagingSqlPackageBuilder;
 use App\StagingSqlDeployment\ContractStagingSqlExecutionSimulator;
+use App\StagingSqlDeployment\DeltaAtomicStagingSqlPackageBuilder;
+use App\StagingSqlDeployment\DeltaStagingSqlDeploymentGateValidator;
+use App\StagingSqlDeployment\DeltaStagingSqlReleaseApproval;
+use App\StagingSqlDeployment\DeltaStagingSqlReleaseManifest;
 use App\StagingSqlDeployment\DisabledStagingSqlExecutionAdapter;
 use App\StagingSqlDeployment\FixedGitRevisionReader;
 use App\StagingSqlDeployment\StagingSqlDeploymentAuthorization;
@@ -358,4 +362,131 @@ it('does not invoke a PostgreSQL connector in offline disabled mode', function (
         ->and($source)->not->toContain('DB::')
         ->and($source)->not->toContain('pg_connect')
         ->and($source)->not->toContain('pgsql:');
+});
+
+it('builds the delta release with exactly one notification-history artifact', function () {
+    $manifest = DeltaStagingSqlReleaseManifest::pending(stagingSqlRepoRoot());
+    $approval = new DeltaStagingSqlReleaseApproval(
+        releaseId: $manifest['release_id'],
+        approvedHead: str_repeat('b', 40),
+        checkpoint: 'delta-test-checkpoint',
+        freshBackupSha256: str_repeat('c', 64),
+        artifactSha256: $manifest['artifact']['source_sha256'],
+        artifactBodySha256: $manifest['artifact']['body_sha256'],
+    );
+    $package = (new DeltaAtomicStagingSqlPackageBuilder(
+        repositoryRoot: stagingSqlRepoRoot(),
+        gitRevisionReader: new FixedGitRevisionReader($approval->approvedHead),
+        approval: $approval,
+    ))->build();
+
+    expect(ApprovedStagingSqlArtifacts::ordered())->toHaveCount(3)
+        ->and($package->artifacts)->toHaveCount(1)
+        ->and($package->orderedRelativePaths())->toBe([
+            DeltaStagingSqlReleaseManifest::ARTIFACT_PATH,
+        ])
+        ->and($package->orderedBodySql()[0])->toContain('calibration_due_notification_batches');
+
+    (new DeltaStagingSqlDeploymentGateValidator)->assertPackageReady($package, $approval);
+});
+
+it('rejects replaying a historical artifact through the delta release', function () {
+    $manifest = DeltaStagingSqlReleaseManifest::pending(stagingSqlRepoRoot());
+    $approval = new DeltaStagingSqlReleaseApproval(
+        releaseId: $manifest['release_id'],
+        approvedHead: str_repeat('b', 40),
+        checkpoint: 'delta-test-checkpoint',
+        freshBackupSha256: str_repeat('c', 64),
+        artifactSha256: ApprovedStagingSqlArtifacts::ordered()[0]['sha256'],
+        artifactBodySha256: $manifest['artifact']['body_sha256'],
+    );
+
+    expect(fn () => (new DeltaAtomicStagingSqlPackageBuilder(
+        repositoryRoot: stagingSqlRepoRoot(),
+        gitRevisionReader: new FixedGitRevisionReader($approval->approvedHead),
+        approval: $approval,
+    ))->build())->toThrow(StagingSqlDeploymentException::class, 'Delta SQL artifact hash mismatch');
+});
+
+it('rejects an incomplete delta release approval before package construction', function () {
+    $approval = new DeltaStagingSqlReleaseApproval(
+        releaseId: DeltaStagingSqlReleaseManifest::RELEASE_ID,
+        approvedHead: '',
+        checkpoint: '',
+        freshBackupSha256: '',
+        artifactSha256: '',
+        artifactBodySha256: '',
+    );
+
+    expect(fn () => $approval->assertComplete())
+        ->toThrow(StagingSqlDeploymentException::class, 'Missing approved release HEAD');
+});
+
+it('rejects delta authorization with the wrong backup hash or database', function () {
+    $manifest = DeltaStagingSqlReleaseManifest::pending(stagingSqlRepoRoot());
+    $approval = new DeltaStagingSqlReleaseApproval(
+        releaseId: $manifest['release_id'],
+        approvedHead: str_repeat('b', 40),
+        checkpoint: 'delta-test-checkpoint',
+        freshBackupSha256: str_repeat('c', 64),
+        artifactSha256: $manifest['artifact']['source_sha256'],
+        artifactBodySha256: $manifest['artifact']['body_sha256'],
+    );
+    $authorization = new StagingSqlDeploymentAuthorization(
+        operatorWriteApproved: true,
+        backupBaselineVerified: true,
+        freshSchemaInventoryVerified: true,
+        freshTriggerFingerprintVerified: true,
+        operatorConfirmedExecution: true,
+        approvedBackupSha256: str_repeat('d', 64),
+        approvedCheckpoint: $approval->checkpoint,
+        approvedDatabase: 'calibration_db',
+        approvedHost: '127.0.0.1',
+        approvedPort: ApprovedStagingSqlArtifacts::APPROVED_PORT,
+        approvedReleaseHead: $approval->approvedHead,
+        approvedArtifactSha256: [$approval->artifactSha256],
+    );
+
+    expect(fn () => (new DeltaStagingSqlDeploymentGateValidator)->assertAuthorization($authorization, $approval))
+        ->toThrow(StagingSqlDeploymentException::class, 'backup verification mismatch');
+});
+
+it('rejects a delta package when the resolved HEAD differs from approval', function () {
+    $manifest = DeltaStagingSqlReleaseManifest::pending(stagingSqlRepoRoot());
+    $approval = new DeltaStagingSqlReleaseApproval(
+        releaseId: $manifest['release_id'],
+        approvedHead: str_repeat('b', 40),
+        checkpoint: 'delta-test-checkpoint',
+        freshBackupSha256: str_repeat('c', 64),
+        artifactSha256: $manifest['artifact']['source_sha256'],
+        artifactBodySha256: $manifest['artifact']['body_sha256'],
+    );
+
+    expect(fn () => (new DeltaAtomicStagingSqlPackageBuilder(
+        repositoryRoot: stagingSqlRepoRoot(),
+        gitRevisionReader: new FixedGitRevisionReader(str_repeat('a', 40)),
+        approval: $approval,
+    ))->build())->toThrow(StagingSqlDeploymentException::class, 'Delta release HEAD');
+});
+
+it('rejects unapproved delta release identity and unsafe targets', function () {
+    $approval = new DeltaStagingSqlReleaseApproval(
+        releaseId: 'unapproved-release',
+        approvedHead: str_repeat('b', 40),
+        checkpoint: 'delta-test-checkpoint',
+        freshBackupSha256: str_repeat('c', 64),
+        artifactSha256: str_repeat('d', 64),
+        artifactBodySha256: str_repeat('e', 64),
+    );
+
+    expect(fn () => $approval->assertComplete())
+        ->toThrow(StagingSqlDeploymentException::class, 'release identifier')
+        ->and(fn () => (new DeltaStagingSqlDeploymentGateValidator)->assertTargetAllowed(
+            new StagingSqlDeploymentTarget('127.0.0.1', 5432, 'calibration_db'),
+        ))->toThrow(StagingSqlDeploymentException::class, 'Production database is forbidden');
+});
+
+it('keeps the Laravel migration out of the executable migration directory', function () {
+    expect(file_exists(stagingSqlRepoRoot().'/database/migrations/2026_11_06_000001_create_calibration_due_notification_history_tables.php'))->toBeFalse()
+        ->and(file_exists(stagingSqlRepoRoot().'/database/sql/reference/2026_11_06_000001_create_calibration_due_notification_history_tables.php'))->toBeTrue();
 });

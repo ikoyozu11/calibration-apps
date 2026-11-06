@@ -91,6 +91,11 @@ final class StagingActivationPreflight
                 'classification' => 'requires_approval',
                 'reason' => 'Test component tables for Record/Certificate.',
             ],
+            [
+                'relative_path' => 'database/sql/calibration_due_notification_history.sql',
+                'classification' => 'requires_approval',
+                'reason' => 'Calibration Due notification history; requires migration approval and fresh backup/schema verification.',
+            ],
         ];
     }
 

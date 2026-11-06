@@ -3,6 +3,7 @@
 use App\Http\Middleware\EnsureApplicationRole;
 use App\Http\Middleware\EnsureStagingRuntimeIsolation;
 use Illuminate\Auth\Middleware\Authenticate;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Application;
@@ -21,6 +22,12 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    ->withSchedule(function (Schedule $schedule): void {
+        $schedule->command('calibration:send-due-reminders')
+            ->dailyAt('08:00')
+            ->timezone((string) config('calibration_due_notifications.timezone', 'Asia/Jakarta'))
+            ->withoutOverlapping();
+    })
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'application.role' => EnsureApplicationRole::class,

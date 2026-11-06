@@ -23,6 +23,24 @@ final class PdoStagingSqlConnectionFactory implements StagingSqlConnectionFactor
             throw new StagingSqlDeploymentException('Cannot unseal PDO factory for an unapproved checkpoint.');
         }
 
+        $this->unseal($checkpoint, $username, $password);
+    }
+
+    public function unsealForApprovedDelta(
+        DeltaStagingSqlReleaseApproval $approval,
+        string $username,
+        string $password,
+    ): void {
+        $approval->assertComplete();
+        $this->unseal($approval->checkpoint, $username, $password);
+    }
+
+    private function unseal(string $checkpoint, string $username, string $password): void
+    {
+        if ($checkpoint === '') {
+            throw new StagingSqlDeploymentException('Delta deployment checkpoint is required.');
+        }
+
         if ($username === '') {
             throw new StagingSqlDeploymentException('Staging SQL username is required to unseal the PDO factory.');
         }
