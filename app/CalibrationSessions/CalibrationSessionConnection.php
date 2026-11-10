@@ -80,6 +80,16 @@ final class CalibrationSessionConnection
     {
         $driver = $connection->getDriverName();
 
+        if ($driver === 'pgsql' && $this->isAuthorizedNotificationIntegrationConnection($connection)) {
+            $live = $connection->scalar('select current_database()');
+
+            if ($live !== $this->notificationIntegrationDatabase()) {
+                throw CalibrationSessionConnectionException::identityMismatch();
+            }
+
+            return;
+        }
+
         if ($driver === 'sqlite') {
             if ($this->isSqliteMemory($connection)) {
                 return;
@@ -127,6 +137,10 @@ final class CalibrationSessionConnection
         }
 
         $driver = $config['driver'] ?? null;
+
+        if ($this->isAuthorizedNotificationIntegrationConfiguration($name, $config)) {
+            return;
+        }
 
         if ($driver === 'sqlite') {
             $this->assertNamedSqliteMemoryConfiguration($config);
@@ -254,6 +268,48 @@ final class CalibrationSessionConnection
         }
 
         return $connection->getDatabaseName() === ':memory:';
+    }
+
+    private function isAuthorizedNotificationIntegrationConnection(Connection $connection): bool
+    {
+        $expectedDatabase = $this->notificationIntegrationDatabase();
+
+        if ($connection->getName() !== 'notification_test'
+            || $connection->getDriverName() !== 'pgsql'
+            || ! is_string($expectedDatabase)
+            || preg_match('/^calibration_notification_test_[a-f0-9]{12}$/', $expectedDatabase) !== 1) {
+            return false;
+        }
+
+        $config = $this->config->get('database.connections.notification_test');
+
+        return is_array($config)
+            && $this->isAuthorizedNotificationIntegrationConfiguration('notification_test', $config);
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     */
+    private function isAuthorizedNotificationIntegrationConfiguration(string $name, array $config): bool
+    {
+        $expectedDatabase = $this->notificationIntegrationDatabase();
+
+        return $name === 'notification_test'
+            && ($config['driver'] ?? null) === 'pgsql'
+            && is_string($expectedDatabase)
+            && preg_match('/^calibration_notification_test_[a-f0-9]{12}$/', $expectedDatabase) === 1
+            && DestructiveCommandGuard::databaseNameFromConnection($config) === $expectedDatabase
+            && ($config['host'] ?? null) === '127.0.0.1'
+            && (string) ($config['port'] ?? '') === '5432';
+    }
+
+    private function notificationIntegrationDatabase(): ?string
+    {
+        $value = $_SERVER['CALIBRATION_NOTIFICATION_TEST_DATABASE']
+            ?? $_ENV['CALIBRATION_NOTIFICATION_TEST_DATABASE']
+            ?? null;
+
+        return is_string($value) ? $value : null;
     }
 
     private function configuredDatabaseName(Connection $connection): ?string

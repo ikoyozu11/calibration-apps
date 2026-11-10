@@ -7,6 +7,7 @@ use Illuminate\Console\Events\CommandStarting;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Console\Kernel as ConsoleKernel;
 use Illuminate\Database\ConnectionResolverInterface;
+use Illuminate\Database\Connectors\PostgresConnector;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\ConfigurationUrlParser;
@@ -98,7 +99,12 @@ final class TestDatabaseGuard
         $app->instance('db.factory', $factory);
         $app->instance('db', $manager);
         $app->alias('db', ConnectionResolverInterface::class);
-        $app->instance('db.connector.pgsql', new TestRefusingPostgresConnector);
+        $app->instance(
+            'db.connector.pgsql',
+            self::notificationIntegrationProcessEnabled()
+                ? new PostgresConnector
+                : new TestRefusingPostgresConnector,
+        );
         $app->bind('db.connection', fn (Application $container) => $container['db']->connection());
         $app->bind('db.schema', fn (Application $container) => $container['db']->connection()->getSchemaBuilder());
 
@@ -267,6 +273,11 @@ final class TestDatabaseGuard
     public static function connectionSafetyViolations(array $config, ?string $name = null): array
     {
         $label = $name ?: 'connection';
+
+        if (self::isAuthorizedNotificationIntegrationConnection($config, $name)) {
+            return self::notificationIntegrationConnectionViolations($config, $label);
+        }
+
         $violations = [];
 
         if (is_string($name) && in_array($name, self::POSTGRES_CONNECTION_NAMES, true)) {
@@ -304,6 +315,70 @@ final class TestDatabaseGuard
         }
 
         return array_values(array_unique($violations));
+    }
+
+    /**
+     * Allow only the explicitly provisioned disposable database used by the
+     * Calibration Due notification integration test.
+     *
+     * @param  array<string, mixed>  $config
+     */
+    private static function isAuthorizedNotificationIntegrationConnection(array $config, ?string $name): bool
+    {
+        return ($name === 'notification_test' || $name === null)
+            && ($config['driver'] ?? null) === 'pgsql'
+            && getenv('CALIBRATION_NOTIFICATION_TEST_DATABASE') !== false
+            && DestructiveCommandGuard::databaseNameFromConnection($config) === getenv('CALIBRATION_NOTIFICATION_TEST_DATABASE');
+    }
+
+    private static function notificationIntegrationProcessEnabled(): bool
+    {
+        $database = getenv('CALIBRATION_NOTIFICATION_TEST_DATABASE');
+
+        return is_string($database)
+            && preg_match('/^calibration_notification_test_[a-f0-9]{12}$/', $database) === 1;
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     * @return list<string>
+     */
+    private static function notificationIntegrationConnectionViolations(array $config, string $label): array
+    {
+        $violations = [];
+        $expectedDatabase = getenv('CALIBRATION_NOTIFICATION_TEST_DATABASE');
+        $database = DestructiveCommandGuard::databaseNameFromConnection($config);
+
+        if (! is_string($expectedDatabase)
+            || ! preg_match('/^calibration_notification_test_[a-f0-9]{12}$/', $expectedDatabase)) {
+            $violations[] = 'Disposable notification integration database name is invalid.';
+        }
+
+        if ($database !== $expectedDatabase) {
+            $violations[] = "Notification integration database [{$label}] does not match the process-local target.";
+        }
+
+        if (in_array($database, DestructiveCommandGuard::PROTECTED_DATABASE_NAMES, true)) {
+            $violations[] = "Refusing protected database [{$database}] during tests.";
+        }
+
+        if (($config['host'] ?? null) !== '127.0.0.1') {
+            $violations[] = 'Notification integration database host must be 127.0.0.1.';
+        }
+
+        if ((string) ($config['port'] ?? '') !== '5432') {
+            $violations[] = 'Notification integration database port must be 5432.';
+        }
+
+        if (! self::isBlankUrl($config['url'] ?? null)) {
+            $violations[] = 'Notification integration database URL must be empty.';
+        }
+
+        if (($config['username'] ?? '') === '' || ! array_key_exists('password', $config)) {
+            $violations[] = 'Notification integration database credentials are required.';
+        }
+
+        return $violations;
     }
 
     /**

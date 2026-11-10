@@ -39,6 +39,10 @@ final class CalibrationHttpConnection
 
     public function resolve(): Connection
     {
+        if ($this->notificationIntegrationTestAvailable()) {
+            return $this->sessionConnection->resolveNamed('notification_test');
+        }
+
         if ($this->sqliteMemoryAvailable()) {
             return $this->resolveSqliteMemory();
         }
@@ -48,6 +52,29 @@ final class CalibrationHttpConnection
         }
 
         throw CalibrationHttpConnectionException::unavailable();
+    }
+
+    private function notificationIntegrationTestAvailable(): bool
+    {
+        $database = $this->notificationIntegrationDatabase();
+        $config = $this->config->get('database.connections.notification_test');
+
+        return is_string($database)
+            && preg_match('/^calibration_notification_test_[a-f0-9]{12}$/', $database) === 1
+            && is_array($config)
+            && ($config['driver'] ?? null) === 'pgsql'
+            && DestructiveCommandGuard::databaseNameFromConnection($config) === $database
+            && ($config['host'] ?? null) === '127.0.0.1'
+            && (string) ($config['port'] ?? '') === '5432';
+    }
+
+    private function notificationIntegrationDatabase(): ?string
+    {
+        $value = $_SERVER['CALIBRATION_NOTIFICATION_TEST_DATABASE']
+            ?? $_ENV['CALIBRATION_NOTIFICATION_TEST_DATABASE']
+            ?? null;
+
+        return is_string($value) ? $value : null;
     }
 
     private function sqliteMemoryAvailable(): bool
