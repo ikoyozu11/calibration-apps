@@ -1,11 +1,13 @@
 <?php
 
 use App\Certificates\ServiceReport;
+use App\Certificates\ServiceReportPdfRenderer;
 use App\Models\Certificate;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 
 function createServiceReportTestTables(): void
 {
@@ -34,6 +36,7 @@ function createServiceReportTestTables(): void
         $table->text('resume')->nullable();
         $table->unsignedBigInteger('customer_id')->nullable();
         addCalibrationSessionColumns($table);
+        $table->string('snapshot_instrument_type_name')->nullable();
     });
 
     Schema::create('certificate', function (Blueprint $table): void {
@@ -131,6 +134,10 @@ function createServiceReportTestTables(): void
         $table->timestamp('created_at');
         $table->string('standard_range')->nullable();
         $table->string('standard_unit')->nullable();
+        $table->string('snapshot_standard_code')->nullable();
+        $table->string('snapshot_instrument_name')->nullable();
+        $table->string('snapshot_type_specification')->nullable();
+        $table->string('snapshot_serial_number')->nullable();
     });
 
     Schema::create('test_profile', function (Blueprint $table): void {
@@ -160,9 +167,9 @@ function createServiceReportTestTables(): void
         $table->string('result_status', 20)->nullable();
         $table->text('remarks')->nullable();
         $table->timestamp('created_at');
-        $table->decimal('standard_value', 18, 6)->nullable();
-        $table->decimal('average_value', 18, 6)->nullable();
-        $table->decimal('correction_value', 18, 6)->nullable();
+        $table->string('standard_value', 50)->nullable();
+        $table->string('average_value', 50)->nullable();
+        $table->string('correction_value', 50)->nullable();
     });
 }
 
@@ -362,7 +369,9 @@ it('renders a one-page service report pdf from stored certificate data', functio
         'created_at' => '2026-06-12 09:00:00',
         'updated_at' => '2026-06-12 09:00:00',
         'action_date' => null,
-        'resume' => 'Instrument working properly',
+        'resume' => env('SERVICE_REPORT_LONG_RESUME') === '1'
+            ? str_repeat('Instrument working properly. Detailed engineer remarks are preserved in full for the long-report preview. ', 12)
+            : 'Instrument working properly',
         'customer_id' => 1,
     ]);
 
@@ -422,6 +431,59 @@ it('renders a one-page service report pdf from stored certificate data', functio
             'correction_value' => '-0.8',
         ],
     ]);
+
+    $extraPreviewRows = (int) env('SERVICE_REPORT_PREVIEW_EXTRA_ROWS', 0);
+
+    if ($extraPreviewRows > 0) {
+        for ($index = 1; $index <= $extraPreviewRows; $index++) {
+            DB::table('test_point')->insert([
+                'test_point_id' => 1000 + $index,
+                'test_profile_id' => 4,
+                'point_order' => 100 + $index,
+                'nominal_value' => (string) (100 + $index),
+                'unit' => 'mmWG',
+                'tolerance_plus' => null,
+                'tolerance_minus' => null,
+                'description' => 'Preview test point '.$index,
+                'created_at' => '2026-06-12 09:00:00',
+            ]);
+            DB::table('calibration_test_result')->insert([
+                'calibration_test_result_id' => 2000 + $index,
+                'calibration_scope_id' => 201,
+                'test_point_id' => 1000 + $index,
+                'result_status' => 'PASS',
+                'remarks' => null,
+                'created_at' => '2026-06-12 09:00:00',
+                'standard_value' => (string) (100 + $index),
+                'average_value' => (string) (100 + $index),
+                'correction_value' => '0.0',
+            ]);
+        }
+    }
+
+    if (env('SERVICE_REPORT_THREE_COMPONENT_PREVIEW') === '1') {
+        DB::table('calibration_scope')->insert([
+            'calibration_scope_id' => 203,
+            'calibration_id' => 3,
+            'instrument_type_id' => 7,
+            'test_profile_id' => 4,
+            'scope_order' => 3,
+            'remarks' => null,
+            'created_at' => '2026-06-12 09:00:00',
+        ]);
+
+        DB::table('calibration_test_result')->insert([
+            'calibration_test_result_id' => 904,
+            'calibration_scope_id' => 203,
+            'test_point_id' => 401,
+            'result_status' => 'PASS',
+            'remarks' => null,
+            'created_at' => '2026-06-12 09:00:00',
+            'standard_value' => '99.0',
+            'average_value' => '99.0',
+            'correction_value' => '0.0',
+        ]);
+    }
 
     DB::table('calibration_environment')->insert([
         'calibration_environment_id' => 1,
@@ -485,7 +547,7 @@ it('renders a one-page service report pdf from stored certificate data', functio
     DB::table('certificate')->insert([
         'certificate_id' => 1,
         'calibration_id' => 3,
-        'certificate_number' => 'CERT-PROT-0001',
+        'certificate_number' => 'SR.VT001/11/26',
         'certificate_type' => 'EXTERNAL',
         'issued_date' => '2026-06-12',
         'file_path' => null,
@@ -502,8 +564,10 @@ it('renders a one-page service report pdf from stored certificate data', functio
 
     expect($html)
         ->toContain('SERVICE REPORT')
-        ->toContain('Document Number: CERT-PROT-0001')
-        ->toContain('Page 1 of 1')
+        ->toContain('SR.VT001/11/26')
+        ->not->toContain('Page {PAGE_NUM} of {PAGE_COUNT}')
+        ->not->toContain('DESIGN PREVIEW')
+        ->not->toContain('Internal Calibration')
         ->toContain('GENERAL INFORMATION')
         ->toContain('PT. BENTOEL PRIMA')
         ->toContain('Jl. Raya Perusahaan, Karanglo, Singosari, Malang')
@@ -513,23 +577,26 @@ it('renders a one-page service report pdf from stored certificate data', functio
         ->toContain('FMD / FM05-06')
         ->toContain('Sr. 28 Nr. 752')
         ->toContain('Sodim')
-        ->toContain('PDV - PD')
-        ->toContain('1000 g')
-        ->toContain('0.01 g')
         ->toContain('ENVIRONMENT')
+        ->not->toContain('ENVIRONMENTAL CONDITIONS')
         ->toContain('25 °C')
         ->toContain('65 %')
-        ->not->toContain('ACTIVITY')
+        ->toContain('ACTIVITY')
+        ->toContain('Cleaning')
+        ->toContain('Testing')
         ->toContain('STANDARD(S) USED')
-        ->toContain('ET4276')
-        ->toContain('99.0 mmWG')
+        ->toContain('Instrument Name')
+        ->toContain('Type')
+        ->toContain('Serial Number')
         ->toContain('TEST RESULT')
         ->toContain('Standard Reading Avg')
         ->toContain('Correction Tolerance: ±3% from standard value')
         ->toContain('Correction Tolerance: 0.25 / -0.25 g')
         ->toContain('RESUME')
         ->toContain('Instrument working properly')
-        ->toContain('Authorized Signatory')
+        ->not->toContain('Dokumen ini diterbitkan secara digital dan sah oleh Internal PT Vision Teknik.')
+        ->not->toContain('Dokumen ini diterbitkan secara digital dan sah oleh Tim QA PT Vision Teknik.')
+        ->not->toContain('Authorized Signatory')
         ->not->toContain('NOT-THE-DOCUMENT-NUMBER')
         ->not->toContain('Data sementara untuk prototype')
         ->not->toContain('UNUSED-SERIAL')
@@ -548,8 +615,42 @@ it('renders a one-page service report pdf from stored certificate data', functio
 
     $response->assertOk();
     $response->assertHeader('content-type', 'application/pdf');
+    if (filled(env('SERVICE_REPORT_PREVIEW_PATH'))) {
+        $preview = app(ServiceReportPdfRenderer::class)
+            ->render(Certificate::query()->findOrFail(1))
+            ->output(['compress' => 0]);
+        file_put_contents((string) env('SERVICE_REPORT_PREVIEW_PATH'), $preview);
+    }
     expect($response->headers->get('content-disposition'))->toContain('inline')
-        ->and(substr($response->getContent(), 0, 5))->toBe('%PDF-');
+        ->and($response->headers->get('content-disposition'))->toContain('SR.VT001-11-26.pdf')
+        ->and(substr($response->getContent(), 0, 5))->toBe('%PDF-')
+        ->and($response->getContent())->not->toContain('{PAGE_NUM}')
+        ->and($response->getContent())->not->toContain('{PAGE_COUNT}');
+
+    $download = $this->get(route('certificates.download', 1));
+
+    $download->assertOk();
+    expect($download->headers->get('content-disposition'))->toContain('attachment')
+        ->and($download->headers->get('content-disposition'))->toContain('SR.VT001-11-26.pdf');
+
+    Storage::fake('calibration_documents');
+    Storage::disk('calibration_documents')->put('issued/certificate.pdf', "%PDF-1.4\nstored\n");
+    DB::table('certificate')->where('certificate_id', 1)->update([
+        'file_path' => 'issued/certificate.pdf',
+        'file_name' => 'SR.VT001/11/26.pdf',
+    ]);
+
+    $stored = $this->get(route('certificates.pdf', 1));
+
+    $stored->assertOk();
+    expect($stored->headers->get('content-disposition'))->toContain('inline')
+        ->and($stored->headers->get('content-disposition'))->toContain('SR.VT001-11-26.pdf');
+
+    $storedDownload = $this->get(route('certificates.download', 1));
+
+    $storedDownload->assertOk();
+    expect($storedDownload->headers->get('content-disposition'))->toContain('attachment')
+        ->and($storedDownload->headers->get('content-disposition'))->toContain('SR.VT001-11-26.pdf');
 });
 
 it('renders a dash when the certificate number and resume are empty', function () {
@@ -600,8 +701,10 @@ it('renders a dash when the certificate number and resume are empty', function (
     ])->render();
 
     expect($html)
-        ->toContain('Document Number: —')
-        ->toContain('RESUME')
+        ->toContain('SERVICE REPORT')
+        ->toContain('12 June 2026')
+        ->not->toContain('Document Number')
+        ->not->toContain('RESUME')
         ->not->toContain('NOT-THE-DOCUMENT-NUMBER');
 
     $response = $this->get(route('certificates.pdf', 1));
@@ -614,4 +717,201 @@ it('returns not found for an unknown certificate pdf', function () {
     createServiceReportTestTables();
 
     $this->get(route('certificates.pdf', 999))->assertNotFound();
+});
+
+it('renders the golden master fixture as a single A4 page', function () {
+    createServiceReportTestTables();
+
+    DB::table('customer')->insert([
+        'customer_id' => 1,
+        'customer_name' => 'PT. BENTOEL PRIMA',
+        'address' => 'Jl. Raya Perusahaan, Karanglo, Singosari, Malang',
+        'created_at' => '2026-11-04 09:00:00',
+    ]);
+
+    DB::table('location')->insert([
+        'location_id' => 1,
+        'location_code' => 'FMD',
+        'location_name' => 'FMD Factory',
+        'description' => null,
+        'created_at' => '2026-11-04 09:00:00',
+    ]);
+
+    DB::table('detail_location')->insert([
+        'detail_location_id' => 2,
+        'location_id' => 1,
+        'detail_location_code' => 'FM 01/07',
+        'detail_location_name' => 'FM 01/07',
+        'description' => null,
+        'created_at' => '2026-11-04 09:00:00',
+    ]);
+
+    DB::table('instrument')->insert([
+        [
+            'instrument_id' => 3,
+            'instrument_name' => 'Cigarette Test Station',
+            'serial_number' => 'Sr. 3 Nr. 44',
+            'detail_location_id' => 2,
+            'description' => null,
+            'created_at' => '2026-11-04 09:00:00',
+        ],
+        [
+            'instrument_id' => 6,
+            'instrument_name' => 'Pressure Drop Standard',
+            'serial_number' => 'ET4276',
+            'detail_location_id' => null,
+            'description' => null,
+            'created_at' => '2026-11-04 09:00:00',
+        ],
+    ]);
+
+    DB::table('instrument_type')->insert([
+        'instrument_type_id' => 7,
+        'instrument_id' => 3,
+        'type_name' => 'Sodiline PD',
+        'created_at' => '2026-11-04 09:00:00',
+        'brand' => 'Sodim',
+        'model' => null,
+    ]);
+
+    DB::table('test_profile')->insert([
+        'test_profile_id' => 4,
+        'instrument_type_id' => 7,
+        'profile_name' => 'Sodiline PD',
+        'description' => 'Correction Tolerance ± 3 % from STD Value',
+        'created_at' => '2026-11-04 09:00:00',
+    ]);
+
+    $points = [
+        ['value' => '99.0', 'average' => '99.0', 'correction' => '0.0'],
+        ['value' => '198.1', 'average' => '199.0', 'correction' => '-0.9'],
+        ['value' => '293.5', 'average' => '294.0', 'correction' => '-0.5'],
+        ['value' => '394.9', 'average' => '394.0', 'correction' => '0.9'],
+        ['value' => '487.0', 'average' => '485.0', 'correction' => '2.0'],
+    ];
+
+    foreach ($points as $index => $point) {
+        DB::table('test_point')->insert([
+            'test_point_id' => 401 + $index,
+            'test_profile_id' => 4,
+            'point_order' => $index + 1,
+            'nominal_value' => $point['value'],
+            'unit' => 'mmWG',
+            'tolerance_plus' => null,
+            'tolerance_minus' => null,
+            'description' => null,
+            'created_at' => '2026-11-04 09:00:00',
+        ]);
+    }
+
+    DB::table('calibration')->insert([
+        'calibration_id' => 3,
+        'instrument_id' => 3,
+        'calibration_provider_id' => 1,
+        'calibration_number' => 'CAL-GOLDEN-0001',
+        'calibration_date' => '2026-11-04',
+        'calibration_due' => '2027-11-04',
+        'calibration_method' => 'INTERNAL',
+        'calibration_result' => 'PASS',
+        'certificate_number' => 'SR.VT001/11/26',
+        'remarks' => null,
+        'created_at' => '2026-11-04 09:00:00',
+        'updated_at' => '2026-11-04 09:00:00',
+        'action_date' => null,
+        'resume' => 'Instrument working properly',
+        'customer_id' => 1,
+        'snapshot_instrument_type_name' => 'PD',
+    ]);
+
+    DB::table('calibration_scope')->insert([
+        'calibration_scope_id' => 201,
+        'calibration_id' => 3,
+        'instrument_type_id' => 7,
+        'test_profile_id' => 4,
+        'scope_order' => 1,
+        'remarks' => null,
+        'created_at' => '2026-11-04 09:00:00',
+    ]);
+
+    foreach ($points as $index => $point) {
+        DB::table('calibration_test_result')->insert([
+            'calibration_test_result_id' => 901 + $index,
+            'calibration_scope_id' => 201,
+            'test_point_id' => 401 + $index,
+            'result_status' => 'PASS',
+            'remarks' => null,
+            'created_at' => '2026-11-04 09:00:00',
+            'standard_value' => $point['value'],
+            'average_value' => $point['average'],
+            'correction_value' => $point['correction'],
+        ]);
+    }
+
+    DB::table('calibration_environment')->insert([
+        'calibration_environment_id' => 1,
+        'calibration_id' => 3,
+        'temperature_value' => '24.9',
+        'temperature_unit' => '°C',
+        'humidity_value' => '64.8',
+        'humidity_unit' => '%RH',
+        'pressure_value' => null,
+        'pressure_unit' => null,
+        'remarks' => null,
+        'created_at' => '2026-11-04 09:00:00',
+    ]);
+
+    foreach (['Cleaning All Module', 'Verification', 'Leakage test', 'Cleaning/replace vacuum filter', 'Cleaning/adjust internal reference'] as $index => $activity) {
+        DB::table('calibration_activity')->insert([
+            'calibration_activity_id' => 11 + $index,
+            'calibration_id' => 3,
+            'activity_type' => $activity,
+            'activity_description' => null,
+            'activity_result' => null,
+            'activity_order' => $index + 1,
+            'created_at' => '2026-11-04 09:00:00',
+        ]);
+    }
+
+    $standardSerials = ['ET4276', 'ET4614', 'ET4782', 'ET4260', 'ET4934'];
+
+    foreach (['99.0', '198.1', '293.5', '394.9', '487.0'] as $index => $range) {
+        DB::table('calibration_standard_usage')->insert([
+            'calibration_standard_usage_id' => 21 + $index,
+            'calibration_id' => 3,
+            'standard_instrument_id' => 6,
+            'usage_order' => $index + 1,
+            'usage_purpose' => 'Pressure Drop',
+            'remarks' => null,
+            'created_at' => '2026-11-04 09:00:00',
+            'standard_range' => $range,
+            'standard_unit' => 'mmWG',
+            'snapshot_instrument_name' => 'Pressure Drop Standard',
+            'snapshot_type_specification' => $range.' mmWG',
+            'snapshot_serial_number' => $standardSerials[$index],
+        ]);
+    }
+
+    DB::table('certificate')->insert([
+        'certificate_id' => 1,
+        'calibration_id' => 3,
+        'certificate_number' => 'SR.VT001/11/26',
+        'certificate_type' => 'INTERNAL',
+        'issued_date' => '2026-11-04',
+        'file_path' => null,
+        'file_name' => null,
+        'remarks' => null,
+        'created_at' => '2026-11-04 09:00:00',
+    ]);
+
+    Model::preventLazyLoading();
+
+    $pdf = app(ServiceReportPdfRenderer::class)->render(Certificate::query()->findOrFail(1));
+    $output = $pdf->output(['compress' => 0]);
+
+    if (filled(env('SERVICE_REPORT_GOLDEN_PREVIEW_PATH'))) {
+        file_put_contents((string) env('SERVICE_REPORT_GOLDEN_PREVIEW_PATH'), $output);
+    }
+
+    expect($pdf->getDomPDF()->getCanvas()->get_page_count())->toBe(1)
+        ->and($output)->toStartWith('%PDF-');
 });

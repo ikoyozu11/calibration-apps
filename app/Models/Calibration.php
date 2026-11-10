@@ -62,6 +62,7 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, CalibrationEnvironmentParameterSnapshot> $environmentParameterSnapshots
  * @property-read Collection<int, CalibrationEnvironmentValue> $environmentValues
  * @property-read Collection<int, CalibrationExternalDocument> $externalDocuments
+ * @property-read Certificate|null $certificate
  * @property-read CalibrationExternalDocument|null $activeExternalDocument
  * @property-read Collection<int, CalibrationTestProfileRevision> $testProfileRevisions
  * @property-read Location|null $snapshotLocation
@@ -196,11 +197,19 @@ class Calibration extends Model
             ->orderBy('document_id');
     }
 
+    /** @return HasOne<Certificate, $this> */
+    public function certificate(): HasOne
+    {
+        return $this->hasOne(Certificate::class, 'calibration_id', 'calibration_id');
+    }
+
     /** @return HasOne<CalibrationExternalDocument, $this> */
     public function activeExternalDocument(): HasOne
     {
         return $this->hasOne(CalibrationExternalDocument::class, 'calibration_id', 'calibration_id')
-            ->where('is_active', true);
+            ->where('is_active', true)
+            ->whereNull('superseded_at')
+            ->whereNull('removed_at');
     }
 
     /** @return HasMany<CalibrationTestProfileRevision, $this> */

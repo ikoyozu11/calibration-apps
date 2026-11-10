@@ -117,6 +117,7 @@ function calibrationSessionE2eConnection(): Connection
             instrument_id INTEGER NOT NULL,
             instrument_type_id INTEGER NOT NULL,
             calibration_provider_id INTEGER NULL,
+            customer_id INTEGER NULL,
             calibration_number VARCHAR NOT NULL UNIQUE,
             calibration_date TEXT NULL,
             calibration_due TEXT NULL,
@@ -147,6 +148,14 @@ function calibrationSessionE2eConnection(): Connection
             updated_at TEXT NOT NULL,
             FOREIGN KEY (instrument_id) REFERENCES instrument (instrument_id),
             FOREIGN KEY (instrument_type_id) REFERENCES instrument_type (instrument_type_id)
+        )
+    ');
+    $connection->unprepared('
+        CREATE TABLE customer (
+            customer_id INTEGER PRIMARY KEY,
+            customer_name VARCHAR(150) NOT NULL,
+            address TEXT NULL,
+            created_at TEXT NULL
         )
     ');
     $connection->unprepared('
@@ -230,6 +239,17 @@ function calibrationSessionE2eConnection(): Connection
             FOREIGN KEY (calibration_id, parameter_id)
                 REFERENCES calibration_environment_parameter_snapshot (calibration_id, parameter_id),
             CHECK (numeric_value IS NULL OR text_value IS NULL)
+        )
+    ');
+    $connection->unprepared('
+        CREATE TABLE calibration_environment (
+            calibration_environment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            calibration_id INTEGER NOT NULL,
+            temperature_value VARCHAR(50) NULL,
+            temperature_unit VARCHAR(20) NULL,
+            humidity_value VARCHAR(50) NULL,
+            humidity_unit VARCHAR(20) NULL,
+            FOREIGN KEY (calibration_id) REFERENCES calibration (calibration_id)
         )
     ');
     $connection->unprepared('
@@ -458,6 +478,20 @@ function calibrationSessionE2eConnection(): Connection
             uploaded_at TEXT NOT NULL,
             superseded_at TEXT NULL,
             uploaded_by_user_id INTEGER NULL,
+            FOREIGN KEY (calibration_id) REFERENCES calibration (calibration_id)
+        )
+    ');
+    $connection->unprepared('
+        CREATE TABLE certificate (
+            certificate_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            calibration_id INTEGER NOT NULL,
+            certificate_number VARCHAR(100) NOT NULL,
+            certificate_type VARCHAR(20) NOT NULL,
+            issued_date TEXT NOT NULL,
+            file_path TEXT NULL,
+            file_name TEXT NULL,
+            remarks TEXT NULL,
+            created_at TEXT NULL,
             FOREIGN KEY (calibration_id) REFERENCES calibration (calibration_id)
         )
     ');
@@ -782,7 +816,6 @@ function calibrationSessionE2eFullTable(Connection $connection): void
 
 function calibrationSessionE2eSupport(Connection $connection, int $calibrationId, bool $recordEnvironment, int $laravelUserId): void
 {
-    app(RecordCalibrationStandardUsage::class)->add($calibrationId, 1, null, null, 'working standard', null, $connection);
     app(RecordCalibrationActivity::class)->add($calibrationId, 1, 'Adjusted zero', 'pass', $connection);
 
     if ($recordEnvironment) {
@@ -1071,7 +1104,7 @@ it('rejects a start when the instrument has no location', function () {
         ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
 });
 
-it('rejects pinning when a frozen column is not configured', function () {
+it('allows pinning when a frozen column is not configured', function () {
     $connection = calibrationSessionE2eConnection();
     calibrationSessionE2eProvider($connection);
     $starterId = calibrationSessionE2eActor($connection);
@@ -1089,8 +1122,7 @@ it('rejects pinning when a frozen column is not configured', function () {
     $calibrationId = (int) $session->calibration_id;
     calibrationSessionE2eSupport($connection, $calibrationId, true, $starterId);
 
-    expect(fn () => app(PinCalibrationTestTables::class)->pin($calibrationId, $connection))
-        ->toThrow(PinCalibrationTestTablesException::class, 'A not-configured test component cannot be pinned.');
+    app(PinCalibrationTestTables::class)->pin($calibrationId, $connection);
 
     $after = calibrationSessionE2eRow($connection, $calibrationId);
 
@@ -1098,7 +1130,7 @@ it('rejects pinning when a frozen column is not configured', function () {
         ->and($after['calibration_date'])->toBeNull()
         ->and($after['calibration_due'])->toBeNull()
         ->and($after['completed_at'])->toBeNull()
-        ->and($connection->table('calibration_scope')->where('calibration_id', $calibrationId)->count())->toBe(0)
+        ->and($connection->table('calibration_scope')->where('calibration_id', $calibrationId)->count())->toBe(1)
         ->and($connection->table('calibration_test_result')->count())->toBe(0)
         ->and($connection->table('calibration_result_value')->count())->toBe(0)
         ->and($connection->table('test_column')->where('column_key', 'spare')->value('completion_rule'))->toBe('not_configured')

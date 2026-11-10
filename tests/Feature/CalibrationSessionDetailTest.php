@@ -316,6 +316,9 @@ it('renders in-progress completed and cancelled session badges apart from due st
             ->assertSee('Pin Test Tables')
             ->assertSee('Instrument Type')
             ->assertSee('Calibration Method')
+            ->assertSee('environment-heading')
+            ->assertSee('activity-heading')
+            ->assertSee('standard-used-heading')
             ->assertDontSee('Calibration Information')
             ->assertDontSee('Current Due Status');
     } else {
@@ -336,6 +339,22 @@ it('renders in-progress completed and cancelled session badges apart from due st
     'completed' => [Calibration::STATUS_COMPLETED, 'Completed'],
     'cancelled' => [Calibration::STATUS_CANCELLED, 'Cancelled'],
 ]);
+
+it('does not display the unused calibration session remarks field', function () {
+    createCalibrationSessionDetailTables();
+    insertCalibrationSessionDetailSubject([
+        'session_status' => Calibration::STATUS_COMPLETED,
+        'calibration_date' => '2026-10-21',
+        'calibration_due' => '2027-10-21',
+        'remarks' => 'Internal session note that should remain hidden',
+    ]);
+
+    $this->get(route('calibrations.show', 5))
+        ->assertOk()
+        ->assertSee('Calibration Information')
+        ->assertSee('Resume')
+        ->assertDontSee('Internal session note that should remain hidden');
+});
 
 it('shows the in-progress date and resume workflow without technical requirement controls', function () {
     createCalibrationSessionDetailTables();
@@ -529,11 +548,84 @@ it('does not show internal pinning copy on an external session', function () {
     $this->get(route('calibrations.show', 5))
         ->assertSee('EXTERNAL')
         ->assertSee('Completed')
-        ->assertSee('CERT-EXT')
         ->assertDontSee('Calibration Result')
         ->assertDontSee('Test Components have not been pinned to this session yet.')
         ->assertDontSee('Requirement Modes')
-        ->assertSee('No standards used.');
+        ->assertDontSee('environment-heading')
+        ->assertDontSee('activity-heading')
+        ->assertDontSee('standard-used-heading')
+        ->assertSee('Resume');
+
+    $this->get(route('calibrations.show', ['calibration' => 5, 'tab' => 'certificate']))
+        ->assertOk()
+        ->assertSee('External Certificate PDF');
+});
+
+it('hides routine internal sections for external sessions in every terminal state', function (string $status): void {
+    createCalibrationSessionDetailTables();
+    insertCalibrationSessionDetailSubject([
+        'calibration_method' => Calibration::METHOD_EXTERNAL,
+        'session_status' => $status,
+        'certificate_number' => $status === Calibration::STATUS_COMPLETED ? 'CERT-EXT' : null,
+    ]);
+
+    $this->get(route('calibrations.show', 5))
+        ->assertOk()
+        ->assertSee('Resume')
+        ->assertDontSee('environment-heading')
+        ->assertDontSee('activity-heading')
+        ->assertDontSee('standard-used-heading');
+
+    $this->get(route('calibrations.show', ['calibration' => 5, 'tab' => 'certificate']))
+        ->assertOk()
+        ->assertSee('External Certificate PDF');
+
+})->with([
+    'in progress' => Calibration::STATUS_IN_PROGRESS,
+    'completed' => Calibration::STATUS_COMPLETED,
+    'cancelled' => Calibration::STATUS_CANCELLED,
+]);
+
+it('does not mutate historical internal section records when an external detail is rendered', function (): void {
+    createCalibrationSessionDetailTables();
+    insertCalibrationSessionDetailSubject([
+        'calibration_method' => Calibration::METHOD_EXTERNAL,
+    ]);
+
+    DB::table('calibration_environment')->insert([
+        'calibration_environment_id' => 1,
+        'calibration_id' => 5,
+        'created_at' => '2026-10-20 09:00:00',
+    ]);
+    DB::table('calibration_activity')->insert([
+        'calibration_activity_id' => 1,
+        'calibration_id' => 5,
+        'activity_type' => 'Historical activity',
+        'activity_order' => 1,
+        'created_at' => '2026-10-20 09:00:00',
+    ]);
+    DB::table('calibration_standard_usage')->insert([
+        'calibration_standard_usage_id' => 1,
+        'calibration_id' => 5,
+        'standard_instrument_id' => null,
+        'standard_id' => null,
+        'usage_order' => 1,
+        'created_at' => '2026-10-20 09:00:00',
+    ]);
+
+    $before = [
+        'environment' => DB::table('calibration_environment')->count(),
+        'activity' => DB::table('calibration_activity')->count(),
+        'standard' => DB::table('calibration_standard_usage')->count(),
+    ];
+
+    $this->get(route('calibrations.show', 5))->assertOk();
+
+    expect([
+        'environment' => DB::table('calibration_environment')->count(),
+        'activity' => DB::table('calibration_activity')->count(),
+        'standard' => DB::table('calibration_standard_usage')->count(),
+    ])->toBe($before);
 });
 
 it('shows an unavailable state for a legacy snapshot instead of live master values', function () {

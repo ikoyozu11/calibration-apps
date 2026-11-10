@@ -20,6 +20,37 @@ class ExternalCalibrationDocumentDownloadController extends Controller
         DownloadExternalCalibrationDocument $download,
         ReadCalibrationSessionHttpConnection $reads,
     ): StreamedResponse {
+        return $this->respond(
+            $calibration,
+            $document,
+            $download,
+            $reads,
+            HeaderUtils::DISPOSITION_ATTACHMENT,
+        );
+    }
+
+    public function view(
+        int $calibration,
+        int $document,
+        DownloadExternalCalibrationDocument $download,
+        ReadCalibrationSessionHttpConnection $reads,
+    ): StreamedResponse {
+        return $this->respond(
+            $calibration,
+            $document,
+            $download,
+            $reads,
+            HeaderUtils::DISPOSITION_INLINE,
+        );
+    }
+
+    private function respond(
+        int $calibration,
+        int $document,
+        DownloadExternalCalibrationDocument $download,
+        ReadCalibrationSessionHttpConnection $reads,
+        string $dispositionType,
+    ): StreamedResponse {
         Gate::authorize(ApplicationCapability::HistoryView->value);
 
         try {
@@ -33,18 +64,25 @@ class ExternalCalibrationDocumentDownloadController extends Controller
         $filename = $file['filename'];
         $fallback = $this->asciiFilename($filename);
         $disposition = HeaderUtils::makeDisposition(
-            HeaderUtils::DISPOSITION_ATTACHMENT,
+            $dispositionType,
             $filename,
             $fallback,
         );
 
-        return response()->streamDownload(function () use ($file): void {
+        $stream = function () use ($file): void {
             echo $file['contents'];
-        }, $filename, [
+        };
+        $headers = [
             'Content-Type' => $file['mime_type'],
             'Content-Disposition' => $disposition,
             'X-Content-Type-Options' => 'nosniff',
-        ]);
+        ];
+
+        if ($dispositionType === HeaderUtils::DISPOSITION_ATTACHMENT) {
+            return response()->streamDownload($stream, $filename, $headers);
+        }
+
+        return response()->stream($stream, 200, $headers);
     }
 
     private function asciiFilename(string $filename): string

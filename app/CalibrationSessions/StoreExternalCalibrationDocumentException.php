@@ -52,6 +52,11 @@ class StoreExternalCalibrationDocumentException extends RuntimeException impleme
         return new self('The active vendor PDF record is inconsistent.');
     }
 
+    public static function activeDocumentExists(): self
+    {
+        return new self('An active vendor PDF already exists. A new certificate cannot replace it automatically.');
+    }
+
     public static function invalidStorageDisk(): self
     {
         return new self('Vendor PDFs require the private calibration documents disk.');

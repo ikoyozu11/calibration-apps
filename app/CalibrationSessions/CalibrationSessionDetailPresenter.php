@@ -51,7 +51,7 @@ final class CalibrationSessionDetailPresenter
     }
 
     /**
-     * @return list<array{key: int, filename: string, uploaded_at: string, status: string, replaced: bool}>
+     * @return list<array{key: int, filename: string, uploaded_at: string, status: string, active: bool, replaced: bool, removed: bool}>
      */
     public static function vendorDocuments(Calibration $calibration): array
     {
@@ -62,14 +62,20 @@ final class CalibrationSessionDetailPresenter
         $rows = [];
 
         foreach ($calibration->externalDocuments as $document) {
-            $active = (bool) $document->getAttribute('is_active');
+            $active = (bool) $document->getAttribute('is_active')
+                && $document->getAttribute('superseded_at') === null
+                && $document->getAttribute('removed_at') === null;
+            $removed = ! $active && $document->getAttribute('removed_at') !== null;
+            $replaced = ! $active && ! $removed && $document->getAttribute('superseded_at') !== null;
 
             $rows[] = [
                 'key' => (int) $document->getAttribute('document_id'),
                 'filename' => self::display($document->getAttribute('original_filename')),
                 'uploaded_at' => self::formatTimestamp($document->getAttribute('uploaded_at')),
-                'status' => $active ? 'Active' : 'Replaced',
-                'replaced' => ! $active,
+                'status' => $active ? 'Active' : ($removed ? 'Removed' : 'Replaced'),
+                'active' => $active,
+                'replaced' => $replaced,
+                'removed' => $removed,
             ];
         }
 

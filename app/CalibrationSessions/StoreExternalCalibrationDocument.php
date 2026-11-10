@@ -82,11 +82,28 @@ class StoreExternalCalibrationDocument
                     ->lockForUpdate()
                     ->get();
 
-                if ($active->count() > 1 || $active->contains(fn (object $document): bool => $document->superseded_at !== null)) {
+                if ($active->count() > 1 || $active->contains(fn (object $document): bool => $document->superseded_at !== null
+                    || (property_exists($document, 'removed_at') && $document->removed_at !== null))) {
                     throw StoreExternalCalibrationDocumentException::invalidActiveDocumentState();
                 }
 
                 $appUserId = $this->actors->resolve($laravelUserId, $connection);
+
+                if ($active->isNotEmpty()) {
+                    $supersededAt = now();
+                    $updated = $connection->table('calibration_external_document')
+                        ->where('calibration_id', $calibrationId)
+                        ->where('is_active', true)
+                        ->whereNull('superseded_at')
+                        ->update([
+                            'is_active' => false,
+                            'superseded_at' => $supersededAt,
+                        ]);
+
+                    if ($updated !== $active->count()) {
+                        throw StoreExternalCalibrationDocumentException::invalidActiveDocumentState();
+                    }
+                }
 
                 $uuid = (string) Str::uuid();
                 $path = $uuid.'.pdf';
@@ -100,20 +117,6 @@ class StoreExternalCalibrationDocument
 
                 if ($filesystem->put($path, $contents) !== true) {
                     throw StoreExternalCalibrationDocumentException::storageWriteFailure();
-                }
-
-                if ($active->isNotEmpty()) {
-                    $updated = $connection->table('calibration_external_document')
-                        ->where('document_id', $active->first()->document_id)
-                        ->where('is_active', true)
-                        ->update([
-                            'is_active' => false,
-                            'superseded_at' => now(),
-                        ]);
-
-                    if ($updated !== 1) {
-                        throw StoreExternalCalibrationDocumentException::invalidActiveDocumentState();
-                    }
                 }
 
                 $connection->table('calibration_external_document')->insert([

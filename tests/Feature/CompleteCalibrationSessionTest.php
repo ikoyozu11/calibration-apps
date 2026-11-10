@@ -7,6 +7,7 @@ use App\Models\Calibration;
 use Illuminate\Database\Connection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestRefusingPostgresConnector;
 
 const SESSION_COMPLETE_CONNECTION = 'complete_calibration_sqlite';
@@ -57,6 +58,27 @@ function sessionCompleteConnection(): Connection
         )
     ');
     $connection->unprepared('
+        CREATE TABLE customer (
+            customer_id INTEGER PRIMARY KEY,
+            customer_name VARCHAR(150) NULL,
+            address TEXT NULL
+        )
+    ');
+    $connection->unprepared('
+        CREATE TABLE instrument (
+            instrument_id INTEGER PRIMARY KEY,
+            instrument_name VARCHAR(150) NULL,
+            serial_number VARCHAR(150) NULL,
+            detail_location_id INTEGER NULL
+        )
+    ');
+    $connection->table('instrument')->insert([
+        'instrument_id' => 3,
+        'instrument_name' => 'Test Instrument',
+        'serial_number' => 'TEST-003',
+        'detail_location_id' => null,
+    ]);
+    $connection->unprepared('
         CREATE TABLE calibration_provider (
             calibration_provider_id INTEGER PRIMARY KEY,
             provider_code VARCHAR(50) NOT NULL,
@@ -82,7 +104,11 @@ function sessionCompleteConnection(): Connection
     $connection->unprepared('
         CREATE TABLE calibration_standard_usage (
             calibration_standard_usage_id INTEGER PRIMARY KEY,
-            calibration_id INTEGER NOT NULL
+            calibration_id INTEGER NOT NULL,
+            standard_instrument_id INTEGER NULL,
+            usage_order INTEGER NULL,
+            standard_range TEXT NULL,
+            standard_unit TEXT NULL
         )
     ');
     $connection->unprepared('
@@ -115,9 +141,20 @@ function sessionCompleteConnection(): Connection
         )
     ');
     $connection->unprepared('
+        CREATE TABLE calibration_environment (
+            calibration_environment_id INTEGER PRIMARY KEY,
+            calibration_id INTEGER NOT NULL,
+            temperature_value TEXT NULL,
+            temperature_unit TEXT NULL,
+            humidity_value TEXT NULL,
+            humidity_unit TEXT NULL
+        )
+    ');
+    $connection->unprepared('
         CREATE TABLE calibration_scope (
             calibration_scope_id INTEGER PRIMARY KEY,
             calibration_id INTEGER NOT NULL,
+            instrument_type_id INTEGER NULL,
             test_profile_id INTEGER NULL,
             test_profile_version_id INTEGER NULL,
             test_table_snapshot TEXT NULL,
@@ -129,7 +166,40 @@ function sessionCompleteConnection(): Connection
             calibration_test_result_id INTEGER PRIMARY KEY,
             calibration_scope_id INTEGER NOT NULL,
             test_point_id INTEGER NOT NULL,
+            standard_value TEXT NULL,
             average_value TEXT NULL
+            ,correction_value TEXT NULL
+        )
+    ');
+    $connection->unprepared('
+        CREATE TABLE test_profile (
+            test_profile_id INTEGER PRIMARY KEY,
+            instrument_type_id INTEGER NULL,
+            profile_name TEXT NULL,
+            description TEXT NULL
+        )
+    ');
+    $connection->unprepared('
+        CREATE TABLE instrument_type (
+            instrument_type_id INTEGER PRIMARY KEY,
+            type_name TEXT NULL,
+            brand TEXT NULL,
+            model TEXT NULL,
+            max_capacity TEXT NULL,
+            max_capacity_unit TEXT NULL,
+            resolution TEXT NULL,
+            resolution_unit TEXT NULL
+        )
+    ');
+    $connection->unprepared('
+        CREATE TABLE test_point (
+            test_point_id INTEGER PRIMARY KEY,
+            test_profile_id INTEGER NULL,
+            point_order INTEGER NULL,
+            unit TEXT NULL,
+            tolerance_plus TEXT NULL,
+            tolerance_minus TEXT NULL,
+            description TEXT NULL
         )
     ');
     $connection->unprepared('
@@ -154,14 +224,22 @@ function sessionCompleteConnection(): Connection
             is_active INTEGER NOT NULL,
             uploaded_at TEXT NOT NULL,
             superseded_at TEXT NULL,
-            uploaded_by_user_id INTEGER NULL
+            uploaded_by_user_id INTEGER NULL,
+            removed_at TEXT NULL,
+            removed_by_user_id INTEGER NULL
         )
     ');
     $connection->unprepared('
         CREATE TABLE certificate (
             certificate_id INTEGER PRIMARY KEY,
             calibration_id INTEGER NOT NULL,
-            certificate_number VARCHAR(50) NOT NULL
+            certificate_number VARCHAR(50) NOT NULL,
+            certificate_type VARCHAR(30) NOT NULL,
+            issued_date TEXT NOT NULL,
+            file_path TEXT NULL,
+            file_name TEXT NULL,
+            remarks TEXT NULL,
+            created_at TEXT NULL
         )
     ');
 
@@ -482,8 +560,6 @@ it('completes an external session from one active pdf without internal requireme
         ->and($sql)->not->toContain('calibration_activity')
         ->and($sql)->not->toContain('calibration_scope')
         ->and($sql)->not->toContain('calibration_environment')
-        ->and($sql)->not->toContain('certificate')
-        ->and($sql)->not->toContain('insert into')
         ->and($sql)->not->toContain('update "calibration_')
         ->and($calibrationPosition)->toBeInt()
         ->and($documentPosition)->toBeInt()
@@ -540,13 +616,9 @@ it('completes an internal session when every category is optional and nothing is
     expect($connection->table('calibration_standard_usage')->count())->toBe(0)
         ->and($connection->table('calibration_activity')->count())->toBe(0)
         ->and($connection->table('calibration_scope')->count())->toBe(0)
-        ->and($connection->table('certificate')->count())->toBe(0)
-        ->and($sql)->not->toContain('calibration_standard_usage')
-        ->and($sql)->not->toContain('calibration_activity')
-        ->and($sql)->not->toContain('calibration_test_result')
-        ->and($sql)->not->toContain('calibration_result_value')
-        ->and($sql)->not->toContain('certificate')
-        ->and($sql)->not->toContain('insert into')
+        ->and($connection->table('certificate')->count())->toBe(1)
+        ->and($connection->table('certificate')->value('certificate_number'))->toMatch('/^SR\.VT001\/\d{2}\/\d{2}$/')
+        ->and($connection->table('certificate')->value('file_path'))->not->toBeNull()
         ->and($sql)->not->toContain('update "calibration_')
         ->and($calibrationPosition)->toBeLessThan($requirementPosition)
         ->and($requirementPosition)->toBeLessThan($providerPosition)
@@ -555,6 +627,26 @@ it('completes an internal session when every category is optional and nothing is
         ->and($valuePosition)->toBeLessThan($scopePosition)
         ->and($scopePosition)->toBeLessThan($updatePosition)
         ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('does not replace an issued certificate when complete is submitted twice', function () {
+    Storage::fake('calibration_documents');
+    $connection = sessionCompleteConnection();
+    seedSessionCompleteInternal($connection);
+
+    sessionCompleteService()->complete(40, '2026-10-22', '2027-10-22', $connection);
+
+    $certificate = $connection->table('certificate')->where('calibration_id', 40)->first();
+
+    expect($certificate)->not->toBeNull();
+
+    expect(fn () => sessionCompleteService()->complete(40, '2026-10-22', '2027-10-22', $connection))
+        ->toThrow(CompleteCalibrationSessionException::class, 'Only an in-progress calibration session can be completed.');
+
+    expect($connection->table('certificate')->where('calibration_id', 40)->count())->toBe(1)
+        ->and($connection->table('certificate')->value('certificate_number'))->toBe($certificate->certificate_number)
+        ->and($connection->table('certificate')->value('file_path'))->toBe($certificate->file_path)
+        ->and(Storage::disk('calibration_documents')->exists($certificate->file_path))->toBeTrue();
 });
 
 it('completes an internal session whose not configured requirements were resolved to optional', function () {
@@ -910,8 +1002,7 @@ it('completes a pinned required component when its entered value is present', fu
     expect($connection->table('calibration')->where('calibration_id', 40)->value('session_status'))->toBe(Calibration::STATUS_COMPLETED)
         ->and($connection->table('calibration_test_result')->value('average_value'))->toBeNull()
         ->and($connection->table('calibration_result_value')->count())->toBe(1)
-        ->and(sessionCompleteSql($connection))->not->toContain('update "calibration_result_value"')
-        ->and(sessionCompleteSql($connection))->not->toContain('insert into');
+        ->and(sessionCompleteSql($connection))->not->toContain('update "calibration_result_value"');
 })->with([
     'numeric' => [12, null],
     'text' => [null, 'pass'],

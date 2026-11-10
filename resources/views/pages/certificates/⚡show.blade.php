@@ -1,11 +1,13 @@
 <?php
 
+use App\Authorization\ApplicationCapability;
 use App\CalibrationSessions\CalibrationSessionHttpRead;
 use App\Models\Certificate;
 use App\Models\TestPoint;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
@@ -19,6 +21,8 @@ new class extends Component
 
     public function mount(int $certificate): void
     {
+        Gate::authorize(ApplicationCapability::CertificatesView->value);
+
         $this->certificateId = $certificate;
         $this->loadCertificateDetail();
     }

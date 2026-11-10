@@ -1,6 +1,8 @@
 <?php
 
 use App\CalibrationSessions\CalibrationSessionConnectionException;
+use App\CalibrationSessions\RemoveExternalCalibrationDocument;
+use App\CalibrationSessions\RemoveExternalCalibrationDocumentException;
 use App\CalibrationSessions\ResolveDomainActorException;
 use App\CalibrationSessions\StoreExternalCalibrationDocument;
 use App\CalibrationSessions\StoreExternalCalibrationDocumentException;
@@ -87,7 +89,9 @@ function externalDocumentConnection(): Connection
             is_active INTEGER NOT NULL,
             uploaded_at TEXT NOT NULL,
             superseded_at TEXT NULL,
-            uploaded_by_user_id INTEGER NULL
+            uploaded_by_user_id INTEGER NULL,
+            removed_at TEXT NULL,
+            removed_by_user_id INTEGER NULL
         )
     ');
     $connection->unprepared('
@@ -106,6 +110,11 @@ function externalDocumentConnection(): Connection
 function externalDocumentStore(): StoreExternalCalibrationDocument
 {
     return app(StoreExternalCalibrationDocument::class);
+}
+
+function externalDocumentRemover(): RemoveExternalCalibrationDocument
+{
+    return app(RemoveExternalCalibrationDocument::class);
 }
 
 /**
@@ -256,6 +265,62 @@ it('replaces the active pdf and keeps the superseded row and file', function () 
         ->and($updatePosition)->toBeLessThan($insertPosition)
         ->and($connection->table('calibration')->value('session_status'))->toBe('in_progress');
 });
+
+it('soft removes the active pdf with the resolved app actor and preserves its file', function () {
+    $connection = externalDocumentConnection();
+    seedExternalSession($connection);
+    storeVendorPdf($connection, 'remove-me.pdf');
+    $document = externalDocuments($connection)->sole();
+
+    externalDocumentRemover()->remove(40, $document->document_id, 5, $connection);
+
+    $removed = externalDocuments($connection)->sole();
+
+    expect($removed->is_active)->toBe(0)
+        ->and($removed->superseded_at)->toBeNull()
+        ->and($removed->removed_at)->not->toBeNull()
+        ->and($removed->removed_by_user_id)->toBe(90)
+        ->and($removed->storage_path)->toBe($document->storage_path)
+        ->and(Storage::disk('calibration_documents')->exists($removed->storage_path))->toBeTrue();
+
+    expect(fn () => externalDocumentRemover()->remove(40, $document->document_id, 5, $connection))
+        ->toThrow(RemoveExternalCalibrationDocumentException::class, RemoveExternalCalibrationDocumentException::alreadyRemoved()->getMessage());
+});
+
+it('requires a resolved active domain actor for removal', function () {
+    $connection = externalDocumentConnection();
+    seedExternalSession($connection);
+    storeVendorPdf($connection, 'actor-required.pdf');
+    $document = externalDocuments($connection)->sole();
+
+    expect(fn () => externalDocumentRemover()->remove(40, $document->document_id, 6, $connection))
+        ->toThrow(ResolveDomainActorException::class, ResolveDomainActorException::unmapped()->getMessage());
+});
+
+it('rejects removal of a removed or superseded document', function (array $document, string $exception): void {
+    $connection = externalDocumentConnection();
+    seedExternalSession($connection);
+    storeVendorPdf($connection, 'history.pdf');
+    $row = externalDocuments($connection)->sole();
+    $connection->table('calibration_external_document')->where('document_id', $row->document_id)->update($document);
+
+    expect(fn () => externalDocumentRemover()->remove(40, $row->document_id, 5, $connection))
+        ->toThrow(RemoveExternalCalibrationDocumentException::class, $exception);
+})->with([
+    'removed' => [['is_active' => 0, 'removed_at' => '2026-10-22 12:00:00'], RemoveExternalCalibrationDocumentException::alreadyRemoved()->getMessage()],
+    'superseded' => [['is_active' => 0, 'superseded_at' => '2026-10-22 12:00:00'], RemoveExternalCalibrationDocumentException::supersededDocument()->getMessage()],
+]);
+
+it('rejects removal for internal and terminal sessions', function (array $session, string $exception): void {
+    $connection = externalDocumentConnection();
+    seedExternalSession($connection, $session);
+
+    expect(fn () => externalDocumentRemover()->remove(40, 1, 5, $connection))
+        ->toThrow(RemoveExternalCalibrationDocumentException::class, $exception);
+})->with([
+    'internal' => [['calibration_method' => Calibration::METHOD_INTERNAL], RemoveExternalCalibrationDocumentException::invalidMethod()->getMessage()],
+    'completed' => [['session_status' => Calibration::STATUS_COMPLETED], RemoveExternalCalibrationDocumentException::invalidSessionStatus()->getMessage()],
+]);
 
 it('accepts a pdf at the configured size and rejects one byte more', function () {
     $connection = externalDocumentConnection();

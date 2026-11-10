@@ -29,6 +29,8 @@ use App\CalibrationSessions\RecordCalibrationTestResult;
 use App\CalibrationSessions\RecordCalibrationTestResultException;
 use App\CalibrationSessions\RecordExternalCalibrationVendor;
 use App\CalibrationSessions\RecordExternalCalibrationVendorException;
+use App\CalibrationSessions\RemoveExternalCalibrationDocument;
+use App\CalibrationSessions\RemoveExternalCalibrationDocumentException;
 use App\CalibrationSessions\ResolveCalibrationRequirement;
 use App\CalibrationSessions\ResolveCalibrationRequirementException;
 use App\CalibrationSessions\ResolveDomainActorException;
@@ -37,9 +39,13 @@ use App\CalibrationSessions\StoreExternalCalibrationDocumentException;
 use App\TestColumns\DurationValue;
 use App\Models\Calibration;
 use App\Models\CalibrationScope;
+use App\Models\Instrument;
+use App\Models\InstrumentType;
 use App\Models\InstrumentTypeRequirement;
 use App\Models\TestPoint;
 use App\Models\TestProfileVersion;
+use App\Reports\CalibrationReport;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -54,6 +60,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Livewire\WithFileUploads;
@@ -64,6 +71,19 @@ new class extends Component
 
     #[Locked]
     public int $calibrationId = 0;
+
+    public int $reportInstrumentId = 0;
+
+    public int $reportInstrumentTypeId = 0;
+
+    public int $reportYear = 0;
+
+    public string $reportBackUrl = '';
+
+    public string $returnTab = 'calibrations';
+
+    #[Url(except: 'detail', history: true)]
+    public string $tab = 'detail';
 
     private ?Calibration $loadedCalibration = null;
 
@@ -79,12 +99,9 @@ new class extends Component
 
     public string $completionDue = '';
 
+    public string $autoSuggestedDue = '';
+
     public string $resume = '';
-
-    public ?string $dateStatus = null;
-
-    public ?string $resumeStatus = null;
-
 
     public bool $cancellationModalOpen = false;
 
@@ -93,11 +110,7 @@ new class extends Component
 
     public string $externalVendorName = '';
 
-    public ?string $vendorStatus = null;
-
     public mixed $externalCertificatePdf = null;
-
-    public ?string $uploadStatus = null;
 
     /**
      * @var array<string, string>
@@ -197,15 +210,34 @@ new class extends Component
 
     public ?string $environmentStatusKey = null;
 
-    public function mount(int $calibration): void
+    public function mount(
+        int $calibration = 0,
+        ?int $instrument = null,
+        ?int $instrumentType = null,
+        ?int $year = null,
+    ): void
     {
         Gate::authorize(ApplicationCapability::HistoryView->value);
 
         $this->calibrationId = $calibration;
-        $this->loadCalibrationDetail();
-        $this->syncSelectedActivityIds();
-        $this->hydrateDraftStandards();
-        $this->syncExternalVendorInput();
+        $this->tab = in_array((string) request()->query('tab'), ['detail', 'certificate', 'label'], true)
+            ? (string) request()->query('tab')
+            : 'detail';
+        $this->returnTab = $this->resolveReturnTab();
+        if ($calibration > 0) {
+            $this->loadCalibrationDetail();
+            $this->reportBackUrl = $this->buildReturnUrl();
+        } else {
+            $this->loadReportContext($instrument, $instrumentType, $year);
+        }
+        if ($this->tab === 'label' && ! $this->canShowCalibrationLabel()) {
+            $this->tab = 'detail';
+        }
+        if (! $this->isReportEmpty()) {
+            $this->syncSelectedActivityIds();
+            $this->hydrateDraftStandards();
+            $this->syncExternalVendorInput();
+        }
     }
 
     #[Computed]
@@ -216,7 +248,38 @@ new class extends Component
 
     public function rendering(): void
     {
-        $this->loadCalibrationDetail();
+        if (! $this->isReportEmpty()) {
+            $this->loadCalibrationDetail();
+        }
+    }
+
+    public function updatedCompletionDate(string $value): void
+    {
+        $value = trim($value);
+
+        if ($value === '') {
+            return;
+        }
+
+        try {
+            $suggestedDue = CarbonImmutable::createFromFormat('!Y-m-d', $value)
+                ->addYearNoOverflow()
+                ->format('Y-m-d');
+        } catch (\Throwable) {
+            return;
+        }
+
+        if ($this->completionDue === '' || $this->completionDue === $this->autoSuggestedDue) {
+            $this->completionDue = $suggestedDue;
+            $this->autoSuggestedDue = $suggestedDue;
+        }
+    }
+
+    public function updatedCompletionDue(string $value): void
+    {
+        if ($value !== $this->autoSuggestedDue) {
+            $this->autoSuggestedDue = '';
+        }
     }
 
     public function resolveTestProfileRequirement(
@@ -504,7 +567,6 @@ new class extends Component
     ): void {
         Gate::authorize(ApplicationCapability::SessionRecord->value);
         $this->resetErrorBag(['saveDates', 'completionDate', 'completionDue']);
-        $this->dateStatus = null;
 
         try {
             $fields->dates($this->calibrationId, $this->completionDate, $this->completionDue, $writes->resolve());
@@ -522,8 +584,7 @@ new class extends Component
         }
 
         $this->loadCalibrationDetail();
-        $this->dateStatus = 'Calibration dates saved.';
-        $this->dispatchNotification('success', $this->dateStatus);
+        $this->dispatchNotification('success', 'Calibration dates saved.');
     }
 
     public function saveResume(
@@ -532,7 +593,6 @@ new class extends Component
     ): void {
         Gate::authorize(ApplicationCapability::SessionRecord->value);
         $this->resetErrorBag('saveResume');
-        $this->resumeStatus = null;
 
         try {
             $fields->resume($this->calibrationId, $this->resume, $writes->resolve());
@@ -550,8 +610,7 @@ new class extends Component
         }
 
         $this->loadCalibrationDetail();
-        $this->resumeStatus = 'Resume saved.';
-        $this->dispatchNotification('success', $this->resumeStatus);
+        $this->dispatchNotification('success', 'Resume saved.');
     }
 
     public function requestCompleteSession(): void
@@ -716,17 +775,20 @@ new class extends Component
         Gate::authorize(ApplicationCapability::SessionRecord->value);
 
         $this->resetErrorBag(['saveExternalVendor', 'externalVendorName']);
-        $this->vendorStatus = null;
         $this->loadCalibrationDetail();
 
         if (! $this->isExternalSession()) {
-            $this->addError('saveExternalVendor', RecordExternalCalibrationVendorException::unsupportedCalibrationMethod()->getMessage());
+            $message = RecordExternalCalibrationVendorException::unsupportedCalibrationMethod()->getMessage();
+            $this->addError('saveExternalVendor', $message);
+            $this->dispatchNotification('error', $message);
 
             return;
         }
 
         if ((string) $this->currentCalibration()->session_status !== Calibration::STATUS_IN_PROGRESS) {
-            $this->addError('saveExternalVendor', RecordExternalCalibrationVendorException::invalidSessionStatus()->getMessage());
+            $message = RecordExternalCalibrationVendorException::invalidSessionStatus()->getMessage();
+            $this->addError('saveExternalVendor', $message);
+            $this->dispatchNotification('error', $message);
 
             return;
         }
@@ -745,21 +807,25 @@ new class extends Component
             );
         } catch (RecordCalibrationSessionHttpException $exception) {
             $this->addError('saveExternalVendor', $exception->getMessage());
+            $this->dispatchNotification('error', $exception->getMessage());
 
             return;
         } catch (CalibrationSessionConnectionException $exception) {
-            $this->addError('saveExternalVendor', RecordCalibrationSessionHttpException::writesUnavailable()->getMessage());
+            $message = RecordCalibrationSessionHttpException::writesUnavailable()->getMessage();
+            $this->addError('saveExternalVendor', $message);
+            $this->dispatchNotification('error', $message);
 
             return;
         } catch (RecordExternalCalibrationVendorException $exception) {
             $this->addError('externalVendorName', $exception->getMessage());
+            $this->dispatchNotification('error', $exception->getMessage());
 
             return;
         }
 
         $this->loadCalibrationDetail();
         $this->syncExternalVendorInput();
-        $this->vendorStatus = 'The vendor name was saved.';
+        $this->dispatchNotification('success', 'The vendor name was saved.');
     }
 
     public function uploadExternalDocument(
@@ -769,17 +835,20 @@ new class extends Component
         Gate::authorize(ApplicationCapability::SessionRecord->value);
 
         $this->resetErrorBag(['uploadExternalDocument', 'externalCertificatePdf']);
-        $this->uploadStatus = null;
         $this->loadCalibrationDetail();
 
         if (! $this->isExternalSession()) {
-            $this->addError('uploadExternalDocument', StoreExternalCalibrationDocumentException::invalidMethod()->getMessage());
+            $message = StoreExternalCalibrationDocumentException::invalidMethod()->getMessage();
+            $this->addError('uploadExternalDocument', $message);
+            $this->dispatchNotification('error', $message);
 
             return;
         }
 
         if ((string) $this->currentCalibration()->session_status !== Calibration::STATUS_IN_PROGRESS) {
-            $this->addError('uploadExternalDocument', StoreExternalCalibrationDocumentException::invalidSessionStatus()->getMessage());
+            $message = StoreExternalCalibrationDocumentException::invalidSessionStatus()->getMessage();
+            $this->addError('uploadExternalDocument', $message);
+            $this->dispatchNotification('error', $message);
 
             return;
         }
@@ -792,7 +861,9 @@ new class extends Component
 
         if (! $this->externalCertificatePdf instanceof TemporaryUploadedFile
             && ! $this->externalCertificatePdf instanceof UploadedFile) {
-            $this->addError('externalCertificatePdf', 'A vendor PDF is required.');
+            $message = 'A vendor PDF is required.';
+            $this->addError('externalCertificatePdf', $message);
+            $this->dispatchNotification('error', $message);
 
             return;
         }
@@ -801,10 +872,13 @@ new class extends Component
             $connection = $writes->resolve();
         } catch (RecordCalibrationSessionHttpException $exception) {
             $this->addError('uploadExternalDocument', $exception->getMessage());
+            $this->dispatchNotification('error', $exception->getMessage());
 
             return;
         } catch (CalibrationSessionConnectionException $exception) {
-            $this->addError('uploadExternalDocument', RecordCalibrationSessionHttpException::writesUnavailable()->getMessage());
+            $message = RecordCalibrationSessionHttpException::writesUnavailable()->getMessage();
+            $this->addError('uploadExternalDocument', $message);
+            $this->dispatchNotification('error', $message);
 
             return;
         }
@@ -812,13 +886,17 @@ new class extends Component
         try {
             $contents = $this->externalCertificatePdf->get();
         } catch (\Throwable) {
-            $this->addError('externalCertificatePdf', 'The temporary PDF upload could not be read.');
+            $message = 'The temporary PDF upload could not be read.';
+            $this->addError('externalCertificatePdf', $message);
+            $this->dispatchNotification('error', $message);
 
             return;
         }
 
         if (! is_string($contents) || $contents === '') {
-            $this->addError('externalCertificatePdf', StoreExternalCalibrationDocumentException::emptyPdf()->getMessage());
+            $message = StoreExternalCalibrationDocumentException::emptyPdf()->getMessage();
+            $this->addError('externalCertificatePdf', $message);
+            $this->dispatchNotification('error', $message);
 
             return;
         }
@@ -828,7 +906,9 @@ new class extends Component
         $detectedMime = (string) $this->externalCertificatePdf->getMimeType();
 
         if ($allowedMime === '' || $detectedMime !== $allowedMime) {
-            $this->addError('uploadExternalDocument', 'The vendor file must be a PDF.');
+            $message = 'The vendor file must be a PDF.';
+            $this->addError('uploadExternalDocument', $message);
+            $this->dispatchNotification('error', $message);
 
             return;
         }
@@ -843,21 +923,95 @@ new class extends Component
             );
         } catch (ResolveDomainActorException $exception) {
             $this->addError('uploadExternalDocument', $exception->getMessage());
+            $this->dispatchNotification('error', $exception->getMessage());
 
             return;
         } catch (StoreExternalCalibrationDocumentException $exception) {
             $this->addError('uploadExternalDocument', $exception->getMessage());
+            $this->dispatchNotification('error', $exception->getMessage());
 
             return;
         } catch (QueryException) {
-            $this->addError('uploadExternalDocument', 'The vendor PDF metadata could not be saved.');
+            $message = 'The vendor PDF metadata could not be saved.';
+            $this->addError('uploadExternalDocument', $message);
+            $this->dispatchNotification('error', $message);
 
             return;
         }
 
         $this->externalCertificatePdf = null;
         $this->loadCalibrationDetail();
-        $this->uploadStatus = 'The vendor PDF was stored.';
+        $this->dispatch('instruments-desk-external-pdf-uploaded', componentId: $this->getId());
+        $this->dispatchNotification('success', 'Upload Successful!');
+    }
+
+    public function removeExternalDocument(
+        RemoveExternalCalibrationDocument $remove,
+        RecordCalibrationSessionHttpConnection $writes,
+        int $documentId,
+    ): void {
+        Gate::authorize(ApplicationCapability::SessionRecord->value);
+
+        $this->resetErrorBag(['removeExternalDocument']);
+        $this->loadCalibrationDetail();
+
+        if (! $this->isExternalSession()) {
+            $message = RemoveExternalCalibrationDocumentException::invalidMethod()->getMessage();
+            $this->addError('removeExternalDocument', $message);
+            $this->dispatchNotification('error', $message);
+
+            return;
+        }
+
+        if ((string) $this->currentCalibration()->session_status !== Calibration::STATUS_IN_PROGRESS) {
+            $message = RemoveExternalCalibrationDocumentException::invalidSessionStatus()->getMessage();
+            $this->addError('removeExternalDocument', $message);
+            $this->dispatchNotification('error', $message);
+
+            return;
+        }
+
+        $laravelUserId = (int) Auth::id();
+
+        if ($laravelUserId < 1) {
+            abort(403);
+        }
+
+        try {
+            $connection = $writes->resolve();
+            $remove->remove(
+                (int) $this->currentCalibration()->calibration_id,
+                $documentId,
+                $laravelUserId,
+                $connection,
+            );
+        } catch (RecordCalibrationSessionHttpException $exception) {
+            $this->addError('removeExternalDocument', $exception->getMessage());
+            $this->dispatchNotification('error', $exception->getMessage());
+
+            return;
+        } catch (CalibrationSessionConnectionException) {
+            $message = RecordCalibrationSessionHttpException::writesUnavailable()->getMessage();
+            $this->addError('removeExternalDocument', $message);
+            $this->dispatchNotification('error', $message);
+
+            return;
+        } catch (ResolveDomainActorException|RemoveExternalCalibrationDocumentException $exception) {
+            $this->addError('removeExternalDocument', $exception->getMessage());
+            $this->dispatchNotification('error', $exception->getMessage());
+
+            return;
+        } catch (QueryException) {
+            $message = 'The vendor PDF could not be removed.';
+            $this->addError('removeExternalDocument', $message);
+            $this->dispatchNotification('error', $message);
+
+            return;
+        }
+
+        $this->loadCalibrationDetail();
+        $this->dispatch('instruments-desk-external-pdf-removed', componentId: $this->getId());
+        $this->dispatchNotification('success', 'PDF removed successfully.');
     }
 
     public function completeExternalSession(
@@ -2042,7 +2196,23 @@ new class extends Component
     public function canUploadExternalDocument(): bool
     {
         return $this->canRecordSession()
-            && $this->isWritableExternalContext();
+            && $this->isWritableExternalContext()
+            && ! $this->hasActiveExternalDocument();
+    }
+
+    public function canRemoveExternalDocument(): bool
+    {
+        return $this->canRecordSession()
+            && $this->isWritableExternalContext()
+            && $this->hasActiveExternalDocument();
+    }
+
+    public function hasActiveExternalDocument(): bool
+    {
+        $calibration = $this->currentCalibration();
+
+        return $calibration->relationLoaded('activeExternalDocument')
+            && $calibration->activeExternalDocument !== null;
     }
 
     public function canShowExternalCompleteSection(): bool
@@ -3125,6 +3295,156 @@ new class extends Component
         return $this->loadedCalibration ?? abort(404);
     }
 
+    public function isReportEmpty(): bool
+    {
+        return $this->calibrationId === 0
+            && $this->reportInstrumentId > 0
+            && $this->reportInstrumentTypeId > 0
+            && $this->reportYear > 0;
+    }
+
+    /**
+     * @return array{name: string, brand: string, type: string, model: string, serial_number: string, asset_number: string, location: string, detail_location: string}
+     */
+    public function reportIdentity(): array
+    {
+        $instrument = $this->reportInstrument();
+        $type = $this->reportInstrumentType();
+        $detailLocation = $instrument->detailLocation;
+
+        return [
+            'name' => $this->display($instrument->instrument_name),
+            'brand' => $this->display($type->brand),
+            'type' => $this->display($type->type_name),
+            'model' => $this->display($type->model),
+            'serial_number' => $this->display($instrument->serial_number),
+            'asset_number' => $this->display($type->asset_number),
+            'location' => $this->display($detailLocation?->location?->location_name),
+            'detail_location' => $this->display($detailLocation?->detail_location_name),
+        ];
+    }
+
+    private function reportInstrument(): Instrument
+    {
+        $instrument = Instrument::on($this->readConnectionName())
+            ->with('detailLocation.location')
+            ->whereKey($this->reportInstrumentId)
+            ->first();
+
+        if (! $instrument instanceof Instrument) {
+            abort(404);
+        }
+
+        return $instrument;
+    }
+
+    private function reportInstrumentType(): InstrumentType
+    {
+        $type = InstrumentType::on($this->readConnectionName())
+            ->whereKey($this->reportInstrumentTypeId)
+            ->where('instrument_id', $this->reportInstrumentId)
+            ->first();
+
+        if (! $type instanceof InstrumentType) {
+            abort(404);
+        }
+
+        return $type;
+    }
+
+    private function loadReportContext(?int $instrument, ?int $instrumentType, ?int $year): void
+    {
+        if ($instrument === null || $instrumentType === null || $year === null) {
+            abort(404);
+        }
+
+        $this->reportInstrumentId = $instrument;
+        $this->reportInstrumentTypeId = $instrumentType;
+        $this->reportYear = CalibrationReport::sanitizeYear($year, $this->readConnection());
+        $this->reportInstrument();
+        $this->reportInstrumentType();
+
+        $this->reportBackUrl = $this->buildReturnUrl($this->reportYear);
+    }
+
+    private function resolveReturnTab(): string
+    {
+        $requested = (string) request()->query('return_tab', request()->query('tab', ''));
+
+        if (in_array($requested, ['reports', 'history', 'start'], true)) {
+            return $requested;
+        }
+
+        return request()->has('report_year') ? 'reports' : 'calibrations';
+    }
+
+    private function buildReturnUrl(?int $year = null): string
+    {
+        if ($this->returnTab === 'reports') {
+            $query = [
+                'tab' => 'reports',
+                'report_year' => $year ?? (int) request()->query('report_year', 0),
+                'report_location' => (string) request()->query('report_location', ''),
+                'report_search' => (string) request()->query('report_search', ''),
+            ];
+
+            if ($query['report_year'] < 1) {
+                unset($query['report_year']);
+            }
+
+            return route('calibrations.index', $query);
+        }
+
+        if ($this->returnTab === 'history') {
+            $query = [
+                'tab' => 'history',
+                'year' => (int) request()->query('year', 0),
+                'status' => (string) request()->query('status', 'all'),
+                'search' => (string) request()->query('search', ''),
+            ];
+
+            foreach (['instrument_id', 'instrument_type_id'] as $key) {
+                $value = (int) request()->query($key, 0);
+                if ($value > 0) {
+                    $query[$key] = $value;
+                }
+            }
+
+            if ($query['year'] < 1) {
+                unset($query['year']);
+            }
+
+            return route('calibrations.index', $query);
+        }
+
+        return route('calibrations.index', $this->returnTab === 'start' ? ['tab' => 'start'] : []);
+    }
+
+    public function returnLabel(): string
+    {
+        return match ($this->returnTab) {
+            'reports' => 'Back to Reports',
+            'history' => 'Back to Session History',
+            'start' => 'Back to Start Calibration',
+            default => 'Back to Calibrations',
+        };
+    }
+
+    public function selectTab(string $tab): void
+    {
+        if (in_array($tab, ['detail', 'certificate'], true)
+            || ($tab === 'label' && $this->canShowCalibrationLabel())) {
+            $this->tab = $tab;
+        }
+    }
+
+    public function canShowCalibrationLabel(): bool
+    {
+        return $this->calibrationId > 0
+            && Gate::allows(ApplicationCapability::SessionComplete->value)
+            && $this->isInternalSession();
+    }
+
     private function readConnectionName(): string
     {
         return app(CalibrationSessionHttpRead::class)->connectionName();
@@ -3267,6 +3587,12 @@ new class extends Component
             },
         ]);
 
+        if ($this->readSchema()->hasTable('certificate')) {
+            $fresh->load('certificate');
+        } else {
+            $fresh->setRelation('certificate', null);
+        }
+
         if ($this->readSchema()->hasTable('calibration_requirement_snapshot')) {
             $fresh->load([
                 'requirementSnapshots' => function (HasMany $query): void {
@@ -3318,6 +3644,7 @@ new class extends Component
                             'is_active',
                             'uploaded_at',
                             'superseded_at',
+                            'removed_at',
                         ])
                         ->orderBy('uploaded_at')
                         ->orderBy('document_id');
@@ -3332,6 +3659,7 @@ new class extends Component
                         'is_active',
                         'uploaded_at',
                         'superseded_at',
+                        'removed_at',
                     ]);
                 },
             ]);
@@ -3428,11 +3756,33 @@ new class extends Component
     }
 
     /**
-     * @return list<array{key: int, filename: string, uploaded_at: string, status: string, replaced: bool}>
+     * @return list<array{key: int, filename: string, uploaded_at: string, status: string, active: bool, replaced: bool, removed: bool}>
      */
     public function vendorDocuments(): array
     {
         return CalibrationSessionDetailPresenter::vendorDocuments($this->currentCalibration());
+    }
+
+    /**
+     * @return list<array{key: int, filename: string, uploaded_at: string, status: string, active: bool, replaced: bool, removed: bool}>
+     */
+    public function activeVendorDocuments(): array
+    {
+        return array_values(array_filter(
+            $this->vendorDocuments(),
+            static fn (array $document): bool => $document['active'],
+        ));
+    }
+
+    /**
+     * @return list<array{key: int, filename: string, uploaded_at: string, status: string, active: bool, replaced: bool, removed: bool}>
+     */
+    public function historicalVendorDocuments(): array
+    {
+        return array_values(array_filter(
+            $this->vendorDocuments(),
+            static fn (array $document): bool => ! $document['active'],
+        ));
     }
 
     /**
@@ -3720,20 +4070,195 @@ new class extends Component
 };
 ?>
 
-<div class="px-4 py-8 sm:px-6 lg:px-10">
+<div class="px-4 py-8 sm:px-6 lg:px-10" data-component-id="{{ $this->getId() }}" data-external-pdf-max-bytes="{{ config('calibration.documents.max_bytes') }}">
     <main class="mx-auto flex max-w-6xl flex-col gap-8">
+        @if ($this->calibrationId > 0)
+            <header data-calibration-detail-header>
+                <a href="{{ $this->reportBackUrl !== '' ? $this->reportBackUrl : route('calibrations.index') }}" class="ui-button-secondary w-fit gap-2 shadow-[0_10px_18px_-14px_rgb(22_49_114/0.9)]">
+                    <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 6 9 12l6 6" />
+                    </svg>
+                    {{ $this->returnLabel() }}
+                </a>
+                <h1 class="mt-4 text-2xl font-semibold tracking-tight text-navy">Calibration Detail</h1>
+                <p class="mt-1 text-sm text-muted">
+                    {{ $this->identitySnapshot()['name'] }}
+                    <span class="text-muted"> · {{ $this->currentCalibration()->calibration_number }}</span>
+                </p>
+                @if (false)
+                <dl class="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
+                    <div>
+                        <dt class="text-xs font-medium text-muted">Calibration Number</dt>
+                        <dd class="mt-1 font-semibold text-navy">{{ $this->currentCalibration()->calibration_number }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-medium text-muted">Instrument Type</dt>
+                        <dd class="mt-1 font-semibold text-navy">{{ $this->identitySnapshot()['type'] }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-medium text-muted">Calibration Method</dt>
+                        <dd class="mt-1 font-semibold text-navy">{{ $this->currentCalibration()->calibration_method ?? '—' }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-medium text-muted">Session Status</dt>
+                        <dd class="mt-1 font-semibold text-navy"><x-status-badge :status="$this->sessionStatusLabel()" /></dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-medium text-muted">Calibration Date</dt>
+                        <dd class="mt-1 font-semibold text-navy">{{ $this->currentCalibration()->calibration_date?->format('Y-m-d') ?? '—' }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-medium text-muted">Calibration Due</dt>
+                        <dd class="mt-1 font-semibold text-navy">{{ $this->currentCalibration()->calibration_due?->format('Y-m-d') ?? '—' }}</dd>
+                    </div>
+                </dl>
+                @endif
+            </header>
+
+            <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="instrument-information-heading">
+                <div class="bg-navy px-5 py-4">
+                    <h2 id="instrument-information-heading" class="text-base font-semibold tracking-tight text-white">Instrument Information</h2>
+                </div>
+                <dl class="grid gap-3 px-5 py-5 sm:grid-cols-2 lg:grid-cols-3">
+                    @foreach ([
+                        'Instrument Name' => $this->identitySnapshot()['name'],
+                        'Brand' => $this->identitySnapshot()['brand'],
+                        'Instrument Type' => $this->identitySnapshot()['type'],
+                        'Model' => $this->identitySnapshot()['model'],
+                        'Serial Number' => $this->identitySnapshot()['serial_number'],
+                        'Asset Number' => $this->identitySnapshot()['asset_number'],
+                    ] as $label => $value)
+                        <div class="rounded-xl border border-white/70 bg-[#edf4fa] px-4 py-3 shadow-[inset_0_1px_0_rgb(255_255_255/0.8)]">
+                            <dt class="text-xs font-medium text-muted">{{ $label }}</dt>
+                            <dd class="mt-1 text-sm font-semibold text-navy">{{ $value }}</dd>
+                        </div>
+                    @endforeach
+                </dl>
+            </section>
+        @endif
+
+        @if ($this->calibrationId === 0)
+            @php
+                $identity = $this->reportIdentity();
+            @endphp
+            <header>
+                <a href="{{ $this->reportBackUrl }}" class="ui-button-secondary w-fit gap-2 shadow-[0_10px_18px_-14px_rgb(22_49_114/0.9)]">
+                    <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 6 9 12l6 6" />
+                    </svg>
+                    {{ $this->returnLabel() }}
+                </a>
+                <h1 class="mt-4 text-2xl font-semibold tracking-tight text-navy">Calibration Detail</h1>
+                <p class="mt-1 text-sm text-muted">{{ $identity['name'] }} · Report year {{ $this->reportYear }}</p>
+            </header>
+
+            <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="report-instrument-identity-heading">
+                <div class="bg-navy px-5 py-4">
+                    <h2 id="report-instrument-identity-heading" class="text-base font-semibold tracking-tight text-white">Instrument Identity</h2>
+                </div>
+                <dl class="grid gap-3 px-5 py-5 sm:grid-cols-2 lg:grid-cols-4">
+                    @foreach ([
+                        'Instrument Name' => $identity['name'],
+                        'Brand' => $identity['brand'],
+                        'Instrument Type' => $identity['type'],
+                        'Model' => $identity['model'],
+                        'Serial Number' => $identity['serial_number'],
+                        'Asset Number' => $identity['asset_number'],
+                        'Location' => $identity['location'],
+                        'Detail Location' => $identity['detail_location'],
+                    ] as $label => $value)
+                        <div class="rounded-xl border border-white/70 bg-[#edf4fa] px-4 py-3 shadow-[inset_0_1px_0_rgb(255_255_255/0.8)]">
+                            <dt class="text-xs font-medium text-muted">{{ $label }}</dt>
+                            <dd class="mt-1 text-sm font-semibold text-navy">{{ $value }}</dd>
+                        </div>
+                    @endforeach
+                </dl>
+            </section>
+
+            <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="report-empty-session-heading">
+                <div class="bg-navy px-5 py-4">
+                    <h2 id="report-empty-session-heading" class="text-base font-semibold tracking-tight text-white">Calibration Session</h2>
+                </div>
+                <div class="px-5 py-6">
+                    <p class="text-sm text-navy/75">
+                        No calibration session is available for this instrument type in {{ $this->reportYear }}.
+                    </p>
+                </div>
+            </section>
+        @endif
+
+        @if ($this->calibrationId > 0)
+            <dl class="grid gap-3 text-sm sm:grid-cols-3">
+                <div class="rounded-xl border border-brand/15 bg-brand-soft px-4 py-3">
+                    <dt class="text-xs font-medium text-muted">Session Status</dt>
+                    <dd class="mt-1 font-semibold text-navy"><x-status-badge :status="$this->sessionStatusLabel()" /></dd>
+                </div>
+                <div class="rounded-xl border border-brand/15 bg-brand-soft px-4 py-3">
+                    <dt class="text-xs font-medium text-muted">Calibration Method</dt>
+                    <dd class="mt-1 font-semibold text-navy">{{ $this->currentCalibration()->calibration_method ?? '—' }}</dd>
+                </div>
+                <div class="rounded-xl border border-brand/15 bg-brand-soft px-4 py-3">
+                    <dt class="text-xs font-medium text-muted">Calibration Number</dt>
+                    <dd class="mt-1 font-semibold text-navy">{{ $this->currentCalibration()->calibration_number }}</dd>
+                </div>
+            </dl>
+        @endif
+
+        @if ($this->calibrationId > 0 || $this->isReportEmpty())
+            <nav class="desk-tabs" aria-label="Calibration detail sections">
+                <button
+                    type="button"
+                    class="desk-tab {{ $this->tab === 'detail' ? 'desk-tab-active' : 'desk-tab-inactive' }}"
+                    wire:click="selectTab('detail')"
+                    aria-selected="{{ $this->tab === 'detail' ? 'true' : 'false' }}"
+                >
+                    Calibration Detail
+                </button>
+                <button
+                    type="button"
+                    class="desk-tab {{ $this->tab === 'certificate' ? 'desk-tab-active' : 'desk-tab-inactive' }}"
+                    wire:click="selectTab('certificate')"
+                    aria-selected="{{ $this->tab === 'certificate' ? 'true' : 'false' }}"
+                >
+                    Certificate
+                </button>
+                @if ($this->canShowCalibrationLabel())
+                    <button
+                        type="button"
+                        class="desk-tab {{ $this->tab === 'label' ? 'desk-tab-active' : 'desk-tab-inactive' }}"
+                        wire:click="selectTab('label')"
+                        aria-selected="{{ $this->tab === 'label' ? 'true' : 'false' }}"
+                    >
+                        Calibration Label
+                    </button>
+                @endif
+            </nav>
+        @endif
+
+        @if ($this->isReportEmpty() && $this->tab === 'certificate')
+            <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="report-empty-certificate-heading">
+                <div class="bg-navy px-5 py-4">
+                    <h2 id="report-empty-certificate-heading" class="text-base font-semibold tracking-tight text-white">Certificate</h2>
+                </div>
+                <p class="px-5 py-6 text-sm text-navy/70">Certificate is not available because no calibration session exists for this report year.</p>
+            </section>
+        @endif
+
+        @if ($this->calibrationId > 0)
+        @if (false)
         <header>
-            <a href="{{ route('calibrations.index') }}" class="ui-button-secondary w-fit gap-2 shadow-[0_10px_18px_-14px_rgb(22_49_114/0.9)]">
+            <a href="{{ $this->reportBackUrl !== '' ? $this->reportBackUrl : route('calibrations.index') }}" class="ui-button-secondary w-fit gap-2 shadow-[0_10px_18px_-14px_rgb(22_49_114/0.9)]">
                 <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M15 6 9 12l6 6" />
                 </svg>
                 Back to calibrations
             </a>
-            <h1 class="mt-4 text-2xl font-semibold tracking-tight text-navy">{{ $this->currentCalibration()->calibration_number }}</h1>
+            <h1 class="mt-4 text-2xl font-semibold tracking-tight text-navy">Calibration Detail</h1>
             <p class="mt-1 text-sm text-muted">
                 <a href="{{ route('instruments.show', $this->currentCalibration()->instrument_id) }}" class="font-medium text-navy hover:text-brand">
                     {{ $this->identitySnapshot()['name'] }}
                 </a>
+                <span class="text-muted"> · {{ $this->currentCalibration()->calibration_number }}</span>
             </p>
             <dl class="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
                 <div>
@@ -3755,6 +4280,29 @@ new class extends Component
             </dl>
         </header>
 
+        <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="instrument-information-heading">
+            <div class="bg-navy px-5 py-4">
+                <h2 id="instrument-information-heading" class="text-base font-semibold tracking-tight text-white">Instrument Information</h2>
+            </div>
+            <dl class="grid gap-3 px-5 py-5 sm:grid-cols-2 lg:grid-cols-3">
+                @foreach ([
+                    'Instrument Name' => $this->identitySnapshot()['name'],
+                    'Brand' => $this->identitySnapshot()['brand'],
+                    'Instrument Type' => $this->identitySnapshot()['type'],
+                    'Model' => $this->identitySnapshot()['model'],
+                    'Serial Number' => $this->identitySnapshot()['serial_number'],
+                    'Asset Number' => $this->identitySnapshot()['asset_number'],
+                ] as $label => $value)
+                    <div class="rounded-xl border border-white/70 bg-[#edf4fa] px-4 py-3 shadow-[inset_0_1px_0_rgb(255_255_255/0.8)]">
+                        <dt class="text-xs font-medium text-muted">{{ $label }}</dt>
+                        <dd class="mt-1 text-sm font-semibold text-navy">{{ $value }}</dd>
+                    </div>
+                @endforeach
+            </dl>
+        </section>
+        @endif
+
+        @if ($this->tab === 'detail')
         @if ($this->currentCalibration()->session_status === Calibration::STATUS_IN_PROGRESS)
             <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="calibration-dates-heading">
                 <div class="bg-navy px-5 py-4">
@@ -3763,23 +4311,26 @@ new class extends Component
                 @error('saveDates')
                     <p class="ui-error px-5 pt-5">{{ $message }}</p>
                 @enderror
-                @if ($dateStatus !== null)
-                    <p class="px-5 pt-5 text-sm text-navy">{{ $dateStatus }}</p>
-                @endif
                 <form wire:submit="saveDates" class="flex flex-col gap-4 px-5 py-5">
                     <div class="grid gap-4 sm:grid-cols-2">
                         <div>
                             <label for="session-calibration-date" class="ui-label">Calibration Date</label>
-                            <input id="session-calibration-date" type="date" wire:model="completionDate" class="ui-input" autocomplete="off">
+                            <input id="session-calibration-date" type="date" wire:model.live="completionDate" class="ui-input" autocomplete="off">
                             @error('completionDate') <p class="ui-error mt-1">{{ $message }}</p> @enderror
                         </div>
                         <div>
                             <label for="session-calibration-due" class="ui-label">Calibration Due</label>
-                            <input id="session-calibration-due" type="date" wire:model="completionDue" class="ui-input" autocomplete="off">
+                            <input id="session-calibration-due" type="date" wire:model.live="completionDue" class="ui-input" autocomplete="off">
                             @error('completionDue') <p class="ui-error mt-1">{{ $message }}</p> @enderror
                         </div>
                     </div>
-                    <button type="submit" class="ui-button-primary w-fit" wire:loading.attr="disabled" wire:target="saveDates">Save Dates</button>
+                    <button type="submit" class="ui-button-primary w-fit items-center gap-2" wire:loading.attr="disabled" wire:target="saveDates">
+                        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 5.75A1.75 1.75 0 0 1 6.75 4h8.5L19 7.75v10.5A1.75 1.75 0 0 1 17.25 20h-10.5A1.75 1.75 0 0 1 5 18.25V5.75Z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8 4v5h7V4M8 20v-5h8v5" />
+                        </svg>
+                        Save Dates
+                    </button>
                 </form>
             </section>
         @endif
@@ -3824,16 +4375,8 @@ new class extends Component
                     <dd class="mt-1 text-sm font-semibold text-navy">{{ $this->currentCalibration()->calibration_method ?? '—' }}</dd>
                 </div>
                 <div class="rounded-xl border border-white/70 bg-[#edf4fa] px-4 py-3 shadow-[inset_0_1px_0_rgb(255_255_255/0.8)]">
-                    <dt class="text-xs font-medium text-muted">Certificate Number</dt>
-                    <dd class="mt-1 text-sm font-semibold text-navy">{{ $this->currentCalibration()->certificate_number ?? '—' }}</dd>
-                </div>
-                <div class="rounded-xl border border-white/70 bg-[#edf4fa] px-4 py-3 shadow-[inset_0_1px_0_rgb(255_255_255/0.8)]">
                     <dt class="text-xs font-medium text-muted">Action Date</dt>
                     <dd class="mt-1 text-sm font-semibold text-navy">{{ $this->currentCalibration()->calibration_date?->format('Y-m-d') ?? '—' }}</dd>
-                </div>
-                <div class="rounded-xl border border-white/70 bg-[#edf4fa] px-4 py-3 shadow-[inset_0_1px_0_rgb(255_255_255/0.8)] sm:col-span-2 lg:col-span-3">
-                    <dt class="text-xs font-medium text-muted">Remarks</dt>
-                    <dd class="mt-1 text-sm font-semibold text-navy">{{ $this->currentCalibration()->remarks ?? '—' }}</dd>
                 </div>
                 <div class="rounded-xl border border-white/70 bg-[#edf4fa] px-4 py-3 shadow-[inset_0_1px_0_rgb(255_255_255/0.8)] sm:col-span-2 lg:col-span-3">
                     <dt class="text-xs font-medium text-muted">Resume</dt>
@@ -3867,15 +4410,121 @@ new class extends Component
             </section>
         @endif
 
-        @if ($this->canShowExternalVendorSection())
+        @endif
+        @if ($this->tab === 'certificate' && $this->isInternalSession())
+            <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="internal-certificate-heading">
+                <div class="bg-navy px-5 py-4">
+                    <h2 id="internal-certificate-heading" class="text-base font-semibold tracking-tight text-white">Internal Certificate</h2>
+                </div>
+                <div class="flex flex-col gap-4 px-5 py-5">
+                    @if ((string) $this->currentCalibration()->session_status !== Calibration::STATUS_COMPLETED)
+                        <p class="text-sm text-navy/70">Certificate not available yet.</p>
+                    @elseif ($this->currentCalibration()->certificate !== null && filled($this->currentCalibration()->certificate->file_path))
+                        <dl class="grid gap-3 sm:grid-cols-2">
+                            <x-information-field
+                                label="Certificate Number"
+                                :value="$this->currentCalibration()->certificate->certificate_number"
+                            />
+                            <x-information-field
+                                label="Issued Date"
+                                :value="$this->currentCalibration()->certificate->issued_date?->format('Y-m-d') ?? '—'"
+                            />
+                        </dl>
+                        <div class="flex flex-wrap gap-2">
+                            <a href="{{ route('certificates.pdf', ['certificate' => $this->currentCalibration()->certificate->certificate_id]) }}" target="_blank" rel="noopener" class="btn-select">
+                                <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12s3.5-6 9.75-6 9.75 6 9.75 6-3.5 6-9.75 6-9.75-6-9.75-6Z" />
+                                    <circle cx="12" cy="12" r="2.5" />
+                                </svg>
+                                View Full PDF
+                            </a>
+                            <a href="{{ route('certificates.download', ['certificate' => $this->currentCalibration()->certificate->certificate_id]) }}" class="btn-select">
+                                <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16" />
+                                </svg>
+                                Download PDF
+                            </a>
+                            @if (Gate::allows(ApplicationCapability::SessionComplete->value))
+                                <form method="POST" action="{{ route('calibrations.certificate.refresh', ['calibration' => $this->currentCalibration()->calibration_id]) }}">
+                                    @csrf
+                                    <button type="submit" class="btn-edit" data-certificate-refresh-confirm data-confirm-message="The current PDF will remain available in revision history.">
+                                        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5" />
+                                        </svg>
+                                        Update Template
+                                    </button>
+                                </form>
+                            @endif
+                        </div>
+                        <div class="overflow-hidden rounded-xl border border-brand/15 bg-white">
+                            <iframe
+                                src="{{ route('certificates.pdf', ['certificate' => $this->currentCalibration()->certificate->certificate_id]) }}"
+                                title="Internal calibration certificate PDF preview"
+                                class="certificate-pdf-preview"
+                                loading="lazy"
+                            ></iframe>
+                            <p class="border-t border-brand/10 px-4 py-3 text-xs text-muted">If the PDF preview is unavailable, use View Full PDF.</p>
+                        </div>
+                    @else
+                        <p class="text-sm text-navy/70">Certificate is not available for this completed session.</p>
+                        @if (Gate::allows(ApplicationCapability::SessionComplete->value))
+                            <form method="POST" action="{{ route('calibrations.certificate.refresh', ['calibration' => $this->currentCalibration()->calibration_id]) }}">
+                                @csrf
+                                <button type="submit" class="ui-button-primary w-fit items-center gap-2" data-certificate-refresh-confirm data-confirm-message="The certificate will be generated from the completed session snapshots.">
+                                    <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                                    </svg>
+                                    Generate Certificate
+                                </button>
+                            </form>
+                        @endif
+                    @endif
+                </div>
+            </section>
+        @endif
+
+        @if ($this->tab === 'label' && $this->canShowCalibrationLabel())
+            <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="calibration-label-heading">
+                <div class="bg-navy px-5 py-4">
+                    <h2 id="calibration-label-heading" class="text-base font-semibold tracking-tight text-white">Calibration Label</h2>
+                </div>
+                @if ((string) $this->currentCalibration()->session_status !== Calibration::STATUS_COMPLETED)
+                    <p class="px-5 py-6 text-sm text-navy/70">Calibration Label is available after this INTERNAL session is completed.</p>
+                @else
+                    <div class="flex flex-col gap-5 px-5 py-5">
+                        <p class="text-sm text-navy/70">70 × 40 mm label, rendered as an 827 × 472 pixel PNG at 300 DPI.</p>
+                        <div class="flex justify-center overflow-auto rounded-xl border border-brand/15 bg-white p-4">
+                            <img
+                                src="{{ route('calibrations.label.preview', ['calibration' => $this->currentCalibration()->calibration_id]) }}"
+                                alt="Calibration label preview"
+                                class="h-auto w-full max-w-[827px]"
+                                loading="lazy"
+                            >
+                        </div>
+                        <div class="flex flex-wrap justify-center gap-2">
+                                <a href="{{ route('calibrations.label.download', ['calibration' => $this->currentCalibration()->calibration_id]) }}" class="btn-select">
+                                <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16" />
+                                </svg>
+                                Download PNG
+                            </a>
+                                <a href="{{ route('calibrations.label.print', ['calibration' => $this->currentCalibration()->calibration_id]) }}" target="_blank" rel="noopener" class="btn-select">
+                                <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 9V4h12v5M6 18H4.75A1.75 1.75 0 0 1 3 16.25v-4.5A1.75 1.75 0 0 1 4.75 10h14.5A1.75 1.75 0 0 1 21 11.75v4.5A1.75 1.75 0 0 1 19.25 18H18M6 14h12v7H6v-7Z" />
+                                </svg>
+                                Print Label
+                            </a>
+                        </div>
+                    </div>
+                @endif
+            </section>
+        @endif
+
+        @if ($this->tab === 'certificate' && $this->canShowExternalVendorSection())
             <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="external-vendor-heading">
                 <div class="bg-navy px-5 py-4">
                     <h2 id="external-vendor-heading" class="text-base font-semibold tracking-tight text-white">Vendor Information</h2>
                 </div>
-
-                @if ($vendorStatus !== null)
-                    <p class="px-5 pt-5 text-sm text-navy">{{ $vendorStatus }}</p>
-                @endif
 
                 @error('saveExternalVendor')
                     <p class="ui-error px-5 pt-5">{{ $message }}</p>
@@ -3912,51 +4561,229 @@ new class extends Component
             </section>
         @endif
 
-        @if ($this->canShowExternalDocumentsSection())
+        @if ($this->tab === 'certificate' && $this->canShowExternalDocumentsSection())
             <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="external-certificate-heading">
                 <div class="bg-navy px-5 py-4">
                     <h2 id="external-certificate-heading" class="text-base font-semibold tracking-tight text-white">External Certificate PDF</h2>
                 </div>
 
-                @if ($uploadStatus !== null)
-                    <p class="px-5 pt-5 text-sm text-navy">{{ $uploadStatus }}</p>
-                @endif
-
                 @error('uploadExternalDocument')
+                    <p class="ui-error px-5 pt-5">{{ $message }}</p>
+                @enderror
+                @error('removeExternalDocument')
                     <p class="ui-error px-5 pt-5">{{ $message }}</p>
                 @enderror
 
                 <div class="flex flex-col gap-4 px-5 py-5">
-                    @if ($this->vendorDocuments() === [])
-                        <p class="text-sm text-navy/70">No vendor PDF recorded.</p>
+                    @if ($this->activeVendorDocuments() === [])
+                        <p class="text-sm text-navy/70">No active vendor PDF recorded.</p>
                     @else
                         <ul class="flex flex-col gap-3">
-                            @foreach ($this->vendorDocuments() as $document)
-                                <li wire:key="external-document-{{ $document['key'] }}" class="rounded-xl border border-white/70 bg-[#edf4fa] px-4 py-3">
-                                    <p class="text-sm font-semibold text-navy">{{ $document['filename'] }}</p>
-                                    <p class="mt-1 text-xs text-navy/70">Uploaded {{ $document['uploaded_at'] }}</p>
-                                    <p class="mt-1 text-xs font-medium text-navy">{{ $document['status'] }}</p>
-                                    @if ($document['replaced'])
-                                        <p class="mt-1 text-xs text-navy/70">This file was replaced by a later upload.</p>
+                            @foreach ($this->activeVendorDocuments() as $document)
+                                <li wire:key="external-document-{{ $document['key'] }}" class="rounded-xl border border-white/70 bg-[#edf4fa] px-4 py-4">
+                                    <div class="grid min-w-0 gap-3 sm:grid-cols-2">
+                                        <x-information-field
+                                            label="File Name"
+                                            :value="$document['filename']"
+                                            value-class="break-words"
+                                        />
+                                        <x-information-field
+                                            label="Uploaded Date"
+                                            :value="$document['uploaded_at']"
+                                        />
+                                    </div>
+
+                                    <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
+                                        <x-status-badge :status="$document['status']" />
+                                        <div class="flex flex-wrap gap-2">
+                                        <a
+                                            href="{{ route('calibrations.external-documents.view', ['calibration' => $this->currentCalibration()->calibration_id, 'document' => $document['key']]) }}"
+                                            target="_blank"
+                                            rel="noopener"
+                                            class="btn-select"
+                                        >
+                                            <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12s3.5-6 9.75-6 9.75 6 9.75 6-3.5 6-9.75 6-9.75-6-9.75-6Z" />
+                                                <circle cx="12" cy="12" r="2.5" />
+                                            </svg>
+                                            View Full PDF
+                                        </a>
+                                        <a
+                                            href="{{ route('calibrations.external-documents.download', ['calibration' => $this->currentCalibration()->calibration_id, 'document' => $document['key']]) }}"
+                                            class="btn-select"
+                                        >
+                                            <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16" />
+                                            </svg>
+                                            Download PDF
+                                        </a>
+                                        </div>
+                                    </div>
+
+                                    <div class="mt-4 min-w-0 overflow-hidden rounded-xl border border-brand/15 bg-white">
+                                        <p class="border-b border-brand/10 px-4 py-3 text-sm font-semibold text-navy">Certificate Preview</p>
+                                        <iframe
+                                            src="{{ route('calibrations.external-documents.view', ['calibration' => $this->currentCalibration()->calibration_id, 'document' => $document['key']]) }}"
+                                            title="External calibration certificate PDF preview"
+                                            class="certificate-pdf-preview"
+                                            loading="lazy"
+                                        ></iframe>
+                                        <p class="border-t border-brand/10 px-4 py-3 text-xs text-muted">If the PDF preview is unavailable, use View Full PDF.</p>
+                                    </div>
+
+                                    @if ($document['active'] && $this->canRemoveExternalDocument())
+                                        <button
+                                            type="button"
+                                            class="ui-button-danger mt-3 w-fit"
+                                            data-external-pdf-remove-document
+                                            data-document-id="{{ $document['key'] }}"
+                                            data-file-name="{{ $document['filename'] }}"
+                                        >
+                                            Remove PDF
+                                        </button>
                                     @endif
-                                    <a
-                                        href="{{ route('calibrations.external-documents.download', ['calibration' => $this->currentCalibration()->calibration_id, 'document' => $document['key']]) }}"
-                                        class="ui-button-secondary mt-3 w-fit"
-                                    >
-                                        Download
-                                    </a>
                                 </li>
                             @endforeach
                         </ul>
                     @endif
 
+                    @if ($this->historicalVendorDocuments() !== [])
+                        <div x-data="{ open: false }" class="border-t border-brand/15 pt-4">
+                            <button
+                                type="button"
+                                class="flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-navy"
+                                @click="open = ! open"
+                                :aria-expanded="open.toString()"
+                                aria-controls="external-document-history"
+                            >
+                                <span class="flex items-center gap-2">
+                                    <span>Document History</span>
+                                    <span class="rounded-full bg-brand/10 px-2 py-0.5 text-xs font-medium text-brand">{{ count($this->historicalVendorDocuments()) }}</span>
+                                </span>
+                                <svg class="size-4 transition-transform duration-200 motion-reduce:transition-none" :class="open ? 'rotate-180' : ''" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                    <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.938a.75.75 0 1 1 1.08 1.04l-4.25 4.51a.75.75 0 0 1-1.08 0l-4.25-4.51a.75.75 0 0 1 .02-1.06Z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                            <div
+                                id="external-document-history"
+                                x-cloak
+                                x-show="open"
+                                x-transition:enter="transition ease-out duration-200 motion-reduce:transition-none"
+                                x-transition:enter-start="opacity-0 -translate-y-1"
+                                x-transition:enter-end="opacity-100 translate-y-0"
+                                x-transition:leave="transition ease-in duration-150 motion-reduce:transition-none"
+                                x-transition:leave-start="opacity-100 translate-y-0"
+                                x-transition:leave-end="opacity-0 -translate-y-1"
+                                class="mt-3"
+                            >
+                                <ul class="flex flex-col gap-3">
+                                    @foreach ($this->historicalVendorDocuments() as $document)
+                                        <li wire:key="external-document-history-{{ $document['key'] }}" class="rounded-xl border border-brand/10 bg-white/50 px-4 py-3">
+                                            <div class="flex flex-wrap items-start justify-between gap-2">
+                                                <div>
+                                                    <p class="text-sm font-semibold text-navy">{{ $document['filename'] }}</p>
+                                                    <p class="mt-1 text-xs text-navy/70">Uploaded {{ $document['uploaded_at'] }}</p>
+                                                </div>
+                                                <span class="rounded-full px-2 py-1 text-xs font-medium {{ $document['removed'] ? 'bg-red-100 text-red-700' : 'bg-navy/10 text-navy' }}">{{ $document['status'] }}</span>
+                                            </div>
+                                            @if ($document['replaced'])
+                                                <p class="mt-2 text-xs text-navy/70">This file was replaced by a later upload.</p>
+                                            @elseif ($document['removed'])
+                                                <p class="mt-2 text-xs text-navy/70">This file was manually removed and remains available in history.</p>
+                                            @endif
+                                            <div class="mt-3 flex flex-wrap gap-2">
+                                                <a
+                                                    href="{{ route('calibrations.external-documents.view', ['calibration' => $this->currentCalibration()->calibration_id, 'document' => $document['key']]) }}"
+                                                    target="_blank"
+                                                    rel="noopener"
+                                                    class="btn-select"
+                                                >
+                                                    <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12s3.5-6 9.75-6 9.75 6 9.75 6-3.5 6-9.75 6-9.75-6-9.75-6Z" />
+                                                        <circle cx="12" cy="12" r="2.5" />
+                                                    </svg>
+                                                     View Full PDF
+                                                </a>
+                                                <a
+                                                    href="{{ route('calibrations.external-documents.download', ['calibration' => $this->currentCalibration()->calibration_id, 'document' => $document['key']]) }}"
+                                                    class="btn-select"
+                                                >
+                                                    <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16" />
+                                                    </svg>
+                                                     Download PDF
+                                                </a>
+                                            </div>
+                                        </li>
+                                    @endforeach
+                                </ul>
+                            </div>
+                        </div>
+                    @endif
+
                     @if ($this->canUploadExternalDocument())
-                        <form wire:submit="uploadExternalDocument" class="flex flex-col gap-4">
+                        <form data-external-pdf-form class="flex flex-col gap-4">
                             <div>
-                                <label for="external-certificate-pdf" class="ui-label">
-                                    {{ $this->vendorDocuments() === [] ? 'Upload vendor PDF' : 'Replace vendor PDF' }}
-                                </label>
-                                <input id="external-certificate-pdf" type="file" wire:model="externalCertificatePdf" accept="application/pdf" class="ui-input">
+                                <p class="ui-label">Upload the calibration certificate issued by the external laboratory.</p>
+                                <div class="rounded-xl border border-dashed border-brand/35 bg-[#edf4fa] px-4 py-5">
+                                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                        <div class="flex min-w-0 items-center gap-3">
+                                            <svg class="size-8 shrink-0 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M7 3.75h7l3 3V20.25H7A1.25 1.25 0 0 1 5.75 19V5A1.25 1.25 0 0 1 7 3.75Z" />
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M14 3.75v3h3M8.5 12h7M8.5 15h5" />
+                                            </svg>
+                                            <div class="min-w-0">
+                                                <p class="font-medium text-navy">Choose a PDF certificate</p>
+                                                <p class="mt-1 text-xs text-navy/70">PDF files only. Maximum size: {{ number_format((int) config('calibration.documents.max_bytes') / 1024 / 1024, 0) }} MB</p>
+                                            </div>
+                                        </div>
+                                        <button type="button" class="ui-button-secondary w-fit" data-external-pdf-picker>
+                                            Choose PDF File
+                                        </button>
+                                    </div>
+                                    <input
+                                        id="external-certificate-pdf"
+                                        type="file"
+                                        wire:model="externalCertificatePdf"
+                                        accept=".pdf,application/pdf"
+                                        class="sr-only"
+                                        data-external-pdf-input
+                                    >
+                                    <div wire:ignore class="mt-4 hidden items-center justify-between gap-3 rounded-lg border border-brand/15 bg-white px-3 py-3" data-external-pdf-summary>
+                                        <div class="flex min-w-0 items-center gap-3">
+                                            <svg class="size-5 shrink-0 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M7 3.75h7l3 3V20.25H7A1.25 1.25 0 0 1 5.75 19V5A1.25 1.25 0 0 1 7 3.75Z" />
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M14 3.75v3h3" />
+                                            </svg>
+                                            <div class="min-w-0">
+                                                <p class="truncate text-sm font-medium text-navy" data-external-pdf-name></p>
+                                                <p class="text-xs text-navy/70" data-external-pdf-meta></p>
+                                                <div class="mt-2 hidden min-w-0" data-external-pdf-progress-container>
+                                                    <div class="flex items-center justify-between gap-3 text-xs text-navy/70">
+                                                        <span data-external-pdf-progress-label>Uploading PDF...</span>
+                                                        <span data-external-pdf-progress-value>0%</span>
+                                                    </div>
+                                                    <div
+                                                        class="mt-1 h-2 overflow-hidden rounded-full bg-brand-soft"
+                                                        role="progressbar"
+                                                        aria-label="PDF upload progress"
+                                                        aria-valuemin="0"
+                                                        aria-valuemax="100"
+                                                        aria-valuenow="0"
+                                                        data-external-pdf-progress
+                                                    >
+                                                        <div class="h-full rounded-full bg-brand transition-[width] duration-150 ease-out" data-external-pdf-progress-fill style="width: 0%"></div>
+                                                    </div>
+                                                </div>
+                                                <p class="mt-2 hidden text-xs font-medium text-navy" data-external-pdf-ready>Ready to upload</p>
+                                            </div>
+                                        </div>
+                                        <button type="button" class="ui-button-secondary shrink-0 px-3 py-2" data-external-pdf-remove aria-label="Remove selected PDF">
+                                            <span aria-hidden="true">×</span>
+                                            <span class="sr-only">Remove selected PDF</span>
+                                        </button>
+                                    </div>
+                                </div>
                                 @error('externalCertificatePdf')
                                     <p class="ui-error mt-1">{{ $message }}</p>
                                 @enderror
@@ -3964,10 +4791,10 @@ new class extends Component
                             <button
                                 type="submit"
                                 class="ui-button-primary w-fit"
-                                wire:loading.attr="disabled"
-                                wire:target="uploadExternalDocument"
+                                data-external-pdf-submit
+                                disabled
                             >
-                                {{ $this->vendorDocuments() === [] ? 'Upload PDF' : 'Replace PDF' }}
+                                Upload PDF
                             </button>
                         </form>
                     @endif
@@ -3975,6 +4802,7 @@ new class extends Component
             </section>
         @endif
 
+        @if ($this->tab === 'detail')
         @if (false && $this->requirementModes() !== [])
             <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="requirement-modes-heading">
                 <div class="bg-navy px-5 py-4">
@@ -4005,7 +4833,8 @@ new class extends Component
             </section>
         @endif
 
-        <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="environment-heading">
+        @if (! $this->isExternalSession())
+            <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="environment-heading">
             <div class="bg-navy px-5 py-4">
                 <h2 id="environment-heading" class="text-base font-semibold tracking-tight text-white">Environment</h2>
             </div>
@@ -4087,11 +4916,15 @@ new class extends Component
                                                 <div class="flex flex-col gap-2">
                                                     <button
                                                         type="button"
-                                                        class="ui-button-primary w-fit"
+                                                        class="ui-button-primary w-fit items-center gap-2"
                                                         wire:click="saveEnvironmentMeasurement({{ $parameter['key'] }})"
                                                         wire:loading.attr="disabled"
                                                         wire:target="saveEnvironmentMeasurement({{ $parameter['key'] }})"
                                                     >
+                                                        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 5.75A1.75 1.75 0 0 1 6.75 4h8.5L19 7.75v10.5A1.75 1.75 0 0 1 17.25 20h-10.5A1.75 1.75 0 0 1 5 18.25V5.75Z" />
+                                                            <path stroke-linecap="round" stroke-linejoin="round" d="M8 4v5h7V4M8 20v-5h8v5" />
+                                                        </svg>
                                                         Save Measurement
                                                     </button>
                                                     @if ($environmentStatusKey === (string) $parameter['key'] && $environmentStatus !== null)
@@ -4160,9 +4993,9 @@ new class extends Component
                     </p>
                 @endif
             @endif
-        </section>
+            </section>
 
-        <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="activity-heading">
+            <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="activity-heading">
             <div class="bg-navy px-5 py-4">
                 <h2 id="activity-heading" class="text-base font-semibold tracking-tight text-white">Activity</h2>
             </div>
@@ -4191,9 +5024,12 @@ new class extends Component
                             @if ($this->canEditActivities())
                                 <button
                                     type="button"
-                                    class="ui-button-danger w-fit"
+                                    class="ui-button-danger w-fit items-center gap-2"
                                     wire:click="askToRemoveActivity({{ $recordedActivity['key'] }})"
                                 >
+                                    <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 7h14M10 11v6m4-6v6M9 7V4.75h6V7m-9 0 .75 12.25h10.5L18 7" />
+                                    </svg>
                                     Remove
                                 </button>
                             @endif
@@ -4206,11 +5042,14 @@ new class extends Component
                 <div class="flex flex-wrap gap-3 border-t border-brand/15 px-5 py-5">
                     <button
                         type="button"
-                        class="ui-button-primary w-fit"
+                        class="ui-button-primary w-fit items-center gap-2"
                         wire:click="openAddActivityModal"
                         wire:loading.attr="disabled"
                         wire:target="openAddActivityModal"
                     >
+                        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path stroke-linecap="round" d="M12 5v14M5 12h14" />
+                        </svg>
                         Add Activity
                     </button>
                 </div>
@@ -4238,20 +5077,24 @@ new class extends Component
                         x-transition:leave-end="scale-[0.96] opacity-0"
                         class="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-brand/15 bg-white shadow-xl"
                     >
-                        <div class="flex items-center justify-between gap-4 bg-navy px-5 py-4">
-                            <h3 id="add-activity-heading" class="text-base font-semibold text-white">Add Activity</h3>
-                            <button
-                                type="button"
-                                class="inline-flex size-8 items-center justify-center rounded-lg text-white/80 transition hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-                                wire:click="closeAddActivityModal"
-                                aria-label="Close Add Activity"
-                                title="Close"
-                            >
-                                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-                                    <path stroke-linecap="round" d="M6 6l12 12M18 6 6 18" />
-                                </svg>
-                            </button>
-                        </div>
+                        <x-modal-header icon="plus">
+                            <x-slot:title>
+                                <h3 id="add-activity-heading" class="text-base font-semibold text-white">Add Activity</h3>
+                            </x-slot:title>
+                            <x-slot:close>
+                                <button
+                                    type="button"
+                                    class="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-white/80 transition hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                                    wire:click="closeAddActivityModal"
+                                    aria-label="Close Add Activity"
+                                    title="Close"
+                                >
+                                    <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                        <path stroke-linecap="round" d="M6 6l12 12M18 6 6 18" />
+                                    </svg>
+                                </button>
+                            </x-slot:close>
+                        </x-modal-header>
                         <div class="min-h-0 flex-1 overflow-y-auto px-5 py-5">
                             <div>
                                 <label for="activity-search" class="ui-label">Search</label>
@@ -4302,11 +5145,10 @@ new class extends Component
                             </div>
                         </div>
                     </div>
-                </div>
             @endif
-        </section>
+            </section>
 
-        <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="standard-used-heading">
+            <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="standard-used-heading">
             <div class="bg-navy px-5 py-4">
                 <h2 id="standard-used-heading" class="text-base font-semibold tracking-tight text-white">Standard Used</h2>
             </div>
@@ -4361,11 +5203,14 @@ new class extends Component
                                     <td class="px-4 py-3">
                                         <button
                                             type="button"
-                                            class="ui-button-danger w-fit"
+                                            class="ui-button-danger w-fit items-center gap-2"
                                             wire:click="askToRemoveDraftStandard({{ $standardUsage['standard_id'] }})"
                                             wire:loading.attr="disabled"
                                             wire:target="askToRemoveDraftStandard({{ $standardUsage['standard_id'] }})"
                                         >
+                                            <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M5 7h14M10 11v6m4-6v6M9 7V4.75h6V7m-9 0 .75 12.25h10.5L18 7" />
+                                            </svg>
                                             Remove
                                         </button>
                                     </td>
@@ -4386,11 +5231,14 @@ new class extends Component
                 <div class="flex flex-wrap gap-3 border-t border-brand/15 px-5 py-5">
                     <button
                         type="button"
-                        class="ui-button-primary w-fit"
+                        class="ui-button-primary w-fit items-center gap-2"
                         wire:click="openAddStandardModal"
                         wire:loading.attr="disabled"
                         wire:target="openAddStandardModal"
                     >
+                        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path stroke-linecap="round" d="M12 5v14M5 12h14" />
+                        </svg>
                         Add Standard
                     </button>
                 </div>
@@ -4418,20 +5266,24 @@ new class extends Component
                         x-transition:leave-end="scale-[0.96] opacity-0"
                         class="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-brand/15 bg-white shadow-xl"
                     >
-                        <div class="flex items-center justify-between gap-4 bg-navy px-5 py-4">
-                            <h3 id="add-standard-heading" class="text-base font-semibold text-white">Add Standard</h3>
-                            <button
-                                type="button"
-                                class="inline-flex size-8 items-center justify-center rounded-lg text-white/80 transition hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-                                wire:click="closeAddStandardModal"
-                                aria-label="Close Add Standard"
-                                title="Close"
-                            >
-                                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-                                    <path stroke-linecap="round" d="M6 6l12 12M18 6 6 18" />
-                                </svg>
-                            </button>
-                        </div>
+                        <x-modal-header icon="plus">
+                            <x-slot:title>
+                                <h3 id="add-standard-heading" class="text-base font-semibold text-white">Add Standard</h3>
+                            </x-slot:title>
+                            <x-slot:close>
+                                <button
+                                    type="button"
+                                    class="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-white/80 transition hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                                    wire:click="closeAddStandardModal"
+                                    aria-label="Close Add Standard"
+                                    title="Close"
+                                >
+                                    <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                        <path stroke-linecap="round" d="M6 6l12 12M18 6 6 18" />
+                                    </svg>
+                                </button>
+                            </x-slot:close>
+                        </x-modal-header>
                         <div class="min-h-0 flex-1 overflow-y-auto px-5 py-5">
                             <div>
                                 <label for="standard-search" class="ui-label">Search</label>
@@ -4459,6 +5311,9 @@ new class extends Component
                                             >
                                             <span>
                                                 {{ $candidate['instrument_name'] }}
+                                                @if ($candidate['type_specification'] !== '')
+                                                    · {{ $candidate['type_specification'] }}
+                                                @endif
                                                 @if ($candidate['standard_code'] !== '')
                                                     · {{ $candidate['standard_code'] }}
                                                 @endif
@@ -4490,9 +5345,9 @@ new class extends Component
                             </div>
                         </div>
                     </div>
-                </div>
             @endif
-        </section>
+            </section>
+        @endif
 
         @if ($this->testComponents['state'] !== 'hidden')
             <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="test-components-heading">
@@ -4614,11 +5469,15 @@ new class extends Component
                                                                             >
                                                                             <button
                                                                                 type="button"
-                                                                                class="ui-button-primary w-fit"
+                                                                                class="ui-button-primary w-fit items-center gap-2"
                                                                                 wire:click="requestSaveTestResult({{ $table['key'] }}, {{ $row['test_point_id'] }}, '{{ $cell['column_key'] }}')"
                                                                                 wire:loading.attr="disabled"
                                                                                 wire:target="requestSaveTestResult({{ $table['key'] }}, {{ $row['test_point_id'] }}, '{{ $cell['column_key'] }}')"
                                                                             >
+                                                                                <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 5.75A1.75 1.75 0 0 1 6.75 4h8.5L19 7.75v10.5A1.75 1.75 0 0 1 17.25 20h-10.5A1.75 1.75 0 0 1 5 18.25V5.75Z" />
+                                                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M8 4v5h7V4M8 20v-5h8v5" />
+                                                                                </svg>
                                                                                 Save
                                                                             </button>
                                                                             @error('resultInputs.'.$cell['id'])
@@ -4702,12 +5561,15 @@ new class extends Component
                 @error('saveResume')
                     <p class="ui-error px-5 pt-5">{{ $message }}</p>
                 @enderror
-                @if ($resumeStatus !== null)
-                    <p class="px-5 pt-5 text-sm text-navy">{{ $resumeStatus }}</p>
-                @endif
                 <form wire:submit="saveResume" class="flex flex-col gap-4 px-5 py-5">
                     <textarea id="calibration-resume" wire:model="resume" rows="4" maxlength="5000" class="ui-input" placeholder="Enter the instrument condition or conclusion."></textarea>
-                    <button type="submit" class="ui-button-primary w-fit" wire:loading.attr="disabled" wire:target="saveResume">Save Resume</button>
+                    <button type="submit" class="ui-button-primary w-fit items-center gap-2" wire:loading.attr="disabled" wire:target="saveResume">
+                        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 5.75A1.75 1.75 0 0 1 6.75 4h8.5L19 7.75v10.5A1.75 1.75 0 0 1 17.25 20h-10.5A1.75 1.75 0 0 1 5 18.25V5.75Z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8 4v5h7V4M8 20v-5h8v5" />
+                        </svg>
+                        Save Resume
+                    </button>
                 </form>
             @else
                 <p class="whitespace-pre-line px-5 py-5 text-sm text-navy">{{ filled($this->currentCalibration()->resume) ? $this->currentCalibration()->resume : '—' }}</p>
@@ -4730,20 +5592,26 @@ new class extends Component
                             <div class="flex flex-wrap items-center gap-3">
                                 <button
                                     type="submit"
-                                    class="ui-button-primary w-fit"
+                                    class="ui-button-primary w-fit items-center gap-2"
                                     wire:loading.attr="disabled"
                                     wire:target="requestCompleteSession"
                                 >
+                                    <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="m5 12 4 4L19 6" />
+                                    </svg>
                                     Complete Calibration
                                 </button>
                                 @if ($this->canShowCancelSection())
                                     <button
                                         type="button"
-                                        class="ui-button-danger w-fit"
+                                        class="ui-button-danger w-fit items-center gap-2"
                                         wire:click="openCancellationModal"
                                         wire:loading.attr="disabled"
                                         wire:target="openCancellationModal"
                                     >
+                                        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                            <path stroke-linecap="round" d="M6 6l12 12M18 6 6 18" />
+                                        </svg>
                                         Cancel Calibration
                                     </button>
                                 @endif
@@ -4752,11 +5620,14 @@ new class extends Component
                     @elseif ($this->canShowCancelSection())
                         <button
                             type="button"
-                            class="ui-button-danger w-fit"
+                            class="ui-button-danger w-fit items-center gap-2"
                             wire:click="openCancellationModal"
                             wire:loading.attr="disabled"
                             wire:target="openCancellationModal"
                         >
+                            <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                <path stroke-linecap="round" d="M6 6l12 12M18 6 6 18" />
+                            </svg>
                             Cancel Calibration
                         </button>
                     @endif
@@ -4780,20 +5651,26 @@ new class extends Component
                             <div class="flex flex-wrap items-center gap-3">
                                 <button
                                     type="submit"
-                                    class="ui-button-primary w-fit"
+                                    class="ui-button-primary w-fit items-center gap-2"
                                     wire:loading.attr="disabled"
                                     wire:target="requestCompleteExternalSession"
                                 >
+                                    <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="m5 12 4 4L19 6" />
+                                    </svg>
                                     Complete External Calibration
                                 </button>
                                 @if ($this->canShowCancelSection())
                                     <button
                                         type="button"
-                                        class="ui-button-danger w-fit"
+                                        class="ui-button-danger w-fit items-center gap-2"
                                         wire:click="openCancellationModal"
                                         wire:loading.attr="disabled"
                                         wire:target="openCancellationModal"
                                     >
+                                        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                            <path stroke-linecap="round" d="M6 6l12 12M18 6 6 18" />
+                                        </svg>
                                         Cancel Calibration
                                     </button>
                                 @endif
@@ -4802,16 +5679,23 @@ new class extends Component
                     @elseif ($this->canShowCancelSection())
                         <button
                             type="button"
-                            class="ui-button-danger w-fit"
+                            class="ui-button-danger w-fit items-center gap-2"
                             wire:click="openCancellationModal"
                             wire:loading.attr="disabled"
                             wire:target="openCancellationModal"
                         >
+                            <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                <path stroke-linecap="round" d="M6 6l12 12M18 6 6 18" />
+                            </svg>
                             Cancel Calibration
                         </button>
                     @endif
                 </div>
             </div>
+        @endif
+
+        @endif
+
         @endif
 
         @if (false)

@@ -63,6 +63,14 @@ function downloadDocumentUrl(int $calibrationId = 5, int $documentId = 1): strin
     ]);
 }
 
+function viewDocumentUrl(int $calibrationId = 5, int $documentId = 1): string
+{
+    return route('calibrations.external-documents.view', [
+        'calibration' => $calibrationId,
+        'document' => $documentId,
+    ]);
+}
+
 function downloadDocumentFingerprint(): array
 {
     return calibrationSessionPinningUiFingerprint();
@@ -114,14 +122,32 @@ it('lets permitted readers download a superseded historical pdf', function () {
         ->and((string) $response->headers->get('content-disposition'))->toContain('first.pdf');
 });
 
+it('lets permitted readers view an external pdf inline', function () {
+    downloadDocumentArrange();
+    $contents = "%PDF-1.4\ninline-bytes\n";
+    downloadDocumentPut($contents, 'certificate.pdf');
+    actingAsRole(ApplicationRoleName::Viewer);
+
+    $response = $this->get(viewDocumentUrl());
+
+    $response->assertOk()
+        ->assertHeader('content-type', 'application/pdf')
+        ->assertHeader('x-content-type-options', 'nosniff');
+
+    expect($response->streamedContent())->toBe($contents)
+        ->and(strtolower((string) $response->headers->get('content-disposition')))->toContain('inline');
+});
+
 it('shows download on session detail for a viewer without upload controls', function () {
     downloadDocumentArrange(['session_status' => Calibration::STATUS_COMPLETED]);
     downloadDocumentPut();
     actingAsRole(ApplicationRoleName::Viewer);
 
-    $this->get(route('calibrations.show', 5))
+    $this->get(route('calibrations.show', ['calibration' => 5, 'tab' => 'certificate']))
         ->assertOk()
-        ->assertSee('Download')
+        ->assertSee('View Full PDF')
+        ->assertSee(viewDocumentUrl(), false)
+        ->assertSee('Download PDF')
         ->assertSee(downloadDocumentUrl(), false)
         ->assertDontSee('>Upload PDF</button>', false)
         ->assertDontSee('Save Vendor')
@@ -278,9 +304,9 @@ it('allows download after cancel without restoring write controls', function () 
     downloadDocumentPut();
     actingAsRole(ApplicationRoleName::Viewer);
 
-    $this->get(route('calibrations.show', 5))
+    $this->get(route('calibrations.show', ['calibration' => 5, 'tab' => 'certificate']))
         ->assertOk()
-        ->assertSee('Download')
+        ->assertSee('Download PDF')
         ->assertDontSee('>Upload PDF</button>', false);
 
     $this->get(downloadDocumentUrl())->assertOk();

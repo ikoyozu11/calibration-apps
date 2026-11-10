@@ -362,16 +362,15 @@ it('requires an explicit calibration date', function () {
     expect(calibrationSessionPinningUiFingerprint())->toBe($before);
 });
 
-it('requires an explicit due date', function () {
+it('suggests a due date from the calibration date', function () {
     completeUiArrange(true);
-    $before = calibrationSessionPinningUiFingerprint();
 
     calibrationSessionPinningUiPage()
         ->set('completionDate', '2026-10-22')
         ->call('completeSession')
-        ->assertHasErrors(['completionDue' => 'Calibration Due is required.']);
+        ->assertHasNoErrors();
 
-    expect(calibrationSessionPinningUiFingerprint())->toBe($before);
+    expect(completeUiRow()->calibration_due)->toBe('2027-10-22');
 });
 
 it('rejects an invalid date format', function () {

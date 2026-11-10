@@ -28,7 +28,9 @@ use Illuminate\Support\Carbon;
  * @property bool $is_active
  * @property Carbon $uploaded_at
  * @property Carbon|null $superseded_at
+ * @property Carbon|null $removed_at
  * @property int|null $uploaded_by_user_id
+ * @property int|null $removed_by_user_id
  * @property-read Calibration $calibration
  */
 class CalibrationExternalDocument extends Model
@@ -58,7 +60,10 @@ class CalibrationExternalDocument extends Model
     #[Scope]
     protected function active(Builder $query): void
     {
-        $query->where('is_active', true);
+        $query
+            ->where('is_active', true)
+            ->whereNull('superseded_at')
+            ->whereNull('removed_at');
     }
 
     /**
@@ -71,6 +76,8 @@ class CalibrationExternalDocument extends Model
             'byte_size' => 'integer',
             'uploaded_at' => 'datetime',
             'superseded_at' => 'datetime',
+            'removed_at' => 'datetime',
+            'removed_by_user_id' => 'integer',
         ];
     }
 }

@@ -92,7 +92,7 @@ it('lets an administrator and an engineer save a vendor snapshot', function (App
     externalUiArrange();
     actingAsRole($role);
 
-    $this->get(route('calibrations.show', 5))
+    $this->get(route('calibrations.show', ['calibration' => 5, 'tab' => 'certificate']))
         ->assertOk()
         ->assertSee('External Calibration Vendor (Optional)')
         ->assertSee('Save Vendor');
@@ -101,7 +101,7 @@ it('lets an administrator and an engineer save a vendor snapshot', function (App
         ->set('externalVendorName', 'Acme Labs')
         ->call('saveExternalVendor')
         ->assertHasNoErrors()
-        ->assertSee('The vendor name was saved.');
+        ->assertDispatched('instruments-desk-notification');
 
     expect(externalUiRow()->external_vendor_name)->toBe('Acme Labs')
         ->and(externalUiRow()->calibration_provider_id)->toBeNull()
@@ -124,7 +124,7 @@ it('normalizes null, blank, whitespace, unicode, and overlength vendor values', 
         expect(externalUiRow()->external_vendor_name)->toBe('Prior')
             ->and($page->get('externalVendorName'))->toBe($input);
     } else {
-        $page->assertHasNoErrors()->assertSee('The vendor name was saved.');
+        $page->assertHasNoErrors()->assertDispatched('instruments-desk-notification');
         expect(externalUiRow()->external_vendor_name)->toBe($expected);
     }
 })->with([
@@ -200,18 +200,29 @@ it('lets an administrator and an engineer upload a private vendor pdf', function
     externalUiMapActor();
     $contents = "%PDF-1.4\nadmin-or-engineer\n";
 
-    $this->get(route('calibrations.show', 5))
+    $this->get(route('calibrations.show', ['calibration' => 5, 'tab' => 'certificate']))
         ->assertOk()
         ->assertSee('External Certificate PDF')
+        ->assertSee('Choose a PDF certificate')
+        ->assertSee('data-external-pdf-picker', false)
+        ->assertSee('data-external-pdf-form', false)
+        ->assertSee('data-external-pdf-input', false)
+        ->assertSee('wire:ignore', false)
+        ->assertSee('data-external-pdf-progress', false)
+        ->assertSee('data-external-pdf-progress-fill', false)
+        ->assertSee('data-external-pdf-remove', false)
         ->assertSee('Upload PDF');
 
     calibrationSessionPinningUiPage()
+        ->set('tab', 'certificate')
         ->set('externalCertificatePdf', externalUiPdf('certificate.pdf', $contents))
         ->call('uploadExternalDocument')
         ->assertHasNoErrors()
-        ->assertSee('The vendor PDF was stored.')
+        ->assertDispatched('instruments-desk-notification')
         ->assertSee('certificate.pdf')
-        ->assertSee('Active');
+        ->assertSee('Active')
+        ->assertDontSee('data-external-pdf-form', false)
+        ->assertDontSee('Choose PDF File');
 
     $row = externalUiDocuments()->sole();
 
@@ -297,7 +308,7 @@ it('rejects missing, invalid, and oversized vendor pdfs', function (callable $fi
     'oversized' => [fn () => externalUiPdf('vendor.pdf', "%PDF-1.4\n".str_repeat('a', 40)), 'uploadExternalDocument', StoreExternalCalibrationDocumentException::fileTooLarge()->getMessage()],
 ]);
 
-it('replaces an active pdf, keeps history, and leaves the vendor snapshot unchanged', function () {
+it('supersedes the existing pdf when a replacement is submitted through the action', function () {
     externalUiArrange();
     externalUiMapActor();
 
@@ -306,32 +317,55 @@ it('replaces an active pdf, keeps history, and leaves the vendor snapshot unchan
         ->call('saveExternalVendor')
         ->assertHasNoErrors();
 
-    $page = calibrationSessionPinningUiPage();
+    $page = calibrationSessionPinningUiPage()->set('tab', 'certificate');
     $page->set('externalCertificatePdf', externalUiPdf('first.pdf', "%PDF-1.4\nfirst\n"))
         ->call('uploadExternalDocument')
         ->assertHasNoErrors();
     $page->set('externalCertificatePdf', externalUiPdf('second.pdf', "%PDF-1.4\nsecond\n"))
         ->call('uploadExternalDocument')
-        ->assertHasNoErrors()
-        ->assertSee('first.pdf')
-        ->assertSee('second.pdf')
-        ->assertSee('Replaced')
-        ->assertSee('Active');
+        ->assertHasNoErrors();
 
     $documents = externalUiDocuments();
-    $firstPath = (string) $documents[0]->storage_path;
-    $secondPath = (string) $documents[1]->storage_path;
+    $firstPath = (string) $documents->first()->storage_path;
 
     expect(externalUiRow()->external_vendor_name)->toBe('Acme Labs')
         ->and($documents)->toHaveCount(2)
-        ->and((int) $documents[0]->is_active)->toBe(0)
-        ->and($documents[0]->original_filename)->toBe('first.pdf')
-        ->and((int) $documents[1]->is_active)->toBe(1)
-        ->and($documents[1]->original_filename)->toBe('second.pdf')
+        ->and((int) $documents->first()->is_active)->toBe(0)
+        ->and($documents->first()->original_filename)->toBe('first.pdf')
+        ->and($documents->first()->superseded_at)->not->toBeNull()
+        ->and((int) $documents->last()->is_active)->toBe(1)
+        ->and($documents->last()->original_filename)->toBe('second.pdf')
         ->and(Storage::disk('calibration_documents')->get($firstPath))->toBe("%PDF-1.4\nfirst\n")
-        ->and(Storage::disk('calibration_documents')->get($secondPath))->toBe("%PDF-1.4\nsecond\n")
-        ->and($page->html())->not->toContain($firstPath)
+        ->and(Storage::disk('calibration_documents')->allFiles())->toHaveCount(2)
+        ->and($page->html())->toContain('second.pdf')
         ->and($page->html())->not->toContain('/storage/');
+});
+
+it('removes the active pdf without deleting its file and reopens upload in the UI', function () {
+    externalUiArrange();
+    externalUiMapActor();
+
+    $page = calibrationSessionPinningUiPage()
+        ->set('tab', 'certificate')
+        ->set('externalCertificatePdf', externalUiPdf('remove-me.pdf', "%PDF-1.4\nremove\n"))
+        ->call('uploadExternalDocument')
+        ->assertHasNoErrors();
+    $document = externalUiDocuments()->sole();
+    $path = (string) $document->storage_path;
+
+    $page->call('removeExternalDocument', (int) $document->document_id)
+        ->assertHasNoErrors()
+        ->assertDispatched('instruments-desk-external-pdf-removed');
+
+    $removed = externalUiDocuments()->sole();
+
+    expect((int) $removed->is_active)->toBe(0)
+        ->and($removed->removed_at)->not->toBeNull()
+        ->and((int) $removed->removed_by_user_id)->toBe(90)
+        ->and(Storage::disk('calibration_documents')->exists($path))->toBeTrue()
+        ->and($page->html())->toContain('Removed')
+        ->and($page->html())->toContain('Choose PDF File')
+        ->and($page->html())->not->toContain('Remove PDF');
 });
 
 it('maps storage and metadata failures without claiming a committed document', function () {

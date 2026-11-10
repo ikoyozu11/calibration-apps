@@ -2,12 +2,14 @@
 
 namespace App\CalibrationSessions;
 
+use App\Certificates\IssueInternalCertificate;
 use App\Models\Calibration;
 use App\Models\EnvironmentParameter;
 use App\Models\InstrumentTypeRequirement;
 use DateTimeImmutable;
 use Illuminate\Database\Connection;
 use Illuminate\Support\Collection;
+use Throwable;
 
 /**
  * Completes one in-progress calibration session.
@@ -29,6 +31,7 @@ class CompleteCalibrationSession
 {
     public function __construct(
         private CalibrationSessionConnection $sessionConnection,
+        private IssueInternalCertificate $internalCertificate,
     ) {}
 
     public function complete(
@@ -50,48 +53,59 @@ class CompleteCalibrationSession
             throw CompleteCalibrationSessionException::dueBeforeCalibrationDate();
         }
 
-        $connection->transaction(function () use ($connection, $calibrationId, $calibrationDate, $calibrationDue): void {
-            $calibration = $connection->table('calibration')
-                ->where('calibration_id', $calibrationId)
-                ->lockForUpdate()
-                ->first();
+        try {
+            $connection->transaction(function () use ($connection, $calibrationId, $calibrationDate, $calibrationDue): void {
+                $calibration = $connection->table('calibration')
+                    ->where('calibration_id', $calibrationId)
+                    ->lockForUpdate()
+                    ->first();
 
-            if ($calibration === null) {
-                throw CompleteCalibrationSessionException::missingCalibration();
-            }
+                if ($calibration === null) {
+                    throw CompleteCalibrationSessionException::missingCalibration();
+                }
 
-            if ($calibration->session_status !== Calibration::STATUS_IN_PROGRESS) {
-                throw CompleteCalibrationSessionException::invalidSessionStatus();
-            }
+                if ($calibration->session_status !== Calibration::STATUS_IN_PROGRESS) {
+                    throw CompleteCalibrationSessionException::invalidSessionStatus();
+                }
 
-            $this->assertFrozenIdentity($calibration);
+                $this->assertFrozenIdentity($calibration);
 
-            $method = (string) $calibration->calibration_method;
+                $method = (string) $calibration->calibration_method;
 
-            if (! in_array($method, [Calibration::METHOD_INTERNAL, Calibration::METHOD_EXTERNAL], true)) {
-                throw CompleteCalibrationSessionException::unsupportedMethod();
-            }
+                if (! in_array($method, [Calibration::METHOD_INTERNAL, Calibration::METHOD_EXTERNAL], true)) {
+                    throw CompleteCalibrationSessionException::unsupportedMethod();
+                }
 
-            if ($method === Calibration::METHOD_EXTERNAL) {
-                $this->assertOneActiveDocument($connection, $calibrationId);
-            } else {
-                $this->assertInternal($connection, $calibration);
-            }
+                if ($method === Calibration::METHOD_EXTERNAL) {
+                    $this->assertOneActiveDocument($connection, $calibrationId);
+                } else {
+                    $this->assertInternal($connection, $calibration);
+                }
 
-            $updated = $connection->table('calibration')
-                ->where('calibration_id', $calibrationId)
-                ->where('session_status', Calibration::STATUS_IN_PROGRESS)
-                ->update([
-                    'session_status' => Calibration::STATUS_COMPLETED,
-                    'completed_at' => now(),
-                    'calibration_date' => $calibrationDate,
-                    'calibration_due' => $calibrationDue,
-                ]);
+                $updated = $connection->table('calibration')
+                    ->where('calibration_id', $calibrationId)
+                    ->where('session_status', Calibration::STATUS_IN_PROGRESS)
+                    ->update([
+                        'session_status' => Calibration::STATUS_COMPLETED,
+                        'completed_at' => now(),
+                        'calibration_date' => $calibrationDate,
+                        'calibration_due' => $calibrationDue,
+                    ]);
 
-            if ($updated !== 1) {
-                throw CompleteCalibrationSessionException::invalidSessionStatus();
-            }
-        });
+                if ($updated !== 1) {
+                    throw CompleteCalibrationSessionException::invalidSessionStatus();
+                }
+
+                if ($method === Calibration::METHOD_INTERNAL) {
+                    $this->internalCertificate->issue($connection, $calibrationId);
+                }
+            });
+            $this->internalCertificate->forgetLastArtifact();
+        } catch (Throwable $exception) {
+            $this->internalCertificate->cleanupLastArtifact();
+
+            throw $exception;
+        }
     }
 
     private function canonicalDate(string $value): string
@@ -138,6 +152,8 @@ class CompleteCalibrationSession
             ->lockForUpdate()
             ->get()
             ->filter(fn (object $document): bool => $this->isAffirmative($document->is_active))
+            ->filter(fn (object $document): bool => $document->superseded_at === null
+                && (! property_exists($document, 'removed_at') || $document->removed_at === null))
             ->count();
 
         if ($active !== 1) {
