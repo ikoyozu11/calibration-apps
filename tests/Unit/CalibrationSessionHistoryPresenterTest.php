@@ -26,6 +26,6 @@ it('labels persisted session statuses without annual progress terms', function (
         ->and(CalibrationSessionHistory::statusLabel('other'))->toBe('—');
 });
 
-it('reuses the 2026 year floor for session history options', function () {
-    expect(CalibrationAnnualOverview::yearOptions(2026, 2028))->toBe([2026, 2027, 2028]);
+it('reuses the annual overview year range for session history options', function () {
+    expect(CalibrationAnnualOverview::yearOptions(2026, 2028))->toBe([2026, 2027, 2028, 2029, 2030]);
 });

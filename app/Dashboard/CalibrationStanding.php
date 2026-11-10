@@ -3,6 +3,8 @@
 namespace App\Dashboard;
 
 use App\Models\Calibration;
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 
 enum CalibrationStanding: string
 {
@@ -13,11 +15,16 @@ enum CalibrationStanding: string
 
     public static function fromLatest(?Calibration $calibration): self
     {
-        if ($calibration === null || $calibration->calibration_due === null) {
+        return self::fromDueDate($calibration?->calibration_due);
+    }
+
+    public static function fromDueDate(?CarbonInterface $due): self
+    {
+        if ($due === null) {
             return self::NotCalibrated;
         }
 
-        $due = $calibration->calibration_due->startOfDay();
+        $due = CarbonImmutable::instance($due)->startOfDay();
         $today = today();
 
         if ($today->greaterThan($due)) {

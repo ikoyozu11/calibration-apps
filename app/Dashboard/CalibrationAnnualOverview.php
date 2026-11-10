@@ -15,7 +15,14 @@ final class CalibrationAnnualOverview
 {
     public const MINIMUM_YEAR = 2026;
 
-    public const TAB_OVERVIEW = 'overview';
+    public const MAXIMUM_YEAR = 2030;
+
+    public const TAB_REPORTS = 'reports';
+
+    public const TAB_START = 'start';
+
+    /** @deprecated Use TAB_REPORTS. */
+    public const TAB_OVERVIEW = self::TAB_REPORTS;
 
     public const TAB_HISTORY = 'history';
 
@@ -24,7 +31,7 @@ final class CalibrationAnnualOverview
      */
     public static function yearOptions(int $currentYear, ?int $latestDataYear = null): array
     {
-        $max = max(self::MINIMUM_YEAR, $currentYear, $latestDataYear ?? self::MINIMUM_YEAR);
+        $max = max(self::MAXIMUM_YEAR, self::MINIMUM_YEAR, $currentYear, $latestDataYear ?? self::MINIMUM_YEAR);
 
         return range(self::MINIMUM_YEAR, $max);
     }
@@ -50,7 +57,12 @@ final class CalibrationAnnualOverview
 
     public static function sanitizeTab(mixed $tab): string
     {
-        return $tab === self::TAB_HISTORY ? self::TAB_HISTORY : self::TAB_OVERVIEW;
+        return match ($tab) {
+            self::TAB_HISTORY => self::TAB_HISTORY,
+            self::TAB_START => self::TAB_START,
+            self::TAB_REPORTS, 'overview' => self::TAB_REPORTS,
+            default => self::TAB_REPORTS,
+        };
     }
 
     /**
@@ -90,7 +102,7 @@ final class CalibrationAnnualOverview
     {
         $registered = self::instrumentTypes($connection)
             ->pluck('instrument_type_id')
-            ->map(fn(mixed $id): int => (int) $id)
+            ->map(fn (mixed $id): int => (int) $id)
             ->all();
 
         return self::composeTypeTotals(
@@ -202,7 +214,7 @@ final class CalibrationAnnualOverview
 
         return $query
             ->get()
-            ->keyBy(fn(Calibration $calibration): int => (int) $calibration->instrument_type_id)
+            ->keyBy(fn (Calibration $calibration): int => (int) $calibration->instrument_type_id)
             ->all();
     }
 
@@ -228,7 +240,7 @@ final class CalibrationAnnualOverview
 
         $query
             ->get()
-            ->groupBy(fn(Calibration $calibration): int => (int) $calibration->instrument_type_id)
+            ->groupBy(fn (Calibration $calibration): int => (int) $calibration->instrument_type_id)
             ->each(function (Collection $calibrations, int|string $typeId) use (&$latest): void {
                 $calibration = self::pickLatest($calibrations);
 
@@ -246,7 +258,7 @@ final class CalibrationAnnualOverview
     private static function pickLatest(Collection $calibrations): ?Calibration
     {
         $calibration = $calibrations
-            ->sortByDesc(fn(Calibration $calibration): array => [
+            ->sortByDesc(fn (Calibration $calibration): array => [
                 $calibration->calibration_date?->getTimestamp() ?? PHP_INT_MIN,
                 $calibration->calibration_id,
             ])
@@ -270,7 +282,7 @@ final class CalibrationAnnualOverview
 
         return $query
             ->pluck('calibration.instrument_type_id')
-            ->map(fn(mixed $id): int => (int) $id)
+            ->map(fn (mixed $id): int => (int) $id)
             ->unique()
             ->values()
             ->all();
@@ -286,7 +298,7 @@ final class CalibrationAnnualOverview
             ->whereNotNull('calibration.instrument_type_id')
             ->whereYear('calibration.calibration_date', $year)
             ->pluck('calibration.instrument_type_id')
-            ->map(fn(mixed $id): int => (int) $id)
+            ->map(fn (mixed $id): int => (int) $id)
             ->unique()
             ->values()
             ->all();
@@ -325,26 +337,26 @@ final class CalibrationAnnualOverview
     private static function latestDataYear(Connection $connection): ?int
     {
         $years = [];
-        $completed = self::calibrations($connection)
+        if (self::hasCreatedAt($connection)) {
+            $latestStarted = self::calibrations($connection)->max('calibration.created_at');
+
+            if (is_string($latestStarted) && $latestStarted !== '') {
+                $years[] = (int) Carbon::parse($latestStarted)->year;
+            }
+        }
+
+        $legacyCalibrationDate = self::calibrations($connection)
             ->completed()
             ->whereNotNull('calibration.calibration_date')
             ->max('calibration.calibration_date');
 
-        if (is_string($completed) && $completed !== '') {
-            $years[] = (int) Carbon::parse($completed)->year;
-        }
-
-        if (self::hasCreatedAt($connection)) {
-            $inProgress = self::calibrations($connection)->inProgress()->max('calibration.created_at');
-
-            if (is_string($inProgress) && $inProgress !== '') {
-                $years[] = (int) Carbon::parse($inProgress)->year;
-            }
+        if (is_string($legacyCalibrationDate) && $legacyCalibrationDate !== '') {
+            $years[] = (int) Carbon::parse($legacyCalibrationDate)->year;
         }
 
         $years = array_values(array_filter(
             $years,
-            fn(int $year): bool => $year >= self::MINIMUM_YEAR,
+            fn (int $year): bool => $year >= self::MINIMUM_YEAR,
         ));
 
         return $years === [] ? null : max($years);

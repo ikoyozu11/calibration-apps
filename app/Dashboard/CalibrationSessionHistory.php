@@ -62,6 +62,7 @@ final class CalibrationSessionHistory
         ?int $instrumentTypeId,
         int $perPage,
         Connection $connection,
+        string $pageName = 'page',
     ): LengthAwarePaginator {
         $query = self::calibrations($connection)
             ->select('calibration.*')
@@ -89,7 +90,7 @@ final class CalibrationSessionHistory
 
         return $query
             ->orderByDesc('calibration.calibration_id')
-            ->paginate($perPage)
+            ->paginate($perPage, ['*'], $pageName)
             ->through(fn (Calibration $calibration): array => self::present($calibration));
     }
 
