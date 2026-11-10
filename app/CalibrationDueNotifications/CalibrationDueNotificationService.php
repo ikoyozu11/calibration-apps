@@ -28,24 +28,26 @@ final class CalibrationDueNotificationService
 
     public const STATUS_OBSOLETE = 'obsolete';
 
+    public const STATUS_PARTIAL_FAILURE = 'partial_failure';
+
     public function __construct(
         private CalibrationDueReminderSelector $selector,
         private CalibrationSessionConnection $sessionConnection,
     ) {}
 
     /**
-     * @return array{status: string, reminder_count: int, sent_count: int}
+     * @return array{status: string, reminder_count: int, sent_count: int, recipient_count: int, sent_recipient_count: int, failed_recipient_count: int, unknown_recipient_count: int}
      */
     public function run(Connection $connection, ?CarbonImmutable $now = null): array
     {
         if (! (bool) config('calibration_due_notifications.enabled', false)) {
-            return ['status' => 'disabled', 'reminder_count' => 0, 'sent_count' => 0];
+            return $this->summary('disabled', 0, [], 0);
         }
 
-        $recipient = mb_strtolower(trim((string) config('calibration_due_notifications.recipient', '')));
+        $recipients = $this->configuredRecipients();
 
-        if (! filter_var($recipient, FILTER_VALIDATE_EMAIL)) {
-            return ['status' => 'recipient_missing', 'reminder_count' => 0, 'sent_count' => 0];
+        if ($recipients === []) {
+            return $this->summary('recipient_missing', 0, [], 0);
         }
 
         $connection = $this->sessionConnection->resolve($connection);
@@ -59,19 +61,34 @@ final class CalibrationDueNotificationService
         );
 
         if ($reminders->isEmpty()) {
-            return ['status' => 'no_reminders', 'reminder_count' => 0, 'sent_count' => 0];
+            return $this->summary('no_reminders', 0, [], count($recipients));
         }
 
-        $batch = $this->persistReminders($connection, $reminders->all(), $recipient, $now);
+        $results = [];
+        foreach ($recipients as $recipient) {
+            $results[] = $this->processRecipient($connection, $reminders->all(), $recipient, $now);
+        }
+
+        return $this->summarizeRecipientResults($results, $reminders->count(), count($recipients));
+    }
+
+    /**
+     * @param  list<CalibrationDueReminder>  $reminders
+     * @return array{status: string, sent_count: int}
+     */
+    private function processRecipient(Connection $connection, array $reminders, string $recipient, CarbonImmutable $now): array
+    {
+        $batch = $this->persistReminders($connection, $reminders, $recipient, $now);
 
         if ($batch['status'] !== self::STATUS_PROCESSING) {
-            return ['status' => $batch['status'], 'reminder_count' => $reminders->count(), 'sent_count' => 0];
+            return ['status' => $batch['status'], 'sent_count' => 0];
         }
 
         $claimedItems = $batch['items'];
         $claimedReminders = $claimedItems
             ->map(fn (object $item): CalibrationDueReminder => CalibrationDueReminder::fromHistory($item))
             ->all();
+        $timezone = (string) config('calibration_due_notifications.timezone', CalibrationDueMilestoneCalculator::TIMEZONE);
 
         try {
             Mail::to($recipient)->send(new CalibrationDueReminderMail($claimedReminders, $now->setTimezone($timezone)->startOfDay()));
@@ -80,7 +97,6 @@ final class CalibrationDueNotificationService
 
             return [
                 'status' => self::STATUS_SENT,
-                'reminder_count' => $reminders->count(),
                 'sent_count' => count($claimedReminders),
             ];
         } catch (Throwable $exception) {
@@ -98,10 +114,72 @@ final class CalibrationDueNotificationService
 
             return [
                 'status' => $status,
-                'reminder_count' => $reminders->count(),
                 'sent_count' => 0,
             ];
         }
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function configuredRecipients(): array
+    {
+        $configured = config('calibration_due_notifications.recipients');
+
+        if (is_array($configured) && $configured !== []) {
+            return array_values(array_filter($configured, static fn (mixed $recipient): bool => is_string($recipient)));
+        }
+
+        return CalibrationDueRecipients::fromEnvironment(
+            null,
+            config('calibration_due_notifications.recipient'),
+        );
+    }
+
+    /**
+     * @param  list<array{status: string, sent_count: int}>  $results
+     * @return array{status: string, reminder_count: int, sent_count: int, recipient_count: int, sent_recipient_count: int, failed_recipient_count: int, unknown_recipient_count: int}
+     */
+    private function summarizeRecipientResults(array $results, int $reminderCount, int $recipientCount): array
+    {
+        $statuses = array_column($results, 'status');
+        $failed = count(array_filter($statuses, fn (string $status): bool => $status === self::STATUS_FAILED));
+        $unknown = count(array_filter($statuses, fn (string $status): bool => $status === self::STATUS_DELIVERY_UNKNOWN));
+        $sent = count(array_filter($statuses, fn (string $status): bool => $status === self::STATUS_SENT));
+        $sentCount = array_sum(array_column($results, 'sent_count'));
+
+        if ($failed + $unknown > 0) {
+            $status = $recipientCount === 1
+                ? ($unknown > 0 ? self::STATUS_DELIVERY_UNKNOWN : self::STATUS_FAILED)
+                : self::STATUS_PARTIAL_FAILURE;
+        } elseif ($sent > 0) {
+            $status = self::STATUS_SENT;
+        } elseif (count(array_filter($statuses, fn (string $value): bool => $value === 'already_sent')) === $recipientCount) {
+            $status = 'already_sent';
+        } else {
+            $status = 'already_processed';
+        }
+
+        return $this->summary($status, $reminderCount, $results, $recipientCount);
+    }
+
+    /**
+     * @param  list<array{status: string, sent_count: int}>  $results
+     * @return array{status: string, reminder_count: int, sent_count: int, recipient_count: int, sent_recipient_count: int, failed_recipient_count: int, unknown_recipient_count: int}
+     */
+    private function summary(string $status, int $reminderCount, array $results, int $recipientCount): array
+    {
+        $statuses = array_column($results, 'status');
+
+        return [
+            'status' => $status,
+            'reminder_count' => $reminderCount,
+            'sent_count' => array_sum(array_column($results, 'sent_count')),
+            'recipient_count' => $recipientCount,
+            'sent_recipient_count' => count(array_filter($statuses, fn (string $value): bool => $value === self::STATUS_SENT)),
+            'failed_recipient_count' => count(array_filter($statuses, fn (string $value): bool => $value === self::STATUS_FAILED)),
+            'unknown_recipient_count' => count(array_filter($statuses, fn (string $value): bool => $value === self::STATUS_DELIVERY_UNKNOWN)),
+        ];
     }
 
     /**
@@ -118,7 +196,7 @@ final class CalibrationDueNotificationService
         return DB::connection($name)->transaction(function () use ($name, $date, $recipient, $now, $reminders, $maxAttempts, $staleBefore): array {
             $batch = CalibrationDueNotificationBatch::on($name)
                 ->newQuery()
-                ->where('notification_date', $date)
+                ->whereDate('notification_date', $date)
                 ->where('recipient', $recipient)
                 ->lockForUpdate()
                 ->first();

@@ -42,7 +42,8 @@ final class SendCalibrationDueRemindersCommand extends Command
             )),
             'already_sent', 'already_processed' => $this->success('Calibration Due reminder was already processed today.'),
             CalibrationDueNotificationService::STATUS_FAILED,
-            CalibrationDueNotificationService::STATUS_DELIVERY_UNKNOWN => $this->failure(
+            CalibrationDueNotificationService::STATUS_DELIVERY_UNKNOWN,
+            CalibrationDueNotificationService::STATUS_PARTIAL_FAILURE => $this->failure(
                 'Calibration Due reminder delivery requires review.',
             ),
             default => self::SUCCESS,

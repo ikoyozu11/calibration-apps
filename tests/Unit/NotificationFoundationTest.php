@@ -15,5 +15,14 @@ it('guards the global Livewire notification listeners against duplicate registra
         ->and($source)->toContain("window.Livewire.on('instruments-desk-confirm-standard-removal'")
         ->and($source)->toContain("window.Livewire.on('instruments-desk-confirm-template-recovery'")
         ->and($source)->toContain("window.Livewire.on('instruments-desk-confirm-test-result-clear'")
-        ->and($source)->toContain("window.Livewire.on('instruments-desk-confirm-completion'");
+        ->and($source)->toContain("window.Livewire.on('instruments-desk-confirm-completion'")
+        ->and($source)->toContain("document.addEventListener('livewire-upload-start'")
+        ->and($source)->toContain("document.addEventListener('livewire-upload-progress'")
+        ->and($source)->toContain("document.addEventListener('livewire-upload-finish'")
+        ->and($source)->toContain("document.addEventListener('livewire-upload-error'")
+        ->and($source)->toContain("input.dataset.externalPdfReady !== 'true'")
+        ->and($source)->toContain("title: 'Saving Certificate...'")
+        ->and($source)->toContain("title: 'Upload Successful!'")
+        ->and($source)->toContain("title: 'Upload Failed'")
+        ->and($source)->toContain('void confirmExternalPdfUpload({');
 });
