@@ -1,5 +1,6 @@
 <?php
 
+use App\Authorization\ApplicationRoleName;
 use App\Models\CalibrationActivityMaster;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
@@ -19,9 +20,29 @@ it('lists and searches the activity master for authenticated users', function ()
         ->assertSee('ACT-0001')
         ->assertSee('Verification')
         ->assertSee('Add New Activity')
+        ->assertSee('btn-add')
+        ->assertSee('btn-edit')
+        ->assertSee('btn-deactivate')
+        ->assertSee('btn-delete')
         ->set('search', 'Cleaning')
         ->assertSee('Cleaning')
         ->assertDontSee('Verification');
+});
+
+it('renders activity status but no mutation controls for Engineers', function () {
+    createInstrumentDetailTestTables();
+    insertCalibrationActivityMaster(1, 'ACT-0001', 'Verification');
+    actingAsRole(ApplicationRoleName::Engineer);
+
+    Livewire::test('pages::activities')
+        ->assertSee('Verification')
+        ->assertSee('Active')
+        ->assertDontSee('Actions')
+        ->assertDontSee('btn-add')
+        ->assertDontSee('btn-edit')
+        ->assertDontSee('btn-activate')
+        ->assertDontSee('btn-deactivate')
+        ->assertDontSee('btn-delete');
 });
 
 it('creates and edits an activity from the master page', function () {

@@ -1,5 +1,6 @@
 <?php
 
+use App\Authorization\ApplicationRoleName;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +18,10 @@ function createDashboardTestTables(): void
         $table->unsignedBigInteger('detail_location_id')->primary();
         $table->unsignedBigInteger('location_id');
         $table->string('detail_location_name');
+    });
+
+    Schema::create('standard_master', function (Blueprint $table): void {
+        $table->unsignedBigInteger('standard_id')->primary();
     });
 
     Schema::create('instrument', function (Blueprint $table): void {
@@ -97,6 +102,20 @@ it('shows the dashboard at the root for authenticated users', function () {
     $response->assertSee('href="'.route('instruments.index').'"', false);
     $response->assertSee('href="'.route('calibrations.index').'"', false);
     $response->assertDontSee('Open an instrument to view its calibration history');
+});
+
+it('keeps the dashboard instrument links available to Viewer', function () {
+    createDashboardTestTables();
+    actingAsRole(ApplicationRoleName::Viewer);
+
+    $this->get(route('home'))
+        ->assertOk()
+        ->assertSee('Recent Instruments')
+        ->assertSee('View All')
+        ->assertSee('href="'.route('instruments.index').'"', false)
+        ->assertSee('Instruments')
+        ->assertDontSee('href="'.route('standards.index').'"', false)
+        ->assertDontSee('href="'.route('activities.index').'"', false);
 });
 
 it('keeps the instrument and calibration routes available', function () {
@@ -197,7 +216,81 @@ it('limits recent instruments to ten distinct identities', function () {
     $response->assertSee('Not Calibrated');
     $response->assertSee('100%');
     $response->assertSee('0%');
+    $response->assertSee('data-location-distribution-donut', false);
+    $response->assertSee('Instrument Distribution by Location', false);
+    $response->assertSee('Unassigned');
     $response->assertSee('href="'.route('instruments.index').'"', false);
+});
+
+it('renders the location distribution as a sorted donut with legend percentages', function () {
+    createDashboardTestTables();
+
+    DB::table('location')->insert([
+        ['location_id' => 1, 'location_name' => 'Lab B'],
+        ['location_id' => 2, 'location_name' => 'Lab A'],
+    ]);
+    DB::table('detail_location')->insert([
+        ['detail_location_id' => 1, 'location_id' => 1, 'detail_location_name' => 'Room 1'],
+        ['detail_location_id' => 2, 'location_id' => 2, 'detail_location_name' => 'Room 2'],
+    ]);
+
+    insertDashboardInstrument(['instrument_id' => 1, 'instrument_name' => 'Gauge 1', 'detail_location_id' => 1]);
+    insertDashboardInstrument(['instrument_id' => 2, 'instrument_name' => 'Gauge 2', 'detail_location_id' => 1]);
+    insertDashboardInstrument(['instrument_id' => 3, 'instrument_name' => 'Gauge 3', 'detail_location_id' => 2]);
+    insertDashboardInstrument(['instrument_id' => 4, 'instrument_name' => 'Gauge 4']);
+
+    $response = $this->get(route('home'));
+
+    $response->assertOk();
+    $response->assertSee('data-location-distribution-donut', false);
+    $response->assertSee('width: min(256px, 100%); aspect-ratio: 1 / 1;', false);
+    $response->assertSeeInOrder(['Lab B', '2', '(50.0%)', 'Lab A', '1', '(25.0%)', 'Unassigned', '1', '(25.0%)']);
+    $response->assertSee('>50.0%</span>', false);
+    $response->assertSee('>25.0%</span>', false);
+    $response->assertSee('aria-label="Lab B: 2 instruments, 50.0 percent"', false);
+    $response->assertSee('aria-label="Lab A: 1 instruments, 25.0 percent"', false);
+    $response->assertSee('aria-label="Unassigned: 1 instruments, 25.0 percent"', false);
+    $response->assertSee('width: 9px; height: 9px; min-width: 9px; min-height: 9px; flex-shrink: 0; border-radius: 50%; background-color: #20559A;', false);
+    $response->assertSee('background-color: #3692C7;', false);
+    $response->assertSee('background-color: #12A99C;', false);
+    $response->assertSee('3 Locations', false);
+});
+
+it('only renders location percentage labels for segments at or above five percent', function () {
+    createDashboardTestTables();
+
+    DB::table('location')->insert([
+        ['location_id' => 1, 'location_name' => 'Location A'],
+        ['location_id' => 2, 'location_name' => 'Location B'],
+        ['location_id' => 3, 'location_name' => 'Location C'],
+        ['location_id' => 4, 'location_name' => 'Location D'],
+    ]);
+    DB::table('detail_location')->insert([
+        ['detail_location_id' => 1, 'location_id' => 1, 'detail_location_name' => 'Room A'],
+        ['detail_location_id' => 2, 'location_id' => 2, 'detail_location_name' => 'Room B'],
+        ['detail_location_id' => 3, 'location_id' => 3, 'detail_location_name' => 'Room C'],
+        ['detail_location_id' => 4, 'location_id' => 4, 'detail_location_name' => 'Room D'],
+    ]);
+
+    foreach (range(1, 100) as $id) {
+        $detailLocationId = $id <= 50 ? 1 : ($id <= 55 ? 2 : ($id <= 59 ? 3 : 4));
+
+        insertDashboardInstrument([
+            'instrument_id' => $id,
+            'instrument_name' => sprintf('Gauge %03d', $id),
+            'detail_location_id' => $detailLocationId,
+        ]);
+    }
+
+    $response = $this->get(route('home'));
+
+    $response->assertOk();
+    $response->assertSee('>50.0%</span>', false);
+    $response->assertSee('>5.0%</span>', false);
+    $response->assertSee('>41.0%</span>', false);
+    $response->assertDontSee('>4.0%</span>', false);
+    $response->assertSee('Location C');
+    $response->assertSee('(4.0%)');
 });
 
 it('filters the recent table by instrument name without changing the totals', function () {

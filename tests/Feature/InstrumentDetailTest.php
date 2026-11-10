@@ -1,5 +1,6 @@
 <?php
 
+use App\Authorization\ApplicationRoleName;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
@@ -73,7 +74,26 @@ it('renders one instrument type identity', function () {
         ->assertDontSee('Weight measurement')
         ->assertDontSee('Description')
         ->assertDontSee('DIA-002')
+        ->assertSee('Manage Identity')
+        ->assertSee('Manage Test Components')
+        ->assertSee('Manage Standards')
+        ->assertSee('View All')
+        ->assertSee('ui-button-manage')
         ->assertSee('No calibration history found.');
+});
+
+it('allows Viewer to open instrument detail read-only', function () {
+    createInstrumentDetailTestTables();
+    insertInstrumentDetailSubject();
+    actingAsRole(ApplicationRoleName::Viewer);
+
+    $this->get(route('instruments.types.show', ['instrument' => 3, 'instrumentType' => 31]))
+        ->assertOk()
+        ->assertSee('Instrument Identity')
+        ->assertSee('Sodiline')
+        ->assertDontSee('Manage Identity')
+        ->assertDontSee('Manage Test Components')
+        ->assertDontSee('Manage Standards');
 });
 
 it('edits instrument identity without changing the instrument type name', function () {

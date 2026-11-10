@@ -438,13 +438,17 @@ it('renders the instrument detail view all link with identity ids', function () 
         ])).'"', false);
 });
 
-it('does not add workflow mutation actions on session history', function () {
-    createSessionHistoryTables();
+it('shows reports directly and denies session history navigation to Viewer', function () {
+    createCalibrationIndexTables();
     actingAsRole(ApplicationRoleName::Viewer);
 
     Livewire::test('pages::calibrations')
         ->set('tab', CalibrationAnnualOverview::TAB_HISTORY)
-        ->assertSee('No Calibration Sessions Yet')
+        ->assertSee('Calibration reports and instrument status overview.')
+        ->assertSee('Calibration Reports')
+        ->assertDontSee('role="tablist"', false)
+        ->assertDontSee('role="tab"', false)
+        ->assertDontSee('Session History')
         ->assertDontSee('Start Calibration')
         ->assertDontSee('Complete Calibration')
         ->assertDontSee('Cancel Calibration');

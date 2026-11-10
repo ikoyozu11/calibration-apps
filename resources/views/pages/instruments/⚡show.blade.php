@@ -1,5 +1,6 @@
 <?php
 
+use App\Authorization\ApplicationCapability;
 use App\CalibrationSessions\CalibrationSessionHttpRead;
 use App\CalibrationSessions\CalibrationHttpConnection;
 use App\Authorization\AuthorizesMasterDataWrites;
@@ -15,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\QueryException;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
@@ -63,6 +65,7 @@ new class extends Component
 
     public function mount(int $instrument, ?int $instrumentType = null): void
     {
+        Gate::authorize(ApplicationCapability::InstrumentsView->value);
         $reads = app(CalibrationSessionHttpRead::class);
         $this->instrumentId = $instrument;
 
@@ -590,9 +593,14 @@ new class extends Component
                         x-ref="editIdentityButton"
                         type="button"
                         wire:click="startEditingIdentity"
-                        class="ui-button-primary"
+                        class="ui-button-manage gap-2"
                     >
-                        Edit Identity
+                        <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                            <rect x="3" y="5" width="18" height="14" rx="2" />
+                            <circle cx="8" cy="11" r="2" />
+                            <path stroke-linecap="round" d="M5.5 16c.7-1.4 1.6-2 2.5-2s1.8.6 2.5 2M13 9h5M13 13h5M13 16h3" />
+                        </svg>
+                        <span>Manage Identity</span>
                     </button>
                 @endcan
             </div>
@@ -610,11 +618,17 @@ new class extends Component
         <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="test-components-heading">
             <div class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <h2 id="test-components-heading" class="text-base font-semibold tracking-tight text-navy">Test Components</h2>
+                @can('masterdata.manage')
                 @if ($this->currentInstrumentType() !== null)
-                    <a href="{{ route('instruments.types.test-components', ['instrument' => $this->instrumentId, 'instrumentType' => $this->instrumentTypeId]) }}" class="ui-button-outline">
-                        Manage Test Components
+                    <a href="{{ route('instruments.types.test-components', ['instrument' => $this->instrumentId, 'instrumentType' => $this->instrumentTypeId]) }}" class="ui-button-manage gap-2">
+                        <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                            <path stroke-linecap="round" d="M4 6h16M4 12h16M4 18h16" />
+                            <path stroke-linecap="round" d="M8 4v4M16 10v4M10 16v4" />
+                        </svg>
+                        <span>Manage Test Components</span>
                     </a>
                 @endif
+                @endcan
             </div>
 
             @if ($this->currentInstrumentType() === null || $this->currentInstrumentType()->testProfiles->isEmpty())
@@ -640,7 +654,12 @@ new class extends Component
                                         <thead class="bg-navy text-xs font-medium text-white">
                                             <tr>
                                                 @foreach ($profile->testColumns as $column)
-                                                    <th scope="col" wire:key="test-column-{{ $column->test_column_id }}" class="px-5 py-3 font-medium">{{ $column->column_label }}</th>
+                                                    <th scope="col" wire:key="test-column-{{ $column->test_column_id }}" class="px-5 py-3 font-medium">
+                                                        {{ $column->column_label }}
+                                                        @if (filled($column->unit))
+                                                            <span class="font-normal text-white/70">({{ $column->unit }})</span>
+                                                        @endif
+                                                    </th>
                                                 @endforeach
                                             </tr>
                                         </thead>
@@ -702,11 +721,17 @@ new class extends Component
         <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="standards-used-heading">
             <div class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <h2 id="standards-used-heading" class="text-base font-semibold tracking-tight text-navy">Standard(s) Used</h2>
+                @can('masterdata.manage')
                 @if ($this->currentInstrumentType() !== null)
-                    <a href="{{ route('instruments.types.standards', ['instrument' => $this->instrumentId, 'instrumentType' => $this->instrumentTypeId]) }}" class="ui-button-outline">
-                        Manage Standards
+                    <a href="{{ route('instruments.types.standards', ['instrument' => $this->instrumentId, 'instrumentType' => $this->instrumentTypeId]) }}" class="ui-button-manage gap-2">
+                        <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 19.5 15-15a2.12 2.12 0 0 1 3 3l-15 15a2.12 2.12 0 0 1-3-3Z" />
+                            <path stroke-linecap="round" d="m14 7 3 3m-6 1 3 3m-6 1 3 3" />
+                        </svg>
+                        <span>Manage Standards</span>
                     </a>
                 @endif
+                @endcan
             </div>
 
             @if ($this->assignedStandards()->isEmpty())
@@ -747,9 +772,14 @@ new class extends Component
                             'instrument_id' => $this->instrumentId,
                             'instrument_type_id' => $this->instrumentTypeId,
                         ]) }}"
-                        class="ui-button-primary shrink-0"
+                        class="ui-button-primary shrink-0 gap-2"
                     >
-                        View All
+                        <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 12a9 9 0 1 0 3-6.7" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 4v5h5" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 7v5l3 2" />
+                        </svg>
+                        <span>View All</span>
                     </a>
                 @endif
             </div>
@@ -823,13 +853,17 @@ new class extends Component
             data-identity-modal
             x-on:click.stop
         >
-            <div class="flex items-start justify-between bg-navy px-5 py-4">
-                <div>
+            <x-modal-header icon="pencil">
+                <x-slot:title>
                     <h2 id="edit-identity-modal-heading" class="text-base font-semibold tracking-tight text-white">Edit Instrument Identity</h2>
+                </x-slot:title>
+                <x-slot:subtitle>
                     <p class="mt-1 text-sm text-white/80">Update instrument and type details. Type cannot be changed here.</p>
-                </div>
-                <button type="button" class="text-xl leading-none text-white/80 hover:text-white" aria-label="Close" x-on:click="requestCloseIdentityModal()">&times;</button>
-            </div>
+                </x-slot:subtitle>
+                <x-slot:close>
+                    <button type="button" class="shrink-0 rounded-lg px-3 py-2 text-xl leading-none text-white/80 transition hover:bg-white/15 hover:text-white" aria-label="Close" x-on:click="requestCloseIdentityModal()">&times;</button>
+                </x-slot:close>
+            </x-modal-header>
 
             <form wire:submit="prepareIdentityUpdate" class="max-h-[calc(100vh-9rem)] overflow-y-auto px-5 py-5">
                 <div class="grid gap-4 sm:grid-cols-2">

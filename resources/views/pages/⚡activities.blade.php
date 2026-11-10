@@ -1,11 +1,13 @@
 <?php
 
+use App\Authorization\ApplicationCapability;
 use App\Activities\CalibrationActivityMasterException;
 use App\Activities\CalibrationActivityMasterWriter;
 use App\Authorization\AuthorizesMasterDataWrites;
 use App\CalibrationSessions\CalibrationSessionHttpRead;
 use App\Models\CalibrationActivityMaster;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\Gate;
 use Livewire\Component;
 use Livewire\WithPagination;
 
@@ -23,6 +25,11 @@ new class extends Component
     public ?int $removingActivityId = null;
 
     public string $activityName = '';
+
+    public function mount(): void
+    {
+        Gate::authorize(ApplicationCapability::MasterdataView->value);
+    }
 
     public function updatedSearch(): void
     {
@@ -302,7 +309,12 @@ new class extends Component
                     <label for="activity-master-search" class="sr-only">Search by name or activity code</label>
                     <input id="activity-master-search" type="search" wire:model.live.debounce.300ms="search" maxlength="100" class="ui-input" placeholder="Name or activity code">
                     @can('masterdata.manage')
-                        <button x-ref="addActivityButton" type="button" wire:click="startAdding" class="ui-button-outline">Add New Activity</button>
+                        <button x-ref="addActivityButton" type="button" wire:click="startAdding" class="btn-add">
+                            <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                <path stroke-linecap="round" d="M12 5v14M5 12h14" />
+                            </svg>
+                            <span>Add New Activity</span>
+                        </button>
                     @endcan
                 </div>
             </div>
@@ -317,7 +329,9 @@ new class extends Component
                                 <th scope="col" class="px-5 py-3 font-medium">Activity Code</th>
                                 <th scope="col" class="px-5 py-3 font-medium">Activity Name</th>
                                 <th scope="col" class="px-5 py-3 font-medium">Status</th>
-                                <th scope="col" class="px-5 py-3 font-medium">Actions</th>
+                                @can('masterdata.manage')
+                                    <th scope="col" class="px-5 py-3 font-medium">Actions</th>
+                                @endcan
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-white/70">
@@ -332,17 +346,42 @@ new class extends Component
                                             <span class="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-not-calibrated"><span class="size-1.5 shrink-0 rounded-full bg-current" aria-hidden="true"></span>Inactive</span>
                                         @endif
                                     </td>
+                                    @can('masterdata.manage')
                                     <td class="px-5 py-3.5">
                                         <div class="flex flex-wrap gap-2">
-                                            <button type="button" wire:click="startEditing({{ $activity->activity_id }})" class="ui-button-outline">Edit</button>
+                                            <button type="button" wire:click="startEditing({{ $activity->activity_id }})" class="btn-edit">
+                                                <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="m4 16 10.5-10.5a2.12 2.12 0 0 1 3 3L7 19H4v-3Z" />
+                                                    <path stroke-linecap="round" d="m13 7 4 4" />
+                                                </svg>
+                                                <span>Edit</span>
+                                            </button>
                                             @if ($activity->is_active)
-                                                <button type="button" wire:click="prepareActivityStatusChange({{ $activity->activity_id }}, false)" class="ui-button-outline" wire:loading.attr="disabled" wire:target="prepareActivityStatusChange">Deactivate</button>
+                                                <button type="button" wire:click="prepareActivityStatusChange({{ $activity->activity_id }}, false)" class="btn-deactivate" wire:loading.attr="disabled" wire:target="prepareActivityStatusChange">
+                                                    <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                        <circle cx="12" cy="12" r="9" />
+                                                        <path stroke-linecap="round" d="M9 9v6M15 9v6" />
+                                                    </svg>
+                                                    <span>Deactivate</span>
+                                                </button>
                                             @else
-                                                <button type="button" wire:click="prepareActivityStatusChange({{ $activity->activity_id }}, true)" class="ui-button-outline" wire:loading.attr="disabled" wire:target="prepareActivityStatusChange">Reactivate</button>
+                                                <button type="button" wire:click="prepareActivityStatusChange({{ $activity->activity_id }}, true)" class="btn-activate" wire:loading.attr="disabled" wire:target="prepareActivityStatusChange">
+                                                    <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                        <circle cx="12" cy="12" r="9" />
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="m8.5 12 2.25 2.25L15.75 9.5" />
+                                                    </svg>
+                                                    <span>Activate</span>
+                                                </button>
                                             @endif
-                                            <button type="button" wire:click="prepareActivityDelete({{ $activity->activity_id }})" class="ui-button-danger" wire:loading.attr="disabled" wire:target="prepareActivityDelete">Delete</button>
+                                            <button type="button" wire:click="prepareActivityDelete({{ $activity->activity_id }})" class="btn-delete" wire:loading.attr="disabled" wire:target="prepareActivityDelete">
+                                                <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M10 11v5M14 11v5M6 7l1 13h10l1-13M9 7V4h6v3" />
+                                                </svg>
+                                                <span>Delete</span>
+                                            </button>
                                         </div>
                                     </td>
+                                    @endcan
                                 </tr>
                             @endforeach
                         </tbody>
@@ -383,13 +422,17 @@ new class extends Component
             data-activity-master-modal
             x-on:click.stop
         >
-            <div class="flex items-start justify-between bg-navy px-5 py-4">
-                <div>
+            <x-modal-header icon="{{ $editingActivityId !== null ? 'pencil' : 'plus' }}">
+                <x-slot:title>
                     <h2 id="activity-master-modal-heading" class="text-base font-semibold tracking-tight text-white" x-text="editingActivityId !== null ? 'Edit Activity' : 'Add New Activity'"></h2>
+                </x-slot:title>
+                <x-slot:subtitle>
                     <p class="mt-1 text-sm text-white/80" x-text="editingActivityId !== null ? 'Update the selected activity information.' : 'Create a new activity in the Activity Master.'"></p>
-                </div>
-                <button type="button" class="text-xl leading-none text-white/80 hover:text-white" aria-label="Close" x-on:click="requestCloseActivityModal()">&times;</button>
-            </div>
+                </x-slot:subtitle>
+                <x-slot:close>
+                    <button type="button" class="shrink-0 rounded-lg px-3 py-2 text-xl leading-none text-white/80 transition hover:bg-white/15 hover:text-white" aria-label="Close" x-on:click="requestCloseActivityModal()">&times;</button>
+                </x-slot:close>
+            </x-modal-header>
 
             <form wire:submit="prepareActivitySave" class="max-h-[calc(100vh-9rem)] overflow-y-auto px-5 py-5">
                 <div>

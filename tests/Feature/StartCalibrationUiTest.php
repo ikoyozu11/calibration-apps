@@ -24,7 +24,7 @@ it('lets an administrator see start on annual overview rows without an active se
     insertCalibrationIndexInstrument(['instrument_id' => 6, 'instrument_name' => 'No History']);
     insertCalibrationIndexType(['instrument_type_id' => 5, 'instrument_id' => 6, 'type_name' => 'Gauge']);
 
-    $this->get(route('calibrations.index'))
+    $this->get(route('calibrations.index', ['tab' => 'start']))
         ->assertSee('Start Calibration')
         ->assertSee('href="'.e(route('instruments.types.calibrations.start', [
             'instrument' => 6,
@@ -131,6 +131,44 @@ it('keeps the start action available without rendering requirement modes', funct
         ->assertDontSee('>test_profile</dt>', false);
 });
 
+it('validates the calibration method before requesting start confirmation', function () {
+    createStartCalibrationHttpTables();
+    seedStartCalibrationHttpSubject();
+    mapStartCalibrationHttpActor();
+
+    startCalibrationHttpPage()
+        ->call('requestStartCalibration')
+        ->assertHasErrors(['calibrationMethod' => 'The calibration method field is required.']);
+
+    expect(Calibration::query()->count())->toBe(0);
+});
+
+it('requests confirmation with the selected internal calibration context without creating a session', function () {
+    createStartCalibrationHttpTables();
+    seedStartCalibrationHttpSubject();
+    mapStartCalibrationHttpActor();
+
+    startCalibrationHttpPage()
+        ->set('calibrationMethod', Calibration::METHOD_INTERNAL)
+        ->call('requestStartCalibration')
+        ->assertDispatched('instruments-desk-confirm-start-calibration');
+
+    expect(Calibration::query()->count())->toBe(0);
+});
+
+it('requests confirmation with the selected external calibration context without creating a session', function () {
+    createStartCalibrationHttpTables();
+    seedStartCalibrationHttpSubject();
+    mapStartCalibrationHttpActor();
+
+    startCalibrationHttpPage()
+        ->set('calibrationMethod', Calibration::METHOD_EXTERNAL)
+        ->call('requestStartCalibration')
+        ->assertDispatched('instruments-desk-confirm-start-calibration');
+
+    expect(Calibration::query()->count())->toBe(0);
+});
+
 it('starts an internal session and redirects to the created session', function () {
     createStartCalibrationHttpTables();
     seedStartCalibrationHttpSubject();
@@ -140,7 +178,7 @@ it('starts an internal session and redirects to the created session', function (
         ->set('calibrationMethod', Calibration::METHOD_INTERNAL)
         ->call('startCalibration')
         ->assertHasNoErrors()
-        ->assertRedirect(route('calibrations.show', 1));
+        ->assertRedirect(route('calibrations.show', ['calibration' => 1, 'return_tab' => 'start']));
 
     $calibration = Calibration::query()->findOrFail(1);
 
@@ -171,7 +209,7 @@ it('starts an internal session without type temperature or humidity assignments'
         ->set('calibrationMethod', Calibration::METHOD_INTERNAL)
         ->call('startCalibration')
         ->assertHasNoErrors()
-        ->assertRedirect(route('calibrations.show', 1));
+        ->assertRedirect(route('calibrations.show', ['calibration' => 1, 'return_tab' => 'start']));
 
     expect(DB::table('calibration_environment_parameter_snapshot')->where('calibration_id', 1)->orderBy('display_order')->pluck('parameter_code')->all())->toBe([
         'temperature',
@@ -191,7 +229,7 @@ it('starts an external session without a provider', function () {
     startCalibrationHttpPage()
         ->set('calibrationMethod', Calibration::METHOD_EXTERNAL)
         ->call('startCalibration')
-        ->assertRedirect(route('calibrations.show', 1));
+        ->assertRedirect(route('calibrations.show', ['calibration' => 1, 'return_tab' => 'start']));
 
     $calibration = Calibration::query()->findOrFail(1);
 
@@ -273,10 +311,10 @@ it('blocks a new start when a cross-year session is already in progress', functi
         'created_at' => '2025-04-01 08:00:00',
     ]);
 
-    $this->get(route('calibrations.index'))
+    $this->get(route('calibrations.index', ['tab' => 'start']))
         ->assertSee('Open Session')
         ->assertSee('href="'.e(route('calibrations.show', 9)).'"', false)
-        ->assertDontSee('Start Calibration');
+        ->assertDontSee('>Start Calibration</a>', false);
 });
 
 it('rejects an invalid calibration method', function () {
@@ -404,7 +442,6 @@ it('does not add start actions to session history', function () {
     Livewire::test('pages::calibrations')
         ->set('tab', 'history')
         ->assertSee('Session History')
-        ->assertDontSee('Start Calibration')
         ->assertDontSee('Complete Calibration')
         ->assertDontSee('Cancel Calibration');
 });

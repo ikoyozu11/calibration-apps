@@ -1,11 +1,15 @@
 <?php
 
+use App\Authorization\ApplicationCapability;
 use App\CalibrationSessions\CalibrationSessionHttpRead;
 use App\Models\DetailLocation;
 use App\Models\Instrument;
 use App\Models\InstrumentType;
 use App\Models\Location;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Livewire\WithPagination;
@@ -16,7 +20,14 @@ new class extends Component
 
     public string $search = '';
 
+    public string $locationId = '';
+
     public int $perPage = 10;
+
+    public function mount(): void
+    {
+        Gate::authorize(ApplicationCapability::InstrumentsView->value);
+    }
 
     public function updatedSearch(): void
     {
@@ -29,6 +40,24 @@ new class extends Component
 
         $this->perPage = in_array($perPage, [10, 25, 50], true) ? $perPage : 10;
         $this->resetPage();
+    }
+
+    public function updatedLocationId(): void
+    {
+        $this->resetPage();
+    }
+
+    /** @return Collection<int, Location> */
+    #[Computed]
+    public function locations(): Collection
+    {
+        return Location::on($this->readConnectionName())
+            ->select(['location_id', 'location_name'])
+            ->whereNotNull('location_name')
+            ->whereRaw("trim(location_name) <> ''")
+            ->orderByRaw('lower(location_name)')
+            ->orderBy('location_id')
+            ->get();
     }
 
     /**
@@ -50,7 +79,7 @@ new class extends Component
     #[Computed]
     public function instruments(): LengthAwarePaginator
     {
-        return Instrument::on($this->readConnectionName())
+        $query = Instrument::on($this->readConnectionName())
             ->select([
                 'instrument.instrument_id',
                 'instrument.instrument_name',
@@ -67,10 +96,16 @@ new class extends Component
                 'detailLocation:detail_location_id,location_id,detail_location_name',
                 'detailLocation.location:location_id,location_name',
             ])
+            ->when($this->locationId !== '', function (Builder $query): void {
+                $query->whereHas('detailLocation', function (Builder $query): void {
+                    $query->where('detail_location.location_id', (int) $this->locationId);
+                });
+            })
             ->whereIdentityMatches($this->search)
             ->orderBy('instrument.instrument_id')
-            ->orderBy('instrument_type.instrument_type_id')
-            ->paginate($this->perPage);
+            ->orderBy('instrument_type.instrument_type_id');
+
+        return $query->paginate($this->perPage);
     }
 
     /**
@@ -163,6 +198,13 @@ new class extends Component
             <div class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <h2 id="instruments-heading" class="text-base font-semibold tracking-tight text-navy">Instrument List</h2>
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <label for="instrument-location" class="sr-only">Filter by location</label>
+                    <select id="instrument-location" wire:model.live="locationId" class="rounded-lg border border-line bg-white px-3 py-2 text-sm text-navy sm:w-48">
+                        <option value="">All Locations</option>
+                        @foreach ($this->locations as $location)
+                            <option value="{{ $location->location_id }}">{{ $location->location_name }}</option>
+                        @endforeach
+                    </select>
                     <label for="instrument-search" class="sr-only">Search by name, brand, type, or model</label>
                     <input
                         id="instrument-search"
@@ -181,7 +223,7 @@ new class extends Component
             </div>
 
             @if ($this->instruments->isEmpty())
-                <p class="px-5 py-8 text-sm text-navy/70">No instruments found.</p>
+                <p class="px-5 py-8 text-sm text-navy/70">{{ $this->locationId !== '' || trim($this->search) !== '' ? 'No instruments found for the selected filters.' : 'No instruments found.' }}</p>
             @else
                 <div class="overflow-x-auto">
                     <table class="ui-table">
@@ -204,7 +246,7 @@ new class extends Component
                                 @endphp
                                 <tr wire:key="instrument-{{ $row['key'] }}" class="odd:bg-[#d6e4f0] even:bg-[#c5d8ec] hover:bg-[#edf4fa]">
                                     <td class="px-5 py-3.5 font-medium">
-                                        <a href="{{ $this->detailUrl($instrument) }}" class="text-navy hover:text-brand">
+                                        <a href="{{ $this->detailUrl($instrument) }}" class="text-navy underline-offset-2 hover:text-brand hover:underline focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2">
                                             {{ $instrument->instrument_name }}
                                         </a>
                                     </td>

@@ -407,6 +407,7 @@ it('presents a vendor snapshot and document metadata without storage paths', fun
         'document_id' => 1,
         'original_filename' => 'first.pdf',
         'is_active' => false,
+        'superseded_at' => '2026-10-22 10:30:00',
         'uploaded_at' => '2026-10-22 10:00:00',
         'storage_path' => 'secret-uuid-old.pdf',
         'storage_uuid' => '11111111-1111-1111-1111-000000000001',
@@ -423,6 +424,28 @@ it('presents a vendor snapshot and document metadata without storage paths', fun
         ->and($documents[1]['status'])->toBe('Active')
         ->and(json_encode($documents))->not->toContain('secret-uuid')
         ->and(json_encode($documents))->not->toContain('storage_path');
+});
+
+it('presents a manually removed vendor document separately from a replaced document', function () {
+    $calibration = presenterModel(Calibration::class, [
+        'calibration_method' => Calibration::METHOD_EXTERNAL,
+    ]);
+    $removed = presenterModel(CalibrationExternalDocument::class, [
+        'document_id' => 3,
+        'original_filename' => 'removed.pdf',
+        'is_active' => false,
+        'removed_at' => '2026-10-22 12:00:00',
+        'uploaded_at' => '2026-10-22 11:00:00',
+    ]);
+    $calibration->setRelation('externalDocuments', new Collection([$removed]));
+
+    expect(CalibrationSessionDetailPresenter::vendorDocuments($calibration)[0])
+        ->toMatchArray([
+            'status' => 'Removed',
+            'active' => false,
+            'removed' => true,
+            'replaced' => false,
+        ]);
 });
 
 it('treats a blank vendor snapshot as absent', function () {

@@ -53,10 +53,32 @@ new class extends Component
         return app(CalibrationSessionHttpRead::class)->instrumentType($this->instrumentTypeId, $this->instrumentId);
     }
 
+    public function requestStartCalibration(): void
+    {
+        Gate::authorize(ApplicationCapability::SessionStart->value);
+
+        if ((int) $this->instrumentType->instrument_id !== $this->instrumentId) {
+            abort(404);
+        }
+
+        $this->validate([
+            'calibrationMethod' => ['required', Rule::in([Calibration::METHOD_INTERNAL, Calibration::METHOD_EXTERNAL])],
+        ]);
+
+        $this->dispatch(
+            'instruments-desk-confirm-start-calibration',
+            componentId: $this->getId(),
+            instrumentName: (string) ($this->instrument->instrument_name ?? ''),
+            instrumentType: (string) ($this->instrumentType->type_name ?? ''),
+            serialNumber: (string) ($this->instrument->serial_number ?? ''),
+            calibrationMethod: $this->calibrationMethod,
+        );
+    }
+
     public function startCalibration(
         StartCalibrationSession $starter,
         StartCalibrationHttpConnection $writes,
-    ): void {
+    ): array {
         Gate::authorize(ApplicationCapability::SessionStart->value);
 
         if ((int) $this->instrumentType->instrument_id !== $this->instrumentId) {
@@ -71,9 +93,8 @@ new class extends Component
 
         if ($activeId !== null) {
             $this->blockingCalibrationId = $activeId;
-            $this->addError('calibrationMethod', StartCalibrationException::inProgressExists()->getMessage());
 
-            return;
+            return $this->startFailure(StartCalibrationException::inProgressExists()->getMessage());
         }
 
         $laravelUserId = (int) Auth::id();
@@ -90,28 +111,38 @@ new class extends Component
                 $writes->resolve(),
             );
         } catch (StartCalibrationHttpException $exception) {
-            $this->addError('calibrationMethod', $exception->getMessage());
-
-            return;
+            return $this->startFailure($exception->getMessage());
         } catch (CalibrationSessionConnectionException $exception) {
-            $this->addError('calibrationMethod', StartCalibrationHttpException::writesUnavailable()->getMessage());
-
-            return;
+            return $this->startFailure(StartCalibrationHttpException::writesUnavailable()->getMessage());
         } catch (ResolveDomainActorException $exception) {
-            $this->addError('calibrationMethod', $exception->getMessage());
-
-            return;
+            return $this->startFailure($exception->getMessage());
         } catch (StartCalibrationException $exception) {
             if ($exception->getMessage() === StartCalibrationException::inProgressExists()->getMessage()) {
                 $this->blockingCalibrationId = $this->activeSessionId();
             }
 
-            $this->addError('calibrationMethod', $exception->getMessage());
-
-            return;
+            return $this->startFailure($exception->getMessage());
         }
 
-        $this->redirect(route('calibrations.show', $calibration->calibration_id));
+        $this->redirect(route('calibrations.show', [
+            'calibration' => $calibration->calibration_id,
+            'return_tab' => 'start',
+        ]));
+
+        return ['started' => true];
+    }
+
+    /**
+     * @return array{started: false, message: string}
+     */
+    private function startFailure(string $message): array
+    {
+        $this->addError('calibrationMethod', $message);
+
+        return [
+            'started' => false,
+            'message' => $message,
+        ];
     }
 
     private function activeSessionId(): ?int
@@ -182,7 +213,7 @@ new class extends Component
                         Open Session
                     </a>
                 @else
-                    <form wire:submit="startCalibration" class="flex flex-col gap-4">
+                    <form wire:submit="requestStartCalibration" class="flex flex-col gap-4">
                         <div>
                             <label for="calibration-method" class="ui-label">Calibration Method</label>
                             <select id="calibration-method" wire:model="calibrationMethod" class="ui-input">
@@ -198,7 +229,7 @@ new class extends Component
                             type="submit"
                             class="ui-button-primary w-fit"
                             wire:loading.attr="disabled"
-                            wire:target="startCalibration"
+                            wire:target="requestStartCalibration"
                         >
                             Start Calibration
                         </button>

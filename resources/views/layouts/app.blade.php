@@ -35,18 +35,28 @@
                         <p class="mt-1 text-xl font-semibold leading-none tracking-tight">Desk</p>
                     </div>
                 </div>
-                <x-app-nav />
+                <div class="flex min-h-0 flex-1 flex-col">
+                    <div class="min-h-0 flex-1 overflow-y-auto">
+                        <x-app-nav />
+                    </div>
+                    <x-user-profile-menu />
+                </div>
             </aside>
 
             <div class="min-w-0 lg:pl-64">
-                <details class="bg-navy text-white lg:hidden">
-                    <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+                <header class="mobile-nav bg-navy text-white lg:hidden" data-mobile-nav>
+                    <button
+                        type="button"
+                        class="mobile-nav-toggle flex h-16 min-h-0 w-full items-center justify-between gap-3 px-4 text-sm font-semibold leading-none"
+                        aria-controls="mobile-primary-navigation"
+                        aria-expanded="false"
+                    >
                         <span class="flex min-w-0 items-center gap-2">
-                            <span class="flex shrink-0 items-center rounded-lg bg-white px-2 py-1">
+                            <span class="flex h-8 w-16 shrink-0 items-center justify-center rounded-lg bg-white px-2">
                                 <img
                                     src="{{ asset('images/vision-teknik-logo.png') }}"
                                     alt=""
-                                    class="h-6 w-auto max-w-24 object-contain"
+                                    class="block h-6 w-auto max-w-full object-contain"
                                 >
                             </span>
                             <span class="truncate">
@@ -54,12 +64,26 @@
                                 <span>Desk</span>
                             </span>
                         </span>
-                        <span>Menu</span>
-                    </summary>
-                    <div class="px-3 pb-4">
-                        <x-app-nav />
+                        <span class="flex items-center gap-2">
+                            <span>Menu</span>
+                            <span class="mobile-nav-icon" aria-hidden="true">
+                                <span></span>
+                                <span></span>
+                                <span></span>
+                            </span>
+                        </span>
+                    </button>
+                    <div id="mobile-primary-navigation" class="mobile-nav-panel" aria-hidden="true">
+                        <div class="mobile-nav-panel-inner">
+                            <div class="flex min-h-0 flex-col px-3 pt-3 pb-4">
+                                <div>
+                                    <x-app-nav />
+                                </div>
+                                <x-user-profile-menu mobile />
+                            </div>
+                        </div>
                     </div>
-                </details>
+                </header>
 
                 <div id="main" class="min-w-0">
                     {{ $slot }}
@@ -68,5 +92,18 @@
         </div>
 
         @livewireScripts
+
+        @if (session('status'))
+            <script>
+                document.addEventListener('DOMContentLoaded', () => {
+                    window.dispatchEvent(new CustomEvent('instruments-desk-flash-notification', {
+                        detail: {
+                            type: 'success',
+                            message: @js(session('status')),
+                        },
+                    }));
+                }, { once: true });
+            </script>
+        @endif
     </body>
 </html>

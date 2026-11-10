@@ -19,6 +19,8 @@
     --color-due-soon: #8a5a00;
     --color-overdue: #b42318;
     --color-not-calibrated: #526070;
+    --color-action-edit: #b45309;
+    --color-action-edit-hover: #92400e;
 
     --color-gray-50: #f6f6f6;
     --color-gray-100: #d6e4f0;
@@ -51,19 +53,72 @@
     }
 
     .ui-button-primary {
-        @apply inline-flex items-center justify-center rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand;
+        @apply inline-flex items-center justify-center rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-navy hover:shadow-md active:translate-y-0 active:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand;
+    }
+
+    .ui-button-manage {
+        @apply inline-flex items-center justify-center gap-2 rounded-lg border-0 bg-action-edit px-3 py-2 text-sm font-semibold text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-action-edit-hover hover:text-white hover:shadow-[0_4px_12px_rgb(15_23_42/0.14)] active:translate-y-0 active:shadow-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action-edit;
+    }
+
+    .btn-add {
+        @apply inline-flex items-center justify-center gap-2 rounded-lg border-0 bg-[#147D72] px-3 py-2 text-sm font-semibold whitespace-nowrap text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#10665D] hover:shadow-[0_4px_12px_rgb(15_23_42/0.14)] active:translate-y-0 active:shadow-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#147D72];
+    }
+
+    .btn-edit {
+        @apply inline-flex items-center justify-center gap-2 rounded-lg border-0 bg-action-edit px-3 py-2 text-sm font-semibold whitespace-nowrap text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-action-edit-hover hover:text-white hover:shadow-[0_4px_12px_rgb(15_23_42/0.14)] active:translate-y-0 active:shadow-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action-edit;
+    }
+
+    .btn-delete {
+        @apply inline-flex items-center justify-center gap-2 rounded-lg border-0 bg-overdue px-3 py-2 text-sm font-semibold whitespace-nowrap text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-red-800 hover:shadow-[0_4px_12px_rgb(15_23_42/0.14)] active:translate-y-0 active:shadow-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-overdue;
+    }
+
+    .btn-select {
+        @apply inline-flex items-center justify-center gap-2 rounded-lg border-0 bg-[#2058A4] px-3 py-2 text-sm font-semibold whitespace-nowrap text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#194B91] hover:shadow-[0_4px_12px_rgb(15_23_42/0.14)] active:translate-y-0 active:shadow-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2058A4];
+    }
+
+    .btn-deactivate {
+        @apply inline-flex items-center justify-center gap-2 rounded-lg border-0 bg-[#475569] px-3 py-2 text-sm font-semibold whitespace-nowrap text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#334155] hover:shadow-[0_4px_12px_rgb(15_23_42/0.14)] active:translate-y-0 active:shadow-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#475569];
+    }
+
+    .btn-activate {
+        @apply inline-flex items-center justify-center gap-2 rounded-lg border-0 bg-[#15803D] px-3 py-2 text-sm font-semibold whitespace-nowrap text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#166534] hover:shadow-[0_4px_12px_rgb(15_23_42/0.14)] active:translate-y-0 active:shadow-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#15803D];
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .btn-add,
+        .btn-edit,
+        .btn-delete,
+        .btn-select,
+        .btn-deactivate,
+        .btn-activate {
+            transition: none;
+        }
+
+        .btn-add:hover,
+        .btn-edit:hover,
+        .btn-delete:hover,
+        .btn-select:hover,
+        .btn-deactivate:hover,
+        .btn-activate:hover {
+            transform: none;
+            box-shadow: none;
+        }
     }
 
     .ui-button-secondary {
-        @apply inline-flex items-center justify-center rounded-lg bg-brand-soft px-4 py-2 text-sm font-semibold text-navy hover:bg-brand-soft/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand;
+        @apply inline-flex items-center justify-center rounded-lg bg-brand-soft px-4 py-2 text-sm font-semibold text-navy transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-brand-soft/80 hover:shadow-md active:translate-y-0 active:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand;
     }
 
     .ui-button-outline {
-        @apply inline-flex items-center justify-center rounded-lg border border-brand bg-white px-4 py-2 text-sm font-semibold text-brand hover:bg-brand-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand;
+        @apply inline-flex items-center justify-center rounded-lg border border-brand bg-white px-4 py-2 text-sm font-semibold text-brand transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-brand-soft hover:shadow-md active:translate-y-0 active:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand;
     }
 
     .ui-button-danger {
-        @apply inline-flex items-center justify-center rounded-lg bg-overdue px-4 py-2 text-sm font-semibold text-white hover:bg-red-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-overdue;
+        @apply inline-flex items-center justify-center rounded-lg bg-overdue px-4 py-2 text-sm font-semibold text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-red-800 hover:shadow-md active:translate-y-0 active:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-overdue;
+    }
+
+    .ui-button-logout {
+        @apply flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-white transition-colors duration-150 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white;
     }
 
     .ui-label {
@@ -80,6 +135,102 @@
 
     .ui-alert {
         @apply rounded-lg border border-line bg-brand-soft px-4 py-3 text-sm text-navy;
+    }
+
+    .desk-tabs {
+        @apply flex min-w-0 gap-2 overflow-x-auto border-b border-brand/15;
+    }
+
+    .desk-tab {
+        @apply shrink-0 whitespace-nowrap rounded-t-xl border-b-2 px-4 py-3 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand;
+    }
+
+    .desk-tab-active {
+        @apply border-brand bg-brand-soft text-navy;
+    }
+
+    .desk-tab-inactive {
+        @apply border-transparent text-muted hover:border-brand/40 hover:text-navy;
+    }
+
+    .certificate-pdf-preview {
+        display: block;
+        width: 100%;
+        height: 80vh;
+        min-height: 680px;
+        max-height: 1100px;
+        border: 0;
+    }
+
+    @media (max-width: 40rem) {
+        .certificate-pdf-preview {
+            height: 70vh;
+            min-height: 520px;
+            max-height: 760px;
+        }
+    }
+
+    .mobile-nav {
+        position: sticky;
+        top: 0;
+        z-index: 40;
+        box-shadow: 0 8px 20px -18px rgb(22 49 114 / 0.8);
+    }
+
+    .mobile-nav-panel {
+        display: grid;
+        grid-template-rows: 0fr;
+        opacity: 0;
+        overflow: hidden;
+        visibility: hidden;
+        transition: grid-template-rows 200ms ease-out, opacity 180ms ease-out, visibility 0s linear 200ms;
+    }
+
+    .mobile-nav-panel-inner {
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    .mobile-nav[data-mobile-nav-open] .mobile-nav-panel {
+        grid-template-rows: 1fr;
+        opacity: 1;
+        visibility: visible;
+        transition: grid-template-rows 200ms ease-out, opacity 180ms ease-out;
+    }
+
+    .mobile-nav-icon {
+        display: inline-flex;
+        width: 1.125rem;
+        flex-direction: column;
+        gap: 0.2rem;
+    }
+
+    .mobile-nav-icon span {
+        display: block;
+        height: 2px;
+        width: 100%;
+        border-radius: 999px;
+        background: currentColor;
+        transition: transform 180ms ease-out, opacity 180ms ease-out;
+    }
+
+    .mobile-nav[data-mobile-nav-open] .mobile-nav-icon span:first-child {
+        transform: translateY(0.4rem) rotate(45deg);
+    }
+
+    .mobile-nav[data-mobile-nav-open] .mobile-nav-icon span:nth-child(2) {
+        opacity: 0;
+    }
+
+    .mobile-nav[data-mobile-nav-open] .mobile-nav-icon span:last-child {
+        transform: translateY(-0.4rem) rotate(-45deg);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .mobile-nav-panel,
+        .mobile-nav-icon span {
+            transition: none;
+        }
     }
 
     .instruments-desk-swal-toast,

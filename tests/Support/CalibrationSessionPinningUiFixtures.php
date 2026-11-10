@@ -352,7 +352,21 @@ function createCalibrationSessionPinningUiTables(): void
         $table->boolean('is_active');
         $table->timestamp('uploaded_at');
         $table->timestamp('superseded_at')->nullable();
+        $table->timestamp('removed_at')->nullable();
         $table->unsignedBigInteger('uploaded_by_user_id')->nullable();
+        $table->unsignedBigInteger('removed_by_user_id')->nullable();
+    });
+
+    Schema::create('certificate', function (Blueprint $table): void {
+        $table->unsignedBigInteger('certificate_id')->primary();
+        $table->unsignedBigInteger('calibration_id');
+        $table->string('certificate_number', 100);
+        $table->string('certificate_type', 20);
+        $table->date('issued_date');
+        $table->text('file_path')->nullable();
+        $table->string('file_name', 255)->nullable();
+        $table->text('remarks')->nullable();
+        $table->timestamp('created_at');
     });
 }
 

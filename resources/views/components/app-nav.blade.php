@@ -1,11 +1,25 @@
 @php
     $items = [
         ['label' => 'Home', 'href' => route('home'), 'active' => request()->routeIs('home'), 'icon' => 'home'],
-        ['label' => 'Instruments', 'href' => route('instruments.index'), 'active' => request()->routeIs('instruments.*'), 'icon' => 'instrument'],
-        ['label' => 'Standards', 'href' => route('standards.index'), 'active' => request()->routeIs('standards.*'), 'icon' => 'standard'],
-        ['label' => 'Activities', 'href' => route('activities.index'), 'active' => request()->routeIs('activities.*'), 'icon' => 'activity'],
-        ['label' => 'Calibrations', 'href' => route('calibrations.index'), 'active' => request()->routeIs('calibrations.*'), 'icon' => 'calibration'],
     ];
+
+    if (app(\Illuminate\Contracts\Auth\Access\Gate::class)->allows('instruments.view')) {
+        $items[] =
+            ['label' => 'Instruments', 'href' => route('instruments.index'), 'active' => request()->routeIs('instruments.*'), 'icon' => 'instrument'];
+    }
+
+    $items[] = ['label' => 'Calibrations', 'href' => route('calibrations.index'), 'active' => request()->routeIs('calibrations.*'), 'icon' => 'calibration'];
+
+    if (app(\Illuminate\Contracts\Auth\Access\Gate::class)->allows('masterdata.view')) {
+        array_push($items,
+            ['label' => 'Standards', 'href' => route('standards.index'), 'active' => request()->routeIs('standards.*'), 'icon' => 'standard'],
+            ['label' => 'Activities', 'href' => route('activities.index'), 'active' => request()->routeIs('activities.*'), 'icon' => 'activity'],
+        );
+    }
+
+    if (app(\Illuminate\Contracts\Auth\Access\Gate::class)->allows('users.manage')) {
+        $items[] = ['label' => 'User Management', 'href' => route('users.index'), 'active' => request()->routeIs('users.*'), 'icon' => 'users'];
+    }
 @endphp
 
 <nav aria-label="Primary" class="flex flex-col gap-1">
@@ -35,6 +49,10 @@
                 <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01" />
                 </svg>
+            @elseif ($item['icon'] === 'users')
+                <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16 20v-1.5a4.5 4.5 0 0 0-4.5-4.5h-3A4.5 4.5 0 0 0 4 18.5V20m6-10a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm6.5-3a3 3 0 1 1 0 6m.5 2h.5a4 4 0 0 1 4 4v1" />
+                </svg>
             @else
                 <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M8 3v4M16 3v4M4 9h16M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" />
@@ -44,18 +62,4 @@
         </a>
     @endforeach
 
-    @auth
-        <form method="POST" action="{{ route('logout') }}" class="mt-4 border-t border-white/15 pt-4">
-            @csrf
-            <button
-                type="submit"
-                class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-white hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-            >
-                <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6A2.25 2.25 0 0 0 5.25 5.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l3 3m0 0-3 3m3-3H9" />
-                </svg>
-                Sign out
-            </button>
-        </form>
-    @endauth
 </nav>

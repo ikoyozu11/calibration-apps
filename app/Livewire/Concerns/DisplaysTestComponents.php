@@ -13,6 +13,7 @@ use App\TestColumns\TestTableVersioning;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Schema\Builder;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -99,7 +100,8 @@ trait DisplaysTestComponents
 
     public function canEditTestTable(TestProfile $profile): bool
     {
-        return app(TestTableVersioning::class)->canMutate($profile);
+        return Gate::allows('masterdata.manage')
+            && app(TestTableVersioning::class)->canMutate($profile);
     }
 
     /**

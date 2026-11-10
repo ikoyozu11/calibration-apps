@@ -1,9 +1,11 @@
 <?php
 
+use App\Authorization\ApplicationCapability;
 use App\CalibrationSessions\CalibrationSessionHttpRead;
 use App\Livewire\Concerns\ManagesStandardAssignments;
 use App\Models\Instrument;
 use App\Models\InstrumentType;
+use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
@@ -24,6 +26,7 @@ new class extends Component
 
     public function mount(int $instrument, int $instrumentType): void
     {
+        Gate::authorize(ApplicationCapability::MasterdataView->value);
         $this->instrumentId = $instrument;
         $this->instrumentTypeId = $instrumentType;
         $this->currentInstrument();
@@ -142,7 +145,9 @@ new class extends Component
                                 <th scope="col" class="px-5 py-3 font-medium">Instrument Name</th>
                                 <th scope="col" class="px-5 py-3 font-medium">Type / Specification</th>
                                 <th scope="col" class="px-5 py-3 font-medium">Serial Number</th>
-                                <th scope="col" class="px-5 py-3 font-medium">Actions</th>
+                                @can('masterdata.manage')
+                                    <th scope="col" class="px-5 py-3 font-medium">Actions</th>
+                                @endcan
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-white/70">
@@ -153,6 +158,7 @@ new class extends Component
                                     <td class="px-5 py-3.5 font-medium text-navy">{{ filled($assignment->instrumentName()) ? $assignment->instrumentName() : '—' }}</td>
                                     <td class="px-5 py-3.5 text-navy">{{ filled($assignment->typeSpecification()) ? $assignment->typeSpecification() : '—' }}</td>
                                     <td class="px-5 py-3.5 text-navy">{{ filled($assignment->serialNumber()) ? $assignment->serialNumber() : '—' }}</td>
+                                    @can('masterdata.manage')
                                     <td class="px-5 py-3.5">
                                         <button
                                             type="button"
@@ -164,9 +170,15 @@ new class extends Component
                                                 assignmentId: Number($el.dataset.assignmentId),
                                                 standardName: $el.dataset.standardName,
                                             })"
-                                            class="ui-button-danger"
-                                        >Remove</button>
+                                            class="btn-delete"
+                                        >
+                                            <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="m18.84 12.25 1.71-1.71a5 5 0 0 0-7.07-7.07l-1.71 1.71M5.16 11.75l-1.71 1.71a5 5 0 0 0 7.07 7.07l1.71-1.71M8 12h8" />
+                                            </svg>
+                                            <span>Remove</span>
+                                        </button>
                                     </td>
+                                    @endcan
                                 </tr>
                             @endforeach
                         </tbody>
@@ -187,13 +199,20 @@ new class extends Component
                         <label for="standard-search" class="ui-label">Search</label>
                         <input id="standard-search" type="search" wire:model.live.debounce.300ms="search" maxlength="100" class="ui-input" placeholder="Name, type / specification, or serial">
                     </div>
+                    @can('masterdata.manage')
                     <button
                         type="button"
                         x-ref="addStandardButton"
                         x-on:click="addingStandard = true"
                         wire:click="startAddingStandard"
-                        class="ui-button-outline"
-                    >Add New Standard</button>
+                        class="btn-add"
+                    >
+                        <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                            <path stroke-linecap="round" d="M12 5v14M5 12h14" />
+                        </svg>
+                        <span>Add New Standard</span>
+                    </button>
+                    @endcan
                 </div>
 
                 @if ($this->candidates()->isEmpty())
@@ -207,7 +226,9 @@ new class extends Component
                                     <th scope="col" class="px-5 py-3 font-medium">Instrument Name</th>
                                     <th scope="col" class="px-5 py-3 font-medium">Type / Specification</th>
                                     <th scope="col" class="px-5 py-3 font-medium">Serial Number</th>
+                                @can('masterdata.manage')
                                     <th scope="col" class="px-5 py-3 font-medium">Action</th>
+                                @endcan
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-white/70">
@@ -217,9 +238,16 @@ new class extends Component
                                         <td class="px-5 py-3.5 font-medium text-navy">{{ $candidate->instrument_name }}</td>
                                         <td class="px-5 py-3.5 text-navy">{{ filled($candidate->type_specification) ? $candidate->type_specification : '—' }}</td>
                                         <td class="px-5 py-3.5 text-navy">{{ filled($candidate->serial_number) ? $candidate->serial_number : '—' }}</td>
+                                        @can('masterdata.manage')
                                         <td class="px-5 py-3.5">
-                                            <button type="button" wire:click="selectCandidate({{ $candidate->standard_id }})" wire:loading.attr="disabled" wire:target="selectCandidate" class="ui-button-outline">Select</button>
+                                            <button type="button" wire:click="selectCandidate({{ $candidate->standard_id }})" wire:loading.attr="disabled" wire:target="selectCandidate" class="btn-select">
+                                                <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="m5 12 4 4L19 6" />
+                                                </svg>
+                                                <span>Select</span>
+                                            </button>
                                         </td>
+                                        @endcan
                                     </tr>
                                 @endforeach
                             </tbody>
@@ -258,18 +286,22 @@ new class extends Component
             x-transition:leave-end="scale-[0.96] opacity-0"
             class="mx-auto flex max-h-[calc(100vh-4rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-brand/20 bg-brand-soft shadow-2xl"
         >
-            <div class="flex items-start justify-between bg-navy px-5 py-4 text-white sm:px-6">
-                <div>
+            <x-modal-header icon="plus">
+                <x-slot:title>
                     <h2 id="add-standard-modal-title" class="text-base font-semibold">Add New Standard</h2>
+                </x-slot:title>
+                <x-slot:subtitle>
                     <p id="add-standard-modal-subtitle" class="mt-1 text-sm text-brand-soft">Create a new standard in the Standard Master.</p>
-                </div>
-                <button
-                    type="button"
-                    x-on:click="requestCloseStandardModal()"
-                    class="rounded-lg px-3 py-2 text-xl leading-none text-white transition hover:bg-white/15"
-                    aria-label="Close Add New Standard modal"
-                >&times;</button>
-            </div>
+                </x-slot:subtitle>
+                <x-slot:close>
+                    <button
+                        type="button"
+                        x-on:click="requestCloseStandardModal()"
+                        class="shrink-0 rounded-lg px-3 py-2 text-xl leading-none text-white/80 transition hover:bg-white/15 hover:text-white"
+                        aria-label="Close Add New Standard modal"
+                    >&times;</button>
+                </x-slot:close>
+            </x-modal-header>
 
             <div class="flex-1 overflow-y-auto p-5 sm:p-6">
                 <form wire:submit="prepareNewStandardCreation" class="flex flex-col gap-4">

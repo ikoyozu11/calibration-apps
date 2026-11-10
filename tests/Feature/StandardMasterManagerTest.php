@@ -15,6 +15,9 @@ it('lists and searches the standard master', function () {
         ->assertSee('STD-0010')
         ->assertSee('Pressure Drop Standard')
         ->assertSee('Add New Standard')
+        ->assertSee('btn-add')
+        ->assertSee('btn-edit')
+        ->assertSee('btn-delete')
         ->set('search', 'ET4276')
         ->assertSee('Pressure Drop Standard')
         ->assertDontSee('Weight Standard');

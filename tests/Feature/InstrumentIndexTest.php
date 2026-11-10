@@ -1,5 +1,6 @@
 <?php
 
+use App\Authorization\ApplicationRoleName;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -98,6 +99,30 @@ it('shows one instrument row with its type serial asset and location', function 
     $response->assertSeeInOrder(['Sodiline', 'Sodim', 'Weight', 'PDV - PD', 'WEIGHT-001', 'ASSET-9', 'Plant A', 'Line 2']);
     $response->assertSee('href="'.route('instruments.types.show', ['instrument' => 3, 'instrumentType' => 1]).'"', false);
     $response->assertDontSee('Calibration History');
+});
+
+it('allows Viewer to browse instruments without master-data access', function () {
+    createInstrumentIndexTables();
+    insertInstrumentIndexRow([
+        'instrument_id' => 3,
+        'instrument_name' => 'Sodiline',
+    ]);
+    DB::table('instrument_type')->insert([
+        'instrument_type_id' => 1,
+        'instrument_id' => 3,
+        'type_name' => 'Weight',
+        'asset_number' => 'ASSET-9',
+    ]);
+    actingAsRole(ApplicationRoleName::Viewer);
+
+    $response = $this->get(route('instruments.index'));
+
+    $response
+        ->assertOk()
+        ->assertSee('Sodiline')
+        ->assertSee('Instruments')
+        ->assertDontSee('Standards')
+        ->assertDontSee('Activities');
 });
 
 it('shows a separate row for every type even when one serial is shared', function () {
@@ -253,6 +278,68 @@ it('filters the instrument list by name, brand, type, or model', function () {
         ->assertSee('A%B Gauge')
         ->assertDontSee('Sodiline')
         ->assertDontSee('Digital Caliper');
+});
+
+it('filters instruments by exact location together with search and resets pagination', function () {
+    createInstrumentIndexTables();
+
+    DB::table('location')->insert([
+        ['location_id' => 1, 'location_name' => 'Plant A'],
+        ['location_id' => 2, 'location_name' => 'Plant B'],
+    ]);
+    DB::table('detail_location')->insert([
+        ['detail_location_id' => 10, 'location_id' => 1, 'detail_location_name' => 'Line 1'],
+        ['detail_location_id' => 11, 'location_id' => 2, 'detail_location_name' => 'Line 2'],
+    ]);
+    insertInstrumentIndexRow(['instrument_id' => 1, 'instrument_name' => 'Oven A', 'detail_location_id' => 10]);
+    insertInstrumentIndexRow(['instrument_id' => 2, 'instrument_name' => 'Gauge A', 'detail_location_id' => 10]);
+    insertInstrumentIndexRow(['instrument_id' => 3, 'instrument_name' => 'Oven B', 'detail_location_id' => 11]);
+    insertInstrumentIndexRow(['instrument_id' => 4, 'instrument_name' => 'Loose Instrument']);
+
+    $component = Livewire::test('pages::instruments')
+        ->assertSeeInOrder(['All Locations', 'Plant A', 'Plant B'])
+        ->assertSee('Oven A')
+        ->assertSee('Oven B')
+        ->set('perPage', 10)
+        ->call('gotoPage', 2)
+        ->set('locationId', '1')
+        ->assertSet('locationId', '1')
+        ->assertSee('Oven A')
+        ->assertSee('Gauge A')
+        ->assertDontSee('Oven B')
+        ->assertDontSee('Loose Instrument');
+
+    $component
+        ->set('search', 'Oven')
+        ->assertSet('locationId', '1')
+        ->assertSee('Oven A')
+        ->assertDontSee('Gauge A')
+        ->assertDontSee('Oven B');
+
+    $component
+        ->set('locationId', '2')
+        ->assertSee('Oven B')
+        ->assertDontSee('Oven A')
+        ->assertDontSee('Gauge A');
+});
+
+it('shows a filtered empty state without changing global totals', function () {
+    createInstrumentIndexTables();
+
+    DB::table('location')->insert([
+        ['location_id' => 1, 'location_name' => 'Plant A'],
+    ]);
+    DB::table('detail_location')->insert([
+        ['detail_location_id' => 10, 'location_id' => 1, 'detail_location_name' => 'Line 1'],
+    ]);
+    insertInstrumentIndexRow(['instrument_id' => 1, 'instrument_name' => 'Gauge A', 'detail_location_id' => 10]);
+
+    Livewire::test('pages::instruments')
+        ->assertSeeInOrder(['Instruments', '1', 'Locations', '1'])
+        ->set('locationId', '999')
+        ->assertSee('No instruments found for the selected filters.')
+        ->assertSeeInOrder(['Instruments', '1', 'Locations', '1'])
+        ->assertSee('All Locations');
 });
 
 it('keeps the instrument type and location totals while a name search changes the list', function () {

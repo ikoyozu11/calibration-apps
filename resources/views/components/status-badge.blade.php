@@ -2,7 +2,7 @@
 
 @php
     $tone = match ($status) {
-        'On Track', 'Completed' => 'bg-emerald-50 text-on-track',
+        'On Track', 'Completed', 'Active' => 'bg-emerald-50 text-on-track',
         'Due Soon' => 'bg-amber-50 text-due-soon',
         'Overdue' => 'bg-red-50 text-overdue',
         'In Progress' => 'bg-sky-50 text-brand',

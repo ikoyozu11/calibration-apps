@@ -28,6 +28,7 @@ use Illuminate\Database\Connection;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
@@ -255,6 +256,10 @@ trait ManagesTestComponents
 
     public function canPublishTestTable(TestProfile $profile): bool
     {
+        if (! Gate::allows('masterdata.manage')) {
+            return false;
+        }
+
         $versioning = app(TestTableVersioning::class);
 
         return $versioning->enabled()
@@ -264,6 +269,10 @@ trait ManagesTestComponents
 
     public function canForkTestTable(TestProfile $profile): bool
     {
+        if (! Gate::allows('masterdata.manage')) {
+            return false;
+        }
+
         $versioning = app(TestTableVersioning::class);
 
         return $versioning->enabled()
@@ -279,6 +288,10 @@ trait ManagesTestComponents
 
     public function canPermanentlyDeleteTestTable(TestProfile $profile): bool
     {
+        if (! Gate::allows('masterdata.manage')) {
+            return false;
+        }
+
         if ($profile->isArchived()) {
             return false;
         }
@@ -292,6 +305,10 @@ trait ManagesTestComponents
 
     public function canArchiveTestTable(TestProfile $profile): bool
     {
+        if (! Gate::allows('masterdata.manage')) {
+            return false;
+        }
+
         if ($profile->isArchived()) {
             return false;
         }
@@ -305,7 +322,7 @@ trait ManagesTestComponents
 
     public function canRestoreTestTable(TestProfile $profile): bool
     {
-        return $profile->isArchived();
+        return Gate::allows('masterdata.manage') && $profile->isArchived();
     }
 
     public function startEditingTestTable(int $profileId): void

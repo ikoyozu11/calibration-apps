@@ -184,6 +184,8 @@ function createCalibrationSessionModelTables(): void
         $table->boolean('is_active');
         $table->timestamp('uploaded_at');
         $table->timestamp('superseded_at')->nullable();
+        $table->timestamp('removed_at')->nullable();
+        $table->unsignedBigInteger('removed_by_user_id')->nullable();
     });
 
     Schema::create('calibration_standard_usage', function (Blueprint $table): void {

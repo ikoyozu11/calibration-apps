@@ -39,6 +39,504 @@ function notify(type, message) {
     });
 }
 
+window.addEventListener('instruments-desk-flash-notification', (event) => {
+    const { type = 'success', message = '' } = event.detail ?? {};
+
+    if (message !== '') {
+        notify(type, message);
+    }
+});
+
+function formatExternalPdfSize(bytes) {
+    if (!Number.isFinite(bytes) || bytes < 1) {
+        return '';
+    }
+
+    if (bytes < 1024 * 1024) {
+        return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+    }
+
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+let pendingExternalPdfUpload = null;
+let pendingExternalPdfRemoval = null;
+
+function resolveExternalPdfUpload(outcome) {
+    if (pendingExternalPdfUpload === null) {
+        return;
+    }
+
+    pendingExternalPdfUpload.resolve(outcome);
+}
+
+function resolveExternalPdfRemoval(outcome) {
+    if (pendingExternalPdfRemoval === null) {
+        return;
+    }
+
+    pendingExternalPdfRemoval.resolve(outcome);
+}
+
+function clearExternalPdfSelection(form, { syncComponent = true } = {}) {
+    if (!form) {
+        return;
+    }
+
+    const input = form.querySelector('[data-external-pdf-input]');
+    const summary = form.querySelector('[data-external-pdf-summary]');
+    const submit = form.querySelector('[data-external-pdf-submit]');
+    const progressContainer = form.querySelector('[data-external-pdf-progress-container]');
+    const progress = form.querySelector('[data-external-pdf-progress]');
+    const progressFill = form.querySelector('[data-external-pdf-progress-fill]');
+    const progressValue = form.querySelector('[data-external-pdf-progress-value]');
+    const ready = form.querySelector('[data-external-pdf-ready]');
+
+    if (input) {
+        input.value = '';
+    }
+
+    if (summary) {
+        summary.classList.add('hidden');
+        summary.classList.remove('flex');
+    }
+
+    if (submit) {
+        submit.disabled = true;
+    }
+
+    progressContainer?.classList.add('hidden');
+    ready?.classList.add('hidden');
+    if (progress) {
+        progress.setAttribute('aria-valuenow', '0');
+    }
+    if (progressFill) {
+        progressFill.style.width = '0%';
+    }
+    if (progressValue) {
+        progressValue.textContent = '0%';
+    }
+
+    if (input) {
+        delete input.dataset.externalPdfReady;
+        delete input.dataset.externalPdfUploading;
+    }
+
+    const componentId = form.closest('[data-component-id]')?.dataset.componentId;
+    const component = typeof componentId === 'string' ? window.Livewire?.find(componentId) : null;
+
+    if (syncComponent && component) {
+        component.set('externalCertificatePdf', null);
+    }
+}
+
+function updateExternalPdfProgress(input, percentage) {
+    const form = input.closest('[data-external-pdf-form]');
+    const progressContainer = form?.querySelector('[data-external-pdf-progress-container]');
+    const progress = form?.querySelector('[data-external-pdf-progress]');
+    const progressFill = form?.querySelector('[data-external-pdf-progress-fill]');
+    const progressValue = form?.querySelector('[data-external-pdf-progress-value]');
+    const ready = form?.querySelector('[data-external-pdf-ready]');
+    const value = Math.min(100, Math.max(0, Math.round(Number(percentage) || 0)));
+
+    if (!form || !progressContainer || !progress || !progressFill || !progressValue) {
+        return;
+    }
+
+    progressContainer.classList.remove('hidden');
+    ready?.classList.add('hidden');
+    progress.setAttribute('aria-valuenow', String(value));
+    progressFill.style.width = `${value}%`;
+    progressValue.textContent = `${value}%`;
+}
+
+function setExternalPdfPreview(form, file) {
+    const input = form.querySelector('[data-external-pdf-input]');
+    const summary = form.querySelector('[data-external-pdf-summary]');
+    const name = form.querySelector('[data-external-pdf-name]');
+    const meta = form.querySelector('[data-external-pdf-meta]');
+    const submit = form.querySelector('[data-external-pdf-submit]');
+
+    if (name) {
+        name.textContent = file.name;
+    }
+
+    if (meta) {
+        meta.textContent = `Selected file — not uploaded yet · ${formatExternalPdfSize(file.size)}`;
+    }
+
+    summary?.classList.remove('hidden');
+    summary?.classList.add('flex');
+
+    if (input) {
+        input.dataset.externalPdfReady = 'false';
+        input.dataset.externalPdfUploading = 'true';
+    updateExternalPdfProgress(input, 0);
+    }
+
+    if (submit) {
+        submit.disabled = true;
+    }
+}
+
+function setExternalPdfUploadFinished(input) {
+    const form = input.closest('[data-external-pdf-form]');
+    const submit = form?.querySelector('[data-external-pdf-submit]');
+    const progressContainer = form?.querySelector('[data-external-pdf-progress-container]');
+    const ready = form?.querySelector('[data-external-pdf-ready]');
+
+    if (!form || !submit || !input.files?.[0]) {
+        return;
+    }
+
+    input.dataset.externalPdfReady = 'true';
+    input.dataset.externalPdfUploading = 'false';
+    progressContainer?.classList.add('hidden');
+    ready?.classList.remove('hidden');
+    submit.disabled = false;
+}
+
+async function confirmExternalPdfUpload({ componentId, fileName, fileSize }) {
+    if (typeof componentId !== 'string' || Swal.isVisible()) {
+        return;
+    }
+
+    const component = window.Livewire?.find(componentId);
+
+    if (! component) {
+        notify('error', 'The calibration session is no longer available.');
+
+        return;
+    }
+
+    let uploading = false;
+    let outcome = null;
+    const sizeLabel = formatExternalPdfSize(Number(fileSize));
+    const result = await Swal.fire({
+        icon: 'question',
+        title: 'Upload Certificate?',
+        html: `<p class="instruments-desk-swal-text">Are you sure you want to upload this external calibration certificate?</p><p class="instruments-desk-swal-text"><strong>${escapeHtml(fileName || 'Selected PDF')}</strong>${sizeLabel ? `<br>${escapeHtml(sizeLabel)}` : ''}</p>`,
+        showCancelButton: true,
+        confirmButtonText: 'Yes, Upload PDF',
+        cancelButtonText: 'Cancel',
+        reverseButtons: true,
+        focusCancel: true,
+        showLoaderOnConfirm: true,
+        allowOutsideClick: () => !Swal.isLoading(),
+        allowEscapeKey: () => !Swal.isLoading(),
+        customClass: {
+            popup: 'instruments-desk-swal-modal',
+            title: 'instruments-desk-swal-title',
+            htmlContainer: 'instruments-desk-swal-text',
+            confirmButton: 'instruments-desk-swal-confirm',
+            cancelButton: 'instruments-desk-swal-cancel',
+        },
+        preConfirm: async () => {
+            if (uploading) {
+                return undefined;
+            }
+
+            uploading = true;
+            Swal.update({
+                title: 'Saving Certificate...',
+                html: '<p class="instruments-desk-swal-text">Please wait while your certificate is being saved.</p>',
+            });
+            Swal.showLoading();
+
+            const outcomePromise = new Promise((resolve) => {
+                pendingExternalPdfUpload = { resolve };
+            });
+
+            try {
+                await component.call('uploadExternalDocument');
+                outcome = await outcomePromise;
+            } catch (error) {
+                uploading = false;
+                outcome = {
+                    success: false,
+                    message: 'The certificate upload could not be completed. Please try again.',
+                };
+            } finally {
+                pendingExternalPdfUpload = null;
+            }
+
+            return true;
+        },
+    });
+
+    if (result.isConfirmed && outcome?.success === true) {
+        await Swal.fire({
+            icon: 'success',
+            title: 'Upload Successful!',
+            text: 'Certificate PDF has been uploaded successfully.',
+            customClass: {
+                popup: 'instruments-desk-swal-modal',
+                title: 'instruments-desk-swal-title',
+                confirmButton: 'instruments-desk-swal-confirm',
+            },
+        });
+    }
+
+    if (result.isConfirmed && outcome?.success === false) {
+        await Swal.fire({
+            icon: 'error',
+            title: 'Upload Failed',
+            text: outcome.message,
+            customClass: {
+                popup: 'instruments-desk-swal-modal',
+                title: 'instruments-desk-swal-title',
+                confirmButton: 'instruments-desk-swal-confirm',
+            },
+        });
+    }
+
+    return result;
+}
+
+async function confirmExternalPdfRemoval({ componentId, documentId, fileName }) {
+    if (typeof componentId !== 'string' || !Number.isInteger(Number(documentId)) || Swal.isVisible()) {
+        return;
+    }
+
+    const component = window.Livewire?.find(componentId);
+
+    if (!component) {
+        notify('error', 'The calibration session is no longer available.');
+
+        return;
+    }
+
+    let removing = false;
+    let outcome = null;
+    const result = await Swal.fire({
+        icon: 'warning',
+        title: 'Remove PDF?',
+        html: `<p class="instruments-desk-swal-text">This PDF will be removed from the active calibration document. The file will remain available in document history.</p><p class="instruments-desk-swal-text"><strong>${escapeHtml(fileName || 'Selected PDF')}</strong></p>`,
+        showCancelButton: true,
+        confirmButtonText: 'Yes, Remove PDF',
+        cancelButtonText: 'Cancel',
+        reverseButtons: true,
+        focusCancel: true,
+        showLoaderOnConfirm: true,
+        allowOutsideClick: () => !Swal.isLoading(),
+        allowEscapeKey: () => !Swal.isLoading(),
+        customClass: {
+            popup: 'instruments-desk-swal-modal',
+            title: 'instruments-desk-swal-title',
+            htmlContainer: 'instruments-desk-swal-text',
+            confirmButton: 'instruments-desk-swal-confirm',
+            cancelButton: 'instruments-desk-swal-cancel',
+        },
+        preConfirm: async () => {
+            if (removing) {
+                return undefined;
+            }
+
+            removing = true;
+            Swal.update({
+                title: 'Removing PDF...',
+                html: '<p class="instruments-desk-swal-text">Please wait while the active document is being removed.</p>',
+            });
+            Swal.showLoading();
+
+            const outcomePromise = new Promise((resolve) => {
+                pendingExternalPdfRemoval = { resolve };
+            });
+
+            try {
+                await component.call('removeExternalDocument', Number(documentId));
+                outcome = await outcomePromise;
+            } catch (error) {
+                outcome = {
+                    success: false,
+                    message: 'The certificate could not be removed. Please try again.',
+                };
+            } finally {
+                pendingExternalPdfRemoval = null;
+            }
+
+            return true;
+        },
+    });
+
+    if (result.isConfirmed && outcome?.success === true) {
+        await Swal.fire({
+            icon: 'success',
+            title: 'PDF Removed Successfully!',
+            text: 'The active PDF was removed and remains available in document history.',
+            customClass: {
+                popup: 'instruments-desk-swal-modal',
+                title: 'instruments-desk-swal-title',
+                confirmButton: 'instruments-desk-swal-confirm',
+            },
+        });
+    }
+
+    if (result.isConfirmed && outcome?.success === false) {
+        await Swal.fire({
+            icon: 'error',
+            title: 'PDF Removal Failed',
+            text: outcome.message,
+            customClass: {
+                popup: 'instruments-desk-swal-modal',
+                title: 'instruments-desk-swal-title',
+                confirmButton: 'instruments-desk-swal-confirm',
+            },
+        });
+    }
+
+    return result;
+}
+
+function registerExternalPdfUpload() {
+    if (window.__instrumentsDeskExternalPdfUploadRegistered) {
+        return;
+    }
+
+    window.__instrumentsDeskExternalPdfUploadRegistered = true;
+
+    document.addEventListener('change', (event) => {
+        const input = event.target.closest('[data-external-pdf-input]');
+
+        if (!input) {
+            return;
+        }
+
+        const form = input.closest('[data-external-pdf-form]');
+        const file = input.files?.[0];
+
+        if (!form || !file) {
+            return;
+        }
+
+        const maxBytes = Number(input.closest('[data-component-id]')?.dataset.externalPdfMaxBytes ?? 0);
+        const isPdf = file.name.toLowerCase().endsWith('.pdf') && (!file.type || file.type === 'application/pdf');
+
+        if (!isPdf) {
+            notify('error', 'Only PDF files are allowed.');
+            clearExternalPdfSelection(form);
+
+            return;
+        }
+
+        if (maxBytes > 0 && file.size > maxBytes) {
+            notify('error', 'The selected PDF exceeds the maximum allowed file size.');
+            clearExternalPdfSelection(form);
+
+            return;
+        }
+
+        setExternalPdfPreview(form, file);
+    });
+
+    document.addEventListener('livewire-upload-start', (event) => {
+        const input = event.target.closest('[data-external-pdf-input]');
+
+        if (input) {
+            input.dataset.externalPdfUploading = 'true';
+            input.dataset.externalPdfReady = 'false';
+            input.closest('[data-external-pdf-form]')?.querySelector('[data-external-pdf-submit]')?.setAttribute('disabled', 'disabled');
+        }
+    });
+
+    document.addEventListener('livewire-upload-finish', (event) => {
+        const input = event.target.closest('[data-external-pdf-input]');
+
+        if (input) {
+            setExternalPdfUploadFinished(input);
+        }
+    });
+
+    document.addEventListener('livewire-upload-progress', (event) => {
+        const input = event.target.closest('[data-external-pdf-input]');
+
+        if (input) {
+            updateExternalPdfProgress(input, event.detail?.progress);
+        }
+    });
+
+    document.addEventListener('livewire-upload-error', (event) => {
+        const input = event.target.closest('[data-external-pdf-input]');
+
+        if (input) {
+            notify('error', 'The PDF could not be prepared for upload. Please try again.');
+            clearExternalPdfSelection(input.closest('[data-external-pdf-form]'));
+        }
+    });
+
+    document.addEventListener('livewire-upload-cancel', (event) => {
+        const input = event.target.closest('[data-external-pdf-input]');
+
+        if (input) {
+            clearExternalPdfSelection(input.closest('[data-external-pdf-form]'));
+        }
+    });
+
+    document.addEventListener('click', (event) => {
+        const picker = event.target.closest('[data-external-pdf-picker]');
+        const remove = event.target.closest('[data-external-pdf-remove]');
+        const removeDocument = event.target.closest('[data-external-pdf-remove-document]');
+
+        if (removeDocument) {
+            event.preventDefault();
+            const root = removeDocument.closest('[data-component-id]');
+
+            void confirmExternalPdfRemoval({
+                componentId: root?.dataset.componentId,
+                documentId: removeDocument.dataset.documentId,
+                fileName: removeDocument.dataset.fileName,
+            });
+
+            return;
+        }
+
+        if (picker) {
+            event.preventDefault();
+            picker.closest('[data-external-pdf-form]')?.querySelector('[data-external-pdf-input]')?.click();
+
+            return;
+        }
+
+        if (remove) {
+            event.preventDefault();
+            clearExternalPdfSelection(remove.closest('[data-external-pdf-form]'));
+        }
+    });
+
+    document.addEventListener('submit', (event) => {
+        const form = event.target.closest('[data-external-pdf-form]');
+
+        if (!form) {
+            return;
+        }
+
+        event.preventDefault();
+
+        const input = form.querySelector('[data-external-pdf-input]');
+        const file = input?.files?.[0];
+
+        if (!file) {
+            notify('error', 'Please select a PDF file.');
+
+            return;
+        }
+
+        if (input.dataset.externalPdfUploading === 'true' || input.dataset.externalPdfReady !== 'true') {
+            notify('info', 'Please wait until the selected PDF is ready to upload.');
+
+            return;
+        }
+
+        const componentId = form.closest('[data-component-id]')?.dataset.componentId;
+
+        void confirmExternalPdfUpload({
+            componentId,
+            fileName: file.name,
+            fileSize: file.size,
+        });
+    });
+}
+
 async function showTerminalSuccess({ icon, title, text, confirmText, calibrationId }) {
     const key = `${calibrationId ?? 'unknown'}:${icon}:${title}:${text}:${confirmText}`;
     const now = Date.now();
@@ -116,6 +614,183 @@ async function confirmCancellation({ componentId, title, text, confirmText, canc
 
     await component.set('cancellationReason', result.value);
     await component.call('cancelSession');
+}
+
+async function confirmUserStatusChange({ componentId, userId, userName, activate = false }) {
+    if (typeof componentId !== 'string' || !Number.isInteger(Number(userId)) || Swal.isVisible()) {
+        return;
+    }
+
+    const component = window.Livewire?.find(componentId);
+
+    if (!component) {
+        notify('error', 'The selected user is no longer available.');
+
+        return;
+    }
+
+    const action = activate ? 'activate' : 'deactivate';
+    const actionLabel = activate ? 'Activate User' : 'Deactivate User';
+    const description = activate
+        ? 'This user will be able to access Instruments Desk again using their existing credentials.'
+        : 'This user will no longer be able to access Instruments Desk until their account is reactivated.';
+    let processing = false;
+
+    await Swal.fire({
+        icon: activate ? 'success' : 'warning',
+        title: `${activate ? 'Activate' : 'Deactivate'} User?`,
+        html: `<p class="instruments-desk-swal-text">Are you sure you want to ${action} <strong>${escapeHtml(userName ?? 'this user')}</strong>?</p><p class="instruments-desk-swal-text">${description}</p>`,
+        showCancelButton: true,
+        confirmButtonText: actionLabel,
+        cancelButtonText: 'Cancel',
+        reverseButtons: true,
+        focusCancel: true,
+        showLoaderOnConfirm: true,
+        allowOutsideClick: () => !Swal.isLoading(),
+        allowEscapeKey: () => !Swal.isLoading(),
+        customClass: {
+            popup: 'instruments-desk-swal-modal',
+            title: 'instruments-desk-swal-title',
+            htmlContainer: 'instruments-desk-swal-text',
+            confirmButton: 'instruments-desk-swal-confirm',
+            cancelButton: 'instruments-desk-swal-cancel',
+        },
+        preConfirm: async () => {
+            if (processing) {
+                return undefined;
+            }
+
+            processing = true;
+
+            try {
+                await component.call('toggleStatus', Number(userId));
+            } catch (error) {
+                processing = false;
+                Swal.showValidationMessage(`The user could not be ${action}d. Please try again.`);
+
+                return undefined;
+            }
+
+            return true;
+        },
+    });
+}
+
+async function confirmCertificateRefresh(form, message) {
+    if (!(form instanceof HTMLFormElement) || Swal.isVisible()) {
+        return;
+    }
+
+    const result = await Swal.fire({
+        icon: 'question',
+        title: 'Update Certificate?',
+        text: message,
+        showCancelButton: true,
+        confirmButtonText: 'Yes, Update',
+        cancelButtonText: 'Cancel',
+        reverseButtons: true,
+        focusCancel: true,
+        customClass: {
+            popup: 'instruments-desk-swal-modal',
+            title: 'instruments-desk-swal-title',
+            htmlContainer: 'instruments-desk-swal-text',
+            confirmButton: 'instruments-desk-swal-confirm',
+            cancelButton: 'instruments-desk-swal-cancel',
+        },
+    });
+
+    if (result.isConfirmed) {
+        form.submit();
+    }
+}
+
+async function confirmStartCalibration({
+    componentId,
+    instrumentName,
+    instrumentType,
+    serialNumber,
+    calibrationMethod,
+}) {
+    if (typeof componentId !== 'string' || !['INTERNAL', 'EXTERNAL'].includes(calibrationMethod) || Swal.isVisible()) {
+        return;
+    }
+
+    const component = window.Livewire?.find(componentId);
+
+    if (!component) {
+        notify('error', 'The calibration start form is no longer available.');
+
+        return;
+    }
+
+    const optionalValue = (value) => value || '—';
+    const methodDescription = calibrationMethod === 'INTERNAL'
+        ? 'Temperature and Relative Humidity will be recorded during the calibration session.'
+        : 'External calibration documents will be attached during the calibration session.';
+    let starting = false;
+
+    await Swal.fire({
+        icon: 'question',
+        title: 'Start Calibration?',
+        html: `
+            <p class="instruments-desk-swal-text">Are you sure you want to start a new calibration session for this instrument?</p>
+            <div class="instruments-desk-swal-record">
+                <p><strong>Instrument Name:</strong> ${escapeHtml(optionalValue(instrumentName))}</p>
+                <p><strong>Instrument Type:</strong> ${escapeHtml(optionalValue(instrumentType))}</p>
+                <p><strong>Serial Number:</strong> ${escapeHtml(optionalValue(serialNumber))}</p>
+                <p><strong>Calibration Method:</strong> <strong>${escapeHtml(calibrationMethod)}</strong></p>
+            </div>
+            <p class="instruments-desk-swal-publish-warning">${escapeHtml(methodDescription)}</p>
+        `,
+        showCancelButton: true,
+        confirmButtonText: 'Yes, Start Calibration',
+        cancelButtonText: 'Cancel',
+        reverseButtons: true,
+        focusCancel: true,
+        showLoaderOnConfirm: true,
+        allowOutsideClick: () => !Swal.isLoading(),
+        allowEscapeKey: () => !Swal.isLoading(),
+        customClass: {
+            popup: 'instruments-desk-swal-modal',
+            title: 'instruments-desk-swal-title',
+            htmlContainer: 'instruments-desk-swal-text',
+            confirmButton: 'instruments-desk-swal-confirm',
+            cancelButton: 'instruments-desk-swal-cancel',
+        },
+        preConfirm: async () => {
+            if (starting) {
+                return undefined;
+            }
+
+            const methodInput = document.querySelector('#calibration-method');
+
+            if (methodInput && methodInput.value !== calibrationMethod) {
+                Swal.showValidationMessage('The calibration method changed. Please start the confirmation again.');
+
+                return undefined;
+            }
+
+            starting = true;
+
+            try {
+                const response = await component.call('startCalibration');
+
+                if (response?.started === false) {
+                    starting = false;
+                    Swal.showValidationMessage(response.message ?? 'Calibration could not be started. Please try again.');
+
+                    return undefined;
+                }
+
+                return response;
+            } catch (error) {
+                starting = false;
+                Swal.showValidationMessage('Calibration could not be started. Please try again.');
+
+                return undefined;
+            }
+        },
+    });
 }
 
 async function confirmCompletion({ componentId, completionMethod, title, text, confirmText, cancelText }) {
@@ -2095,6 +2770,22 @@ function registerLivewireNotifications() {
     window.__instrumentsDeskNotificationsRegistered = true;
 
     window.Livewire.on('instruments-desk-notification', ({ type, message }) => {
+        if (pendingExternalPdfUpload !== null && type === 'error') {
+            resolveExternalPdfUpload({ success: false, message });
+
+            return;
+        }
+
+        if (pendingExternalPdfRemoval !== null && type === 'error') {
+            resolveExternalPdfRemoval({ success: false, message });
+
+            return;
+        }
+
+        if ((pendingExternalPdfUpload !== null || pendingExternalPdfRemoval !== null) && type === 'success') {
+            return;
+        }
+
         notify(type, message);
     });
 
@@ -2104,6 +2795,10 @@ function registerLivewireNotifications() {
 
     window.Livewire.on('instruments-desk-confirm-cancellation', (payload) => {
         confirmCancellation(payload);
+    });
+
+    window.Livewire.on('instruments-desk-confirm-start-calibration', (payload) => {
+        confirmStartCalibration(payload);
     });
 
     window.Livewire.on('instruments-desk-confirm-completion', (payload) => {
@@ -2166,6 +2861,29 @@ function registerLivewireNotifications() {
         confirmTestTablePublish(payload);
     });
 
+    window.Livewire.on('instruments-desk-confirm-external-pdf-upload', (payload) => {
+        confirmExternalPdfUpload(payload);
+    });
+
+    window.Livewire.on('instruments-desk-external-pdf-uploaded', ({ componentId }) => {
+        resolveExternalPdfUpload({ success: true });
+
+        if (typeof componentId !== 'string') {
+            return;
+        }
+
+        const root = document.querySelector(`[data-component-id="${CSS.escape(componentId)}"]`);
+        const form = root?.querySelector('[data-external-pdf-form]');
+
+        if (form) {
+            clearExternalPdfSelection(form, { syncComponent: false });
+        }
+    });
+
+    window.Livewire.on('instruments-desk-external-pdf-removed', () => {
+        resolveExternalPdfRemoval({ success: true });
+    });
+
     window.Livewire.on('instruments-desk-open-test-table-modal', (payload) => {
         openTestTableModal(payload);
     });
@@ -2191,6 +2909,105 @@ function registerLivewireNotifications() {
     });
 
     registerColumnDragAndDrop();
+}
+
+function registerMobileNavigation() {
+    document.querySelectorAll('[data-mobile-nav]').forEach((navigation) => {
+        if (navigation.dataset.mobileNavRegistered === 'true') {
+            return;
+        }
+
+        const toggle = navigation.querySelector('.mobile-nav-toggle');
+        const panel = navigation.querySelector('.mobile-nav-panel');
+
+        if (!toggle || !panel) {
+            return;
+        }
+
+        navigation.dataset.mobileNavRegistered = 'true';
+
+        const close = ({ restoreFocus = false } = {}) => {
+            navigation.removeAttribute('data-mobile-nav-open');
+            toggle.setAttribute('aria-expanded', 'false');
+            panel.setAttribute('aria-hidden', 'true');
+
+            if (restoreFocus) {
+                toggle.focus();
+            }
+        };
+
+        toggle.addEventListener('click', () => {
+            const isOpen = navigation.hasAttribute('data-mobile-nav-open');
+
+            if (isOpen) {
+                close();
+                return;
+            }
+
+            navigation.setAttribute('data-mobile-nav-open', '');
+            toggle.setAttribute('aria-expanded', 'true');
+            panel.setAttribute('aria-hidden', 'false');
+        });
+
+        navigation.querySelectorAll('a').forEach((link) => {
+            link.addEventListener('click', () => close());
+        });
+
+        navigation.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && navigation.hasAttribute('data-mobile-nav-open')) {
+                event.preventDefault();
+                close({ restoreFocus: true });
+            }
+        });
+    });
+}
+
+function registerUserStatusConfirmation() {
+    if (window.__instrumentsDeskUserStatusConfirmationRegistered) {
+        return;
+    }
+
+    window.__instrumentsDeskUserStatusConfirmationRegistered = true;
+
+    document.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-user-status]');
+
+        if (!button) {
+            return;
+        }
+
+        event.preventDefault();
+        const root = button.closest('[data-component-id]');
+
+        void confirmUserStatusChange({
+            componentId: root?.dataset.componentId,
+            userId: button.dataset.userId,
+            userName: button.dataset.userName,
+            activate: button.dataset.userAction === 'activate',
+        });
+    });
+}
+
+function registerCertificateRefreshConfirmation() {
+    if (window.__instrumentsDeskCertificateRefreshRegistered) {
+        return;
+    }
+
+    window.__instrumentsDeskCertificateRefreshRegistered = true;
+
+    document.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-certificate-refresh-confirm]');
+
+        if (!button) {
+            return;
+        }
+
+        event.preventDefault();
+        void confirmCertificateRefresh(
+            button.closest('form'),
+            button.dataset.confirmMessage ?? 'The current PDF will remain available in revision history.',
+        );
+    });
 }
 
 window.instrumentsDeskNotifications = {
@@ -2221,6 +3038,14 @@ window.instrumentsDeskNotifications = {
 };
 
 document.addEventListener('livewire:init', registerLivewireNotifications);
+document.addEventListener('DOMContentLoaded', registerMobileNavigation);
+document.addEventListener('DOMContentLoaded', registerCertificateRefreshConfirmation);
+document.addEventListener('DOMContentLoaded', registerUserStatusConfirmation);
+document.addEventListener('livewire:navigated', registerMobileNavigation);
+document.addEventListener('livewire:navigated', registerCertificateRefreshConfirmation);
+document.addEventListener('livewire:navigated', registerUserStatusConfirmation);
+document.addEventListener('DOMContentLoaded', registerExternalPdfUpload);
+document.addEventListener('livewire:navigated', registerExternalPdfUpload);
 
 if (window.Livewire) {
     registerLivewireNotifications();

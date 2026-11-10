@@ -324,6 +324,9 @@ it('renders calibration information with ordered scopes, profiles, and test poin
 
     $response
         ->assertOk()
+        ->assertSee('Calibration Detail')
+        ->assertSee('Certificate')
+        ->assertSee('aria-selected="true"', escape: false)
         ->assertSee('Calibration Information')
         ->assertSee('CAL-PROT-0001')
         ->assertSee('2026-06-12')
@@ -386,6 +389,15 @@ it('renders calibration information with ordered scopes, profiles, and test poin
         ->assertSee('No activities recorded.')
         ->assertSee('Standard Used')
         ->assertSee('No standards used.');
+
+    $certificateTab = $this->get(route('calibrations.show', ['calibration' => 3, 'tab' => 'certificate']));
+
+    $certificateTab
+        ->assertOk()
+        ->assertSee('Calibration Detail')
+        ->assertSee('Certificate')
+        ->assertSee('External Certificate PDF')
+        ->assertDontSee('Calibration Information');
 });
 
 it('renders a scope without a test profile without error', function () {

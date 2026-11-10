@@ -1,10 +1,12 @@
 <?php
 
+use App\Authorization\ApplicationCapability;
 use App\CalibrationSessions\CalibrationSessionHttpRead;
 use App\Livewire\Concerns\ManagesTestComponents;
 use App\Models\Instrument;
 use App\Models\InstrumentType;
 use App\Models\TestProfile;
+use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
@@ -25,6 +27,7 @@ new class extends Component
 
     public function mount(int $instrument, int $instrumentType): void
     {
+        Gate::authorize(ApplicationCapability::MasterdataView->value);
         $this->instrumentId = $instrument;
         $this->instrumentTypeId = $instrumentType;
         $this->currentInstrument();
@@ -125,7 +128,14 @@ new class extends Component
             <aside class="border-b border-white/70 lg:col-span-1 lg:border-b-0 lg:border-r" aria-label="Test tables">
                 <div class="flex flex-col gap-3 px-5 py-4">
                     <h2 id="test-tables-heading" class="text-base font-semibold tracking-tight text-navy">Test Tables</h2>
-                    <button type="button" x-on:click="addingTestTable = true; editingProfileId = null" wire:click="startAddingTestTable" class="ui-button-outline w-full">Add Test Table</button>
+                    @can('masterdata.manage')
+                    <button type="button" x-on:click="addingTestTable = true; editingProfileId = null" wire:click="startAddingTestTable" class="btn-add w-full">
+                        <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                            <path stroke-linecap="round" d="M12 5v14M5 12h14" />
+                        </svg>
+                        <span>Add Test Table</span>
+                    </button>
+                    @endcan
             </div>
 
                 @if ($this->activeTestProfiles()->isEmpty() && $this->archivedTestProfiles()->isEmpty())
@@ -250,8 +260,12 @@ new class extends Component
                                             data-profile-name="{{ $this->testTableProfileName($profile) }}"
                                             data-version="{{ $this->testTableVersionCaption($profile) ?? 'Draft' }}"
                                             x-on:click="window.instrumentsDeskNotifications.testTablePublishConfirmation({ componentId: $el.dataset.componentId, profileId: Number($el.dataset.profileId), profileName: $el.dataset.profileName, version: $el.dataset.version })"
-                                            class="ui-button-outline"
+                                            class="btn-select"
                                         >
+                                            <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="m22 2-7 20-4-9-9-4Z" />
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M22 2 11 13" />
+                                            </svg>
                                             Publish Version
                                         </button>
                                     @endif
@@ -263,22 +277,36 @@ new class extends Component
                                             data-profile-name="{{ $this->testTableProfileName($profile) }}"
                                             data-version="{{ $this->testTableVersionCaption($profile) ?? 'Active' }}"
                                             x-on:click="window.instrumentsDeskNotifications.testTableForkConfirmation({ componentId: $el.dataset.componentId, profileId: Number($el.dataset.profileId), profileName: $el.dataset.profileName, version: $el.dataset.version })"
-                                            class="ui-button-outline"
+                                            class="btn-select"
                                         >
+                                            <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="m13 7 5 5-5 5M6 12h12" />
+                                            </svg>
                                             Fork Draft
                                         </button>
                                     @endif
                                     @if ($this->canRenameTestTable($profile))
-                                    <button type="button" x-on:click="editingProfileId = {{ $profile->test_profile_id }}; addingTestTable = false" wire:click="startEditingTestTable({{ $profile->test_profile_id }})" class="ui-button-outline">
+                                    <button type="button" x-on:click="editingProfileId = {{ $profile->test_profile_id }}; addingTestTable = false" wire:click="startEditingTestTable({{ $profile->test_profile_id }})" class="btn-edit">
+                                            <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="m4 16 10.5-10.5a2.12 2.12 0 0 1 3 3L7 19H4v-3Z" />
+                                                <path stroke-linecap="round" d="m13 7 4 4" />
+                                            </svg>
                                             Edit Table
                                         </button>
                                     @endif
                                     @if ($this->canEditTestTable($profile))
-                                    <button type="button" x-on:click="managingColumnsProfileId = {{ $profile->test_profile_id }}" wire:click="startManagingColumns({{ $profile->test_profile_id }})" class="ui-button-outline">
+                                    <button type="button" x-on:click="managingColumnsProfileId = {{ $profile->test_profile_id }}" wire:click="startManagingColumns({{ $profile->test_profile_id }})" class="ui-button-manage">
+                                        <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3.1 1.1V19a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3.1-1.1l-.1.1a1.8 1.8 0 0 1-2.5-2.5l.1-.1a1.8 1.8 0 0 0-1.1-3.1H3a1.8 1.8 0 0 1 0-3.6h.2a1.8 1.8 0 0 0 1.1-3.1l-.1-.1a1.8 1.8 0 0 1 2.5-2.5l.1.1a1.8 1.8 0 0 0 3.1-1.1V3a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3.1 1.1l.1-.1a1.8 1.8 0 0 1 2.5 2.5l-.1.1a1.8 1.8 0 0 0 1.1 3.1h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0-1.1 1.5Z" />
+                                        </svg>
                                         Manage Columns
                                     </button>
                                     @if ($profile->testColumns->isNotEmpty())
-                                        <button type="button" x-on:click="editingRowProfileId = {{ $profile->test_profile_id }}; editingPointId = null" wire:click="startAddingRow({{ $profile->test_profile_id }})" class="ui-button-outline">
+                                        <button type="button" x-on:click="editingRowProfileId = {{ $profile->test_profile_id }}; editingPointId = null" wire:click="startAddingRow({{ $profile->test_profile_id }})" class="btn-add">
+                                            <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                <path stroke-linecap="round" d="M12 5v14M5 12h14" />
+                                            </svg>
                                             Add Row
                                         </button>
                                     @endif
@@ -290,8 +318,11 @@ new class extends Component
                                             data-profile-id="{{ $profile->test_profile_id }}"
                                             data-profile-name="{{ $this->testTableProfileName($profile) }}"
                                             x-on:click="window.instrumentsDeskNotifications.testTableDeleteConfirmation({ componentId: $el.dataset.componentId, profileId: Number($el.dataset.profileId), profileName: $el.dataset.profileName })"
-                                            class="ui-button-danger"
+                                            class="btn-delete"
                                         >
+                                            <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14M10 10v6m4-6v6" />
+                                            </svg>
                                             Delete Table
                                         </button>
                                     @elseif ($this->canArchiveTestTable($profile))
@@ -301,8 +332,11 @@ new class extends Component
                                             data-profile-id="{{ $profile->test_profile_id }}"
                                             data-profile-name="{{ $this->testTableProfileName($profile) }}"
                                             x-on:click="window.instrumentsDeskNotifications.testTableArchiveConfirmation({ componentId: $el.dataset.componentId, profileId: Number($el.dataset.profileId), profileName: $el.dataset.profileName })"
-                                            class="ui-button-outline"
+                                            class="btn-deactivate"
                                         >
+                                            <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18v4H3zM5 10v9h14v-9M9 14h6" />
+                                            </svg>
                                             Archive Table
                                         </button>
                                     @endif
@@ -313,8 +347,11 @@ new class extends Component
                                             data-profile-id="{{ $profile->test_profile_id }}"
                                             data-profile-name="{{ $this->testTableProfileName($profile) }}"
                                             x-on:click="window.instrumentsDeskNotifications.testTableRestoreConfirmation({ componentId: $el.dataset.componentId, profileId: Number($el.dataset.profileId), profileName: $el.dataset.profileName })"
-                                            class="ui-button-outline"
+                                            class="btn-activate"
                                         >
+                                            <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5 12 3l9 4.5-9 4.5-9-4.5ZM3 12l9 4.5 9-4.5M3 16.5l9 4.5 9-4.5" />
+                                            </svg>
                                             Restore Table
                                         </button>
                                     @endif
@@ -347,13 +384,17 @@ new class extends Component
                                         x-transition:leave-end="scale-[0.96] opacity-0"
                                         class="mx-auto max-w-5xl overflow-hidden rounded-2xl border border-brand/20 bg-brand-soft shadow-2xl"
                                     >
-                                        <div class="flex items-center justify-between bg-navy px-5 py-4 text-white">
-                                            <div>
+                                        <x-modal-header icon="settings-2">
+                                            <x-slot:title>
                                                 <h2 id="manage-columns-title" class="text-base font-semibold">Manage Columns</h2>
+                                            </x-slot:title>
+                                            <x-slot:subtitle>
                                                 <p class="mt-1 text-sm text-brand-soft">{{ $this->testTableProfileName($profile) }}</p>
-                                            </div>
-                                            <button type="button" x-on:click="managingColumnsProfileId = null" wire:click="cancelManagingColumns" class="rounded-lg px-3 py-2 text-xl leading-none text-white transition hover:bg-white/15" aria-label="Close Manage Columns">&times;</button>
-                                        </div>
+                                            </x-slot:subtitle>
+                                            <x-slot:close>
+                                                <button type="button" x-on:click="managingColumnsProfileId = null" wire:click="cancelManagingColumns" class="shrink-0 rounded-lg px-3 py-2 text-xl leading-none text-white/80 transition hover:bg-white/15 hover:text-white" aria-label="Close Manage Columns">&times;</button>
+                                            </x-slot:close>
+                                        </x-modal-header>
                                         <div class="flex max-h-[calc(100vh-9rem)] flex-col gap-4 overflow-y-auto p-4 sm:p-6">
                                     @error('columns')
                                         <p class="ui-error">{{ $message }}</p>
@@ -375,7 +416,13 @@ new class extends Component
                                                         <p class="text-xs text-muted">{{ $column->column_key }} · {{ $this->columnSummary($column) }}</p>
                                                     </div>
                                                     <div class="flex flex-wrap gap-2">
-                                                        <button type="button" wire:click="editTestColumn({{ $profile->test_profile_id }}, {{ $column->test_column_id }})" class="ui-button-outline">Edit</button>
+                                                        <button type="button" wire:click="editTestColumn({{ $profile->test_profile_id }}, {{ $column->test_column_id }})" class="btn-edit">
+                                                            <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" d="m4 16 10.5-10.5a2.12 2.12 0 0 1 3 3L7 19H4v-3Z" />
+                                                                <path stroke-linecap="round" d="m13 7 4 4" />
+                                                            </svg>
+                                                            <span>Edit</span>
+                                                        </button>
                                                         <button
                                                             type="button"
                                                             data-component-id="{{ $this->getId() }}"
@@ -383,8 +430,13 @@ new class extends Component
                                                             data-column-id="{{ $column->test_column_id }}"
                                                             data-column-label="{{ $column->column_label }}"
                                                             x-on:click="window.instrumentsDeskNotifications.testColumnRemovalConfirmation({ componentId: $el.dataset.componentId, profileId: Number($el.dataset.profileId), columnId: Number($el.dataset.columnId), columnLabel: $el.dataset.columnLabel })"
-                                                            class="ui-button-danger"
-                                                        >Delete</button>
+                                                            class="btn-delete"
+                                                        >
+                                                            <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14M10 10v6m4-6v6" />
+                                                            </svg>
+                                                            <span>Delete</span>
+                                                        </button>
                                                     </div>
                                                 </li>
                                             @endforeach
@@ -554,7 +606,12 @@ new class extends Component
                                         <thead class="bg-navy text-xs font-medium text-white">
                                             <tr>
                                                 @foreach ($profile->testColumns as $column)
-                                                    <th scope="col" wire:key="test-column-{{ $column->test_column_id }}" class="px-5 py-3 font-medium">{{ $column->column_label }}</th>
+                                                    <th scope="col" wire:key="test-column-{{ $column->test_column_id }}" class="px-5 py-3 font-medium">
+                                                        {{ $column->column_label }}
+                                                        @if (filled($column->unit))
+                                                            <span class="font-normal text-white/70">({{ $column->unit }})</span>
+                                                        @endif
+                                                    </th>
                                                 @endforeach
                                                 @if ($this->canEditTestTable($profile))
                                                 <th scope="col" class="px-5 py-3 font-medium">Actions</th>
@@ -573,15 +630,26 @@ new class extends Component
                                                     @if ($this->canEditTestTable($profile))
                                                     <td class="px-5 py-3.5">
                                                         <div class="flex flex-wrap gap-2">
-                                                            <button type="button" wire:click="editTestRow({{ $profile->test_profile_id }}, {{ $point->test_point_id }})" class="ui-button-outline">Edit</button>
+                                                            <button type="button" wire:click="editTestRow({{ $profile->test_profile_id }}, {{ $point->test_point_id }})" class="btn-edit">
+                                                                <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" d="m4 16 10.5-10.5a2.12 2.12 0 0 1 3 3L7 19H4v-3Z" />
+                                                                    <path stroke-linecap="round" d="m13 7 4 4" />
+                                                                </svg>
+                                                                <span>Edit</span>
+                                                            </button>
                                                             <button
                                                                 type="button"
                                                                 data-component-id="{{ $this->getId() }}"
                                                                 data-profile-id="{{ $profile->test_profile_id }}"
                                                                 data-point-id="{{ $point->test_point_id }}"
                                                                 x-on:click="window.instrumentsDeskNotifications.testRowRemovalConfirmation({ componentId: $el.dataset.componentId, profileId: Number($el.dataset.profileId), pointId: Number($el.dataset.pointId) })"
-                                                                class="ui-button-danger"
-                                                            >Delete</button>
+                                                                class="btn-delete"
+                                                            >
+                                                                <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14M10 10v6m4-6v6" />
+                                                                </svg>
+                                                                <span>Delete</span>
+                                                            </button>
                                                         </div>
                                                     </td>
                                                     @endif
@@ -700,13 +768,17 @@ new class extends Component
                 x-transition:leave-end="scale-[0.96] opacity-0"
                 class="mx-auto flex max-h-[calc(100vh-4rem)] max-w-2xl flex-col overflow-hidden rounded-2xl border border-brand/20 bg-brand-soft shadow-2xl"
             >
-                <div class="flex items-center justify-between bg-navy px-5 py-4 text-white">
-                    <div>
+                <x-modal-header icon="{{ $addingTestRow ? 'plus' : 'pencil' }}">
+                    <x-slot:title>
                         <h2 id="test-row-modal-title" class="text-base font-semibold">{{ $addingTestRow ? 'Add Test Row' : 'Edit Test Row' }}</h2>
+                    </x-slot:title>
+                    <x-slot:subtitle>
                         <p class="mt-1 text-sm text-brand-soft">{{ $this->testTableProfileName($profile) }}</p>
-                    </div>
-                    <button type="button" x-on:click="editingRowProfileId = null; editingPointId = null" wire:click="cancelEditingRow" class="rounded-lg px-3 py-2 text-xl leading-none text-white transition hover:bg-white/15" aria-label="Close Test Row modal">&times;</button>
-                </div>
+                    </x-slot:subtitle>
+                    <x-slot:close>
+                        <button type="button" x-on:click="editingRowProfileId = null; editingPointId = null" wire:click="cancelEditingRow" class="shrink-0 rounded-lg px-3 py-2 text-xl leading-none text-white/80 transition hover:bg-white/15 hover:text-white" aria-label="Close Test Row modal">&times;</button>
+                    </x-slot:close>
+                </x-modal-header>
 
                 <div class="flex-1 overflow-y-auto p-5 sm:p-6">
                     <form wire:submit="saveTestRow" class="flex flex-col gap-4">
@@ -782,20 +854,24 @@ new class extends Component
                 x-transition:leave-end="scale-[0.96] opacity-0"
                 class="mx-auto flex max-h-[calc(100vh-4rem)] max-w-xl flex-col overflow-hidden rounded-2xl border border-brand/20 bg-brand-soft shadow-2xl"
             >
-                <div class="flex items-center justify-between bg-navy px-5 py-4 text-white">
-                    <div>
+                <x-modal-header icon="{{ $addingTestTable ? 'plus' : 'pencil' }}">
+                    <x-slot:title>
                         <h2 id="test-table-modal-title" class="text-base font-semibold">
                             {{ $addingTestTable ? 'Add Test Table' : 'Edit Test Table' }}
                         </h2>
+                    </x-slot:title>
+                    <x-slot:subtitle>
                         <p class="mt-1 text-sm text-brand-soft">Test table configuration</p>
-                    </div>
-                    <button
-                        type="button"
-                        x-on:click="addingTestTable = false; editingProfileId = null" wire:click="{{ $addingTestTable ? 'cancelAddingTestTable' : 'cancelEditingTestTable' }}"
-                        class="rounded-lg px-3 py-2 text-xl leading-none text-white transition hover:bg-white/15"
-                        aria-label="Close Test Table modal"
-                    >&times;</button>
-                </div>
+                    </x-slot:subtitle>
+                    <x-slot:close>
+                        <button
+                            type="button"
+                            x-on:click="addingTestTable = false; editingProfileId = null" wire:click="{{ $addingTestTable ? 'cancelAddingTestTable' : 'cancelEditingTestTable' }}"
+                            class="shrink-0 rounded-lg px-3 py-2 text-xl leading-none text-white/80 transition hover:bg-white/15 hover:text-white"
+                            aria-label="Close Test Table modal"
+                        >&times;</button>
+                    </x-slot:close>
+                </x-modal-header>
 
                 <div class="flex-1 overflow-y-auto p-5 sm:p-6">
                     @if ($addingTestTable)

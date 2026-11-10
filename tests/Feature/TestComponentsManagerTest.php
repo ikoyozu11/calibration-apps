@@ -1,5 +1,6 @@
 <?php
 
+use App\Authorization\ApplicationRoleName;
 use App\TestColumns\ColumnDefinition;
 use App\TestColumns\SqliteTestColumnWriter;
 use App\TestColumns\SqliteTestPointValueWriter;
@@ -52,6 +53,43 @@ it('rejects a test components page for a type that belongs to another instrument
 
     $this->get(route('instruments.types.test-components', ['instrument' => 3, 'instrumentType' => 40]))
         ->assertNotFound();
+});
+
+it('hides and rejects test component mutations for Engineers', function () {
+    createInstrumentDetailTestTables();
+    insertInstrumentDetailSubject();
+    actingAsRole(ApplicationRoleName::Engineer);
+
+    $this->get(route('instruments.types.show', ['instrument' => 3, 'instrumentType' => 31]))
+        ->assertDontSee('Manage Test Components')
+        ->assertDontSee('Manage Standards');
+
+    Livewire::test('pages::instruments.test-components', [
+        'instrument' => 3,
+        'instrumentType' => 31,
+    ])
+        ->assertDontSee('Add Test Table')
+        ->call('startAddingTestTable')
+        ->assertForbidden();
+
+    Livewire::test('pages::instruments.standards', [
+        'instrument' => 3,
+        'instrumentType' => 31,
+    ])
+        ->assertDontSee('btn-add')
+        ->call('startAddingStandard')
+        ->assertForbidden();
+});
+
+it('denies Viewer access to test component and standard management endpoints', function () {
+    createInstrumentDetailTestTables();
+    insertInstrumentDetailSubject();
+    actingAsRole(ApplicationRoleName::Viewer);
+
+    $this->get(route('instruments.types.test-components', ['instrument' => 3, 'instrumentType' => 31]))
+        ->assertForbidden();
+    $this->get(route('instruments.types.standards', ['instrument' => 3, 'instrumentType' => 31]))
+        ->assertForbidden();
 });
 
 it('clears editor form state when switching test tables in the sidebar', function () {
