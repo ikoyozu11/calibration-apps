@@ -23,7 +23,7 @@ final class ResolveLoginEmail
         }
 
         if (filter_var($identifier, FILTER_VALIDATE_EMAIL)) {
-            return $identifier;
+            return $this->emailForEmail($identifier);
         }
 
         return $this->emailForUsername($identifier);
@@ -65,6 +65,39 @@ final class ResolveLoginEmail
         $email = User::query()->whereKey((int) $map->laravel_user_id)->value('email');
 
         return is_string($email) && $email !== '' ? $email : null;
+    }
+
+    private function emailForEmail(string $email): ?string
+    {
+        $user = User::query()
+            ->whereRaw('lower(email) = ?', [mb_strtolower($email)])
+            ->first(['id', 'email']);
+
+        if ($user === null || ! Schema::hasTable('app_user') || ! Schema::hasTable('user_app_user_map')) {
+            return $user?->email;
+        }
+
+        $mapping = DB::table('user_app_user_map as mapping')
+            ->join('app_user as identity', 'identity.app_user_id', '=', 'mapping.app_user_id')
+            ->where('mapping.laravel_user_id', $user->id)
+            ->limit(2)
+            ->get(['mapping.status', 'mapping.inactivated_at', 'identity.is_active']);
+
+        if ($mapping->isEmpty()) {
+            return $user->email;
+        }
+
+        if ($mapping->count() !== 1) {
+            return null;
+        }
+
+        $identity = $mapping->first();
+
+        return ($identity->status ?? null) === 'active'
+            && $identity->inactivated_at === null
+            && in_array($identity->is_active ?? null, [true, 1, '1'], true)
+            ? $user->email
+            : null;
     }
 
     private function isActive(mixed $value): bool

@@ -11,6 +11,8 @@ namespace App\Authorization;
  */
 enum ApplicationCapability: string
 {
+    case MasterdataView = 'masterdata.view';
+    case InstrumentsView = 'instruments.view';
     case MasterdataManage = 'masterdata.manage';
     case UsersManage = 'users.manage';
     case SessionStart = 'session.start';
@@ -20,5 +22,6 @@ enum ApplicationCapability: string
     case DocumentsUpload = 'documents.upload';
     case DocumentsDownload = 'documents.download';
     case HistoryView = 'history.view';
+    case SessionHistoryView = 'session-history.view';
     case CertificatesView = 'certificates.view';
 }

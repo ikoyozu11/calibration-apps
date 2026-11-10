@@ -42,7 +42,16 @@ it('maps capabilities without granting session.cancel', function () {
     $map = new ApplicationCapabilityMap;
 
     expect($map->allows(ApplicationRoleName::Administrator, ApplicationCapability::MasterdataManage))->toBeTrue();
+    expect($map->allows(ApplicationRoleName::Administrator, ApplicationCapability::MasterdataView))->toBeTrue();
+    expect($map->allows(ApplicationRoleName::Administrator, ApplicationCapability::InstrumentsView))->toBeTrue();
+    expect($map->allows(ApplicationRoleName::Engineer, ApplicationCapability::MasterdataView))->toBeTrue();
+    expect($map->allows(ApplicationRoleName::Engineer, ApplicationCapability::InstrumentsView))->toBeTrue();
     expect($map->allows(ApplicationRoleName::Engineer, ApplicationCapability::MasterdataManage))->toBeFalse();
+    expect($map->allows(ApplicationRoleName::Viewer, ApplicationCapability::MasterdataView))->toBeFalse();
+    expect($map->allows(ApplicationRoleName::Viewer, ApplicationCapability::InstrumentsView))->toBeTrue();
+    expect($map->allows(ApplicationRoleName::Administrator, ApplicationCapability::SessionHistoryView))->toBeTrue();
+    expect($map->allows(ApplicationRoleName::Engineer, ApplicationCapability::SessionHistoryView))->toBeTrue();
+    expect($map->allows(ApplicationRoleName::Viewer, ApplicationCapability::SessionHistoryView))->toBeFalse();
     expect($map->allows(ApplicationRoleName::Viewer, ApplicationCapability::DocumentsDownload))->toBeFalse();
     expect($map->allows(ApplicationRoleName::Administrator, ApplicationCapability::SessionCancel))->toBeFalse();
     expect($map->allows(ApplicationRoleName::Engineer, ApplicationCapability::SessionCancel))->toBeFalse();

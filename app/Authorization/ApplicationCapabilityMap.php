@@ -17,6 +17,8 @@ final class ApplicationCapabilityMap
     {
         return match ($role) {
             ApplicationRoleName::Administrator => [
+                ApplicationCapability::MasterdataView,
+                ApplicationCapability::InstrumentsView,
                 ApplicationCapability::MasterdataManage,
                 ApplicationCapability::UsersManage,
                 ApplicationCapability::SessionStart,
@@ -25,18 +27,23 @@ final class ApplicationCapabilityMap
                 ApplicationCapability::DocumentsUpload,
                 ApplicationCapability::DocumentsDownload,
                 ApplicationCapability::HistoryView,
+                ApplicationCapability::SessionHistoryView,
                 ApplicationCapability::CertificatesView,
             ],
             ApplicationRoleName::Engineer => [
+                ApplicationCapability::MasterdataView,
+                ApplicationCapability::InstrumentsView,
                 ApplicationCapability::SessionStart,
                 ApplicationCapability::SessionRecord,
                 ApplicationCapability::SessionComplete,
                 ApplicationCapability::DocumentsUpload,
                 ApplicationCapability::DocumentsDownload,
                 ApplicationCapability::HistoryView,
+                ApplicationCapability::SessionHistoryView,
                 ApplicationCapability::CertificatesView,
             ],
             ApplicationRoleName::Viewer => [
+                ApplicationCapability::InstrumentsView,
                 ApplicationCapability::HistoryView,
                 ApplicationCapability::CertificatesView,
             ],

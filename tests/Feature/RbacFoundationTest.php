@@ -115,12 +115,30 @@ it('allows engineer reads but denies master-data writes', function () {
         ->assertForbidden();
 });
 
+it('hides engineer master-data mutation controls while preserving read pages', function () {
+    createAuthenticationPageTables();
+    actingAsRole(ApplicationRoleName::Engineer);
+
+    Livewire::test('pages::standards')
+        ->assertSee('Standard Master')
+        ->assertDontSee('btn-edit')
+        ->assertDontSee('btn-delete')
+        ->assertDontSee('btn-add');
+
+    Livewire::test('pages::activities')
+        ->assertSee('Activity Master')
+        ->assertDontSee('btn-edit')
+        ->assertDontSee('btn-deactivate')
+        ->assertDontSee('btn-delete')
+        ->assertDontSee('btn-add');
+});
+
 it('allows viewer reads but denies master-data and private document capabilities', function () {
     createAuthenticationPageTables();
     actingAsRole(ApplicationRoleName::Viewer);
 
     $this->get(route('home'))->assertOk();
-    $this->get(route('standards.index'))->assertOk();
+    $this->get(route('standards.index'))->assertForbidden();
 
     expect(Gate::allows(ApplicationCapability::MasterdataManage->value))->toBeFalse();
     expect(Gate::allows(ApplicationCapability::DocumentsDownload->value))->toBeFalse();
@@ -128,13 +146,9 @@ it('allows viewer reads but denies master-data and private document capabilities
     expect(Gate::allows(ApplicationCapability::CertificatesView->value))->toBeTrue();
     expect(Gate::allows(ApplicationCapability::HistoryView->value))->toBeTrue();
 
-    Livewire::test('pages::standards')
-        ->call('saveStandard')
-        ->assertForbidden();
+    Livewire::test('pages::standards')->assertForbidden();
 
-    Livewire::test('pages::activities')
-        ->call('saveActivity')
-        ->assertForbidden();
+    Livewire::test('pages::activities')->assertForbidden();
 });
 
 it('denies role escalation through request parameters', function () {

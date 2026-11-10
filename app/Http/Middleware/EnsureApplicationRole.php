@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Authorization\ResolveActiveApplicationIdentity;
 use App\Authorization\ResolveApplicationRole;
 use Closure;
 use Illuminate\Http\Request;
@@ -12,7 +13,10 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class EnsureApplicationRole
 {
-    public function __construct(private readonly ResolveApplicationRole $roles) {}
+    public function __construct(
+        private readonly ResolveApplicationRole $roles,
+        private readonly ResolveActiveApplicationIdentity $identities,
+    ) {}
 
     /**
      * @param  Closure(Request): Response  $next
@@ -21,7 +25,9 @@ class EnsureApplicationRole
     {
         $user = $request->user();
 
-        if ($user === null || $this->roles->tryResolve((int) $user->id) === null) {
+        if ($user === null
+            || $this->roles->tryResolve((int) $user->id) === null
+            || ! $this->identities->isActive((int) $user->id)) {
             abort(403, 'An application role is required.');
         }
 

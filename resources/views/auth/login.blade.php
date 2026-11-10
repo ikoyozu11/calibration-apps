@@ -12,7 +12,7 @@
             </div>
             <div>
                 <p class="text-[11px] font-medium uppercase tracking-[0.22em] text-brand">Instruments Desk</p>
-                <h1 class="mt-2 text-2xl font-semibold tracking-tight text-navy">Sign in</h1>
+                <h1 class="mt-2 text-2xl font-semibold tracking-tight text-navy">Log in</h1>
                 <p class="mt-1 text-sm text-muted">Use your application account to continue.</p>
             </div>
         </div>
@@ -81,7 +81,7 @@
                     type="submit"
                     class="mt-2 inline-flex w-full items-center justify-center rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-[0_12px_20px_-12px_rgb(30_86_160/0.9)] transition hover:bg-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                 >
-                    Sign in
+                    Log in
                 </button>
             </div>
         </form>
