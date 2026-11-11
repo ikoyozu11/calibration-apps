@@ -8,8 +8,10 @@ use App\Dashboard\CalibrationStanding;
 use App\Dashboard\InstrumentCalibrationOverview;
 use App\Models\Calibration;
 use App\Models\Instrument;
+use App\Models\Location;
 use App\Reports\CalibrationReport;
 use Illuminate\Database\Connection;
+use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Computed;
@@ -60,6 +62,9 @@ new class extends Component
 
     public int $worklistYear = CalibrationAnnualOverview::MINIMUM_YEAR;
 
+    #[Url(as: 'worklist_location')]
+    public string $worklistLocation = '';
+
     public string $worklistSearch = '';
 
     public int $worklistPerPage = 10;
@@ -93,6 +98,7 @@ new class extends Component
             CalibrationAnnualOverview::availableYears($this->readConnection()),
             (int) today()->year,
         );
+        $this->worklistLocation = $this->sanitizeWorklistLocation($this->worklistLocation);
     }
 
     public function updatedTab(mixed $value): void
@@ -180,11 +186,30 @@ new class extends Component
         $this->resetPage('worklistPage');
     }
 
+    public function updatedWorklistLocation(mixed $value): void
+    {
+        $this->worklistLocation = $this->sanitizeWorklistLocation($value);
+        $this->resetPage('worklistPage');
+    }
+
     public function updatedWorklistPerPage(mixed $value): void
     {
         $perPage = (int) $value;
 
         $this->worklistPerPage = in_array($perPage, [10, 25, 50], true) ? $perPage : 10;
+        $this->resetPage('worklistPage');
+    }
+
+    public function clearWorklistFilters(): void
+    {
+        $this->worklistYear = CalibrationAnnualOverview::sanitizeYear(
+            CalibrationAnnualOverview::MINIMUM_YEAR,
+            CalibrationAnnualOverview::availableYears($this->readConnection()),
+            (int) today()->year,
+        );
+        $this->worklistLocation = '';
+        $this->worklistSearch = '';
+        $this->worklistPerPage = 10;
         $this->resetPage('worklistPage');
     }
 
@@ -284,6 +309,22 @@ new class extends Component
         return CalibrationReport::locations($this->readConnection(), $this->reportYear);
     }
 
+    /** @return list<string> */
+    #[Computed]
+    public function worklistLocations(): array
+    {
+        return Location::on($this->readConnectionName())
+            ->whereNotNull('location_name')
+            ->whereRaw("trim(location_name) <> ''")
+            ->orderByRaw('lower(location_name)')
+            ->orderBy('location_id')
+            ->pluck('location_name')
+            ->map(fn (mixed $location): string => (string) $location)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
     /** @return LengthAwarePaginator<int, array<string, mixed>> */
     #[Computed]
     public function reportRows(): LengthAwarePaginator
@@ -351,7 +392,7 @@ new class extends Component
     }
 
     /**
-     * @return LengthAwarePaginator<int, array{key: string, instrument_id: int, instrument_type_id: int|null, name: string, brand: string, type: string, model: string, serial_number: string, asset_number: string, calibration_id: int|null, date: string, due: string, progress: string, due_status: string, active_year: int|null, active_id: int|null, can_start: bool, start_url: string|null, active_url: string|null}>
+     * @return LengthAwarePaginator<int, array{key: string, instrument_id: int, instrument_type_id: int|null, name: string, brand: string, type: string, model: string, serial_number: string, asset_number: string, calibration_id: int|null, date: string, due: string, progress: string, due_status: string, location: string, detail_location: string, active_year: int|null, active_id: int|null, can_start: bool, start_url: string|null, active_url: string|null}>
      */
     #[Computed]
     public function rows(): LengthAwarePaginator
@@ -366,8 +407,13 @@ new class extends Component
                 'instrument_type.model',
                 'instrument.serial_number',
                 'instrument_type.asset_number',
+                'location.location_name',
+                'detail_location.detail_location_name',
             ])
             ->leftJoin('instrument_type', 'instrument_type.instrument_id', '=', 'instrument.instrument_id')
+            ->leftJoin('detail_location', 'detail_location.detail_location_id', '=', 'instrument.detail_location_id')
+            ->leftJoin('location', 'location.location_id', '=', 'detail_location.location_id')
+            ->when($this->worklistLocation !== '', fn (EloquentBuilder $query): EloquentBuilder => $query->where('location.location_name', $this->worklistLocation))
             ->whereIdentityMatches($this->worklistSearch)
             ->orderBy('instrument.instrument_id')
             ->orderBy('instrument_type.instrument_type_id')
@@ -411,6 +457,8 @@ new class extends Component
                 'due' => $yearCompleted?->calibration_due?->format('Y-m-d') ?? '—',
                 'progress' => CalibrationAnnualOverview::progress($yearActive, $yearCompleted)->value,
                 'due_status' => CalibrationStanding::fromLatest($overallCompleted)->value,
+                'location' => $this->display($instrument->getAttribute('location_name')),
+                'detail_location' => $this->display($instrument->getAttribute('detail_location_name')),
                 'active_year' => CalibrationAnnualOverview::crossYearActiveYear($activeSession, $this->worklistYear),
                 'active_id' => $activeSession?->calibration_id,
                 'can_start' => $canStart,
@@ -431,6 +479,15 @@ new class extends Component
     private function display(mixed $value): string
     {
         return filled($value) ? (string) $value : '—';
+    }
+
+    private function sanitizeWorklistLocation(mixed $location): string
+    {
+        $location = is_string($location) ? trim($location) : '';
+
+        return $location === '' || in_array($location, $this->worklistLocations, true)
+            ? $location
+            : '';
     }
 
     /**
@@ -647,29 +704,45 @@ new class extends Component
             <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="calibrations-heading">
                 <div class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <h2 id="calibrations-heading" class="text-base font-semibold tracking-tight text-navy">Calibration Worklist</h2>
-                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-                        <label for="calibration-year" class="sr-only">Year</label>
-                        <select id="calibration-year" wire:model.live="worklistYear" class="ui-input">
+                    <button type="button" wire:click="clearWorklistFilters" class="ui-button-secondary">Clear Filters</button>
+                </div>
+
+                <div class="grid gap-3 border-y border-brand/15 px-5 py-4 sm:grid-cols-2 lg:grid-cols-[10rem_1fr_2fr_6rem]">
+                    <label class="text-sm font-medium text-navy">
+                        Calibration Year
+                        <select id="calibration-year" wire:model.live="worklistYear" class="ui-input mt-1 w-full">
                             @foreach ($this->years as $yearOption)
                                 <option value="{{ $yearOption }}">{{ $yearOption }}</option>
                             @endforeach
                         </select>
-                        <label for="calibration-search" class="sr-only">Search by name, brand, type, or model</label>
+                    </label>
+                    <label class="text-sm font-medium text-navy">
+                        Location
+                        <select id="calibration-location" wire:model.live="worklistLocation" class="ui-input mt-1 w-full">
+                            <option value="">All Locations</option>
+                            @foreach ($this->worklistLocations as $locationOption)
+                                <option value="{{ $locationOption }}">{{ $locationOption }}</option>
+                            @endforeach
+                        </select>
+                    </label>
+                    <label class="text-sm font-medium text-navy">
+                        Search
                         <input
                             id="calibration-search"
                             type="search"
                             wire:model.live.debounce.300ms="worklistSearch"
                             placeholder="Name, brand, type, or model"
-                            class="ui-input sm:w-64"
+                            class="ui-input mt-1 w-full"
                         >
-                        <label for="calibration-page-size" class="sr-only">Rows per page</label>
-                        <select id="calibration-page-size" wire:model.live="worklistPerPage" class="ui-input">
+                    </label>
+                    <label class="text-sm font-medium text-navy">
+                        Per page
+                        <select id="calibration-page-size" wire:model.live="worklistPerPage" class="ui-input mt-1 w-full">
                             <option value="10">10</option>
                             <option value="25">25</option>
                             <option value="50">50</option>
                         </select>
                     </div>
-                </div>
 
                 @if ($this->rows->isEmpty())
                     <p class="px-5 py-8 text-sm text-navy/70">No instruments found.</p>
@@ -688,6 +761,8 @@ new class extends Component
                                     <th scope="col" class="px-5 py-3 font-medium">Calibration Due</th>
                                     <th scope="col" class="px-5 py-3 font-medium">Annual Progress</th>
                                     <th scope="col" class="px-5 py-3 font-medium">Current Due Status</th>
+                                    <th scope="col" class="px-5 py-3 font-medium">Location</th>
+                                    <th scope="col" class="px-5 py-3 font-medium">Detail Location</th>
                                     <th scope="col" class="px-5 py-3 font-medium">Action</th>
                                 </tr>
                             </thead>
@@ -729,6 +804,8 @@ new class extends Component
                                         <td class="px-5 py-3.5">
                                             <x-status-badge :status="$row['due_status']" />
                                         </td>
+                                        <td class="px-5 py-3.5 text-navy">{{ $row['location'] }}</td>
+                                        <td class="px-5 py-3.5 text-navy">{{ $row['detail_location'] }}</td>
                                         <td class="px-5 py-3.5">
                                             @if ($row['can_start'] && $row['start_url'] !== null)
                                                 <a href="{{ $row['start_url'] }}" class="ui-button-primary inline-flex w-fit items-center gap-1.5 whitespace-nowrap px-3 py-2 text-xs">

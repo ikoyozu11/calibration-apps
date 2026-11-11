@@ -77,6 +77,7 @@ function insertCalibrationIndexInstrument(array $attributes): void
         'instrument_id' => $attributes['instrument_id'],
         'instrument_name' => $attributes['instrument_name'],
         'serial_number' => $attributes['serial_number'] ?? null,
+        'detail_location_id' => $attributes['detail_location_id'] ?? null,
         'created_at' => '2026-01-01 00:00:00',
     ]);
 }

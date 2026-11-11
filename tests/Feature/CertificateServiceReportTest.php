@@ -915,3 +915,153 @@ it('renders the golden master fixture as a single A4 page', function () {
     expect($pdf->getDomPDF()->getCanvas()->get_page_count())->toBe(1)
         ->and($output)->toStartWith('%PDF-');
 });
+
+it('renders Quantum Neo test tables in left-right-left rows', function () {
+    $group = static function (string $label): array {
+        return [
+            'label' => $label,
+            'columns' => [
+                ['label' => 'Standard Value ('.$label.')', 'unit' => 'mm'],
+                ['label' => 'Standard Reading Avg ('.$label.')', 'unit' => 'mm'],
+                ['label' => 'Correction ('.$label.')', 'unit' => 'mm'],
+            ],
+            'rows' => [['cells' => ['16.00', '16.00', '0.00']]],
+            'remarks' => '',
+            'tolerance' => null,
+        ];
+    };
+    $groups = [$group('SIZE'), $group('LENGTH'), $group('DIAMETER')];
+    $report = new class($groups)
+    {
+        public function __construct(private array $groups) {}
+
+        public function instrumentIdentity(): array
+        {
+            return [
+                'name' => 'Quantum Neo',
+                'location' => 'FMD',
+                'detail_location' => 'FM 01/07',
+                'type' => 'X-ray',
+                'brand' => 'Quantum',
+                'model' => 'Neo',
+                'serial_number' => 'QN-001',
+                'asset_number' => null,
+                'max_capacity' => null,
+                'resolution' => null,
+            ];
+        }
+
+        public function activities(): array
+        {
+            return [];
+        }
+
+        public function standards(): array
+        {
+            return [];
+        }
+
+        public function standardList(): array
+        {
+            return [
+                'Circumference Standard; 16.00 & 30.00 mm; STD/C/01',
+                'Length Standard; 34.5 mm; 28104',
+                'Diameter Standard; 7.587 mm; 28104',
+            ];
+        }
+
+        public function testResultGroups(): array
+        {
+            return $this->groups;
+        }
+
+        public function testResultLayouts(): array
+        {
+            return ServiceReport::testResultLayoutsFor($this->groups);
+        }
+
+        public function customerAddress(): ?string
+        {
+            return null;
+        }
+
+        public function documentNumber(): string
+        {
+            return 'SR.VT004/11/26';
+        }
+
+        public function calibrationDateShort(): string
+        {
+            return '04 Nov 2026';
+        }
+
+        public function issuedDate(): string
+        {
+            return '04 Nov 2026';
+        }
+
+        public function customerName(): string
+        {
+            return 'PT. BENTOEL PRIMA';
+        }
+
+        public function location(): string
+        {
+            return 'FMD';
+        }
+
+        public function detailLocation(): string
+        {
+            return 'FM 01/07';
+        }
+
+        public function hasActionDate(): bool
+        {
+            return false;
+        }
+
+        public function hasTemperature(): bool
+        {
+            return false;
+        }
+
+        public function temperature(): string
+        {
+            return '';
+        }
+
+        public function hasHumidity(): bool
+        {
+            return false;
+        }
+
+        public function humidity(): string
+        {
+            return '';
+        }
+
+        public function resume(): string
+        {
+            return 'Instrument working properly';
+        }
+    };
+
+    $html = view('certificates.service-report-v2', ['report' => $report])->render();
+    $pdf = Pdf::loadHTML($html)->setPaper('a4', 'portrait');
+    $output = $pdf->output();
+
+    if (filled(env('SERVICE_REPORT_ADAPTIVE_LAYOUT_PREVIEW_PATH'))) {
+        file_put_contents((string) env('SERVICE_REPORT_ADAPTIVE_LAYOUT_PREVIEW_PATH'), $output);
+    }
+
+    expect($html)
+        ->toContain('SIZE')
+        ->toContain('LENGTH')
+        ->toContain('DIAMETER')
+        ->toContain('standard-panel')
+        ->toContain('activity-number">01</td>')
+        ->toContain('activity-number">03</td>')
+        ->and(substr_count($html, 'class="test-columns"'))->toBe(1)
+        ->and(substr_count($html, 'class="test-standalone"'))->toBe(1)
+        ->and($output)->toStartWith('%PDF-');
+});

@@ -193,3 +193,41 @@ it('allows the existing history capability for viewers and rejects guests', func
     $this->get(route('calibration-reports.index'))->assertRedirect(route('login'));
     $this->get(route('calibration-reports.export'))->assertRedirect(route('login'));
 });
+
+it('searches report fields case-insensitively for every application role', function (ApplicationRoleName $role) {
+    createCalibrationReportTables();
+    seedCalibrationReportIdentity();
+    DB::statement('PRAGMA case_sensitive_like = ON');
+
+    insertCalibrationReportRecord([
+        'calibration_id' => 1,
+        'instrument_id' => 1,
+        'instrument_type_id' => 11,
+        'created_at' => '2026-02-01 08:00:00',
+        'calibration_date' => '2026-02-01',
+        'calibration_due' => '2027-02-01',
+        'snapshot_instrument_name' => 'Precision Gauge',
+        'snapshot_instrument_type_name' => 'Pressure',
+        'snapshot_brand' => 'Acme Instruments',
+        'snapshot_model' => 'PX-100',
+        'snapshot_serial_number' => 'SN-PR-001',
+        'snapshot_asset_number' => 'ASSET-PR-001',
+    ]);
+
+    actingAsRole($role);
+
+    try {
+        foreach (['precision', 'acme', 'pressure', 'px-100', 'sn-pr-001', 'asset-pr-001'] as $term) {
+            $rows = CalibrationReport::all(DB::connection(), 2026, 'FMD', $term);
+
+            expect($rows)->toHaveCount(1)
+                ->and($rows->first()['instrument_name'])->toBe('Precision Gauge');
+        }
+    } finally {
+        DB::statement('PRAGMA case_sensitive_like = OFF');
+    }
+})->with([
+    'Administrator' => ApplicationRoleName::Administrator,
+    'Engineer' => ApplicationRoleName::Engineer,
+    'Viewer' => ApplicationRoleName::Viewer,
+]);

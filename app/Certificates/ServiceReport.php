@@ -97,6 +97,19 @@ class ServiceReport
                     'location_name',
                 ]);
             },
+            'calibration.instrumentType' => function (BelongsTo $query): void {
+                $query->select([
+                    'instrument_type_id',
+                    'type_name',
+                    'brand',
+                    'model',
+                    'asset_number',
+                    'max_capacity',
+                    'max_capacity_unit',
+                    'resolution',
+                    'resolution_unit',
+                ]);
+            },
             'calibration.calibrationScopes' => function (HasMany $query): void {
                 $query
                     ->select([
@@ -269,7 +282,7 @@ class ServiceReport
 
     public function location(): string
     {
-        if (filled($this->certificate->calibration->snapshot_location_name)) {
+        if ($this->hasFrozenIdentity()) {
             return $this->text($this->certificate->calibration->snapshot_location_name);
         }
 
@@ -324,29 +337,85 @@ class ServiceReport
     {
         $rows = $this->instrumentRows();
         $row = $rows[0] ?? null;
-        $capacity = collect($rows)->first(fn (array $item): bool => $item['max_capacity'] !== null)['max_capacity'] ?? null;
-        $resolution = collect($rows)->first(fn (array $item): bool => $item['resolution'] !== null)['resolution'] ?? null;
 
         return [
             'name' => $this->instrumentName(),
-            'type' => $row['type_name'] ?? 'â€”',
-            'brand' => $row['brand'] ?? 'â€”',
-            'model' => $row['model'] ?? 'â€”',
-            'serial_number' => $row['serial_number'] ?? 'â€”',
-            'asset_number' => $this->assetNumber(),
-            'max_capacity' => $capacity,
-            'resolution' => $resolution,
+            'type' => $row['type_name'] ?? $this->text(null),
+            'brand' => $row['brand'] ?? $this->text(null),
+            'model' => $row['model'] ?? $this->text(null),
+            'serial_number' => $row['serial_number'] ?? $this->text(null),
+            'asset_number' => $row['asset_number'] ?? $this->text(null),
+            'location' => $this->location(),
+            'detail_location' => $this->detailLocation(),
+            'max_capacity' => $row['max_capacity'],
+            'resolution' => $row['resolution'],
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $identity
+     * @return list<array<string, string>>
+     */
+    public static function identityFieldColumnsFor(array $identity): array
+    {
+        $labels = [
+            'name' => 'Instrument Name',
+            'location' => 'Location',
+            'detail_location' => 'Detail Location',
+            'type' => 'Instrument Type',
+            'serial_number' => 'Serial Number',
+            'asset_number' => 'Asset Number',
+            'brand' => 'Brand',
+            'model' => 'Model',
+            'max_capacity' => 'Max Capacity',
+            'resolution' => 'Resolution',
+        ];
+        $fields = [];
+
+        foreach ($labels as $key => $label) {
+            $value = $identity[$key] ?? null;
+
+            if (self::isEmptyIdentityValue($value)) {
+                continue;
+            }
+
+            $fields[$label] = (string) $value;
+        }
+
+        return array_chunk($fields, 3, true);
+    }
+
+    private static function isEmptyIdentityValue(mixed $value): bool
+    {
+        if ($value === null || ! is_string($value)) {
+            return $value === null;
+        }
+
+        $value = trim($value);
+
+        if ($value === '' || $value === '-' || $value === '—' || strtoupper($value) === 'N/A') {
+            return true;
+        }
+
+        return mb_strlen($value) <= 3 && preg_match('/[A-Za-z0-9]/', $value) !== 1;
     }
 
     public function assetNumber(): string
     {
-        return $this->text($this->certificate->calibration->snapshot_asset_number);
+        if ($this->hasFrozenIdentity()) {
+            return $this->text($this->certificate->calibration->snapshot_asset_number);
+        }
+
+        return $this->text($this->certificate->calibration->instrumentType?->asset_number);
     }
 
     public function detailLocation(): string
     {
-        return $this->text($this->certificate->calibration->snapshot_detail_location_name);
+        if ($this->hasFrozenIdentity()) {
+            return $this->text($this->certificate->calibration->snapshot_detail_location_name);
+        }
+
+        return $this->text($this->certificate->calibration->instrument?->detailLocation?->detail_location_name);
     }
 
     /**
@@ -360,21 +429,30 @@ class ServiceReport
 
         $rows = [];
 
-        foreach ($this->certificate->calibration->calibrationScopes as $scope) {
+        $calibration = $this->certificate->calibration;
+        $hasFrozenIdentity = $this->hasFrozenIdentity();
+        $scopes = $calibration->calibrationScopes;
+
+        if ($scopes->isEmpty()) {
+            $scopes = collect([(object) ['instrumentType' => $calibration->instrumentType]]);
+        }
+
+        foreach ($scopes as $scope) {
             $type = $scope->instrumentType;
 
             $rows[] = [
-                'type_name' => $this->text($this->certificate->calibration->snapshot_instrument_type_name ?? $type?->type_name),
-                'brand' => $this->text($this->certificate->calibration->snapshot_brand ?? $type?->brand),
-                'model' => $this->text($this->certificate->calibration->snapshot_model ?? $type?->model),
-                'serial_number' => $this->text($this->certificate->calibration->snapshot_serial_number ?? $this->certificate->calibration->instrument->serial_number),
+                'type_name' => $this->text($hasFrozenIdentity ? $calibration->snapshot_instrument_type_name : $type?->type_name),
+                'brand' => $this->text($hasFrozenIdentity ? $calibration->snapshot_brand : $type?->brand),
+                'model' => $this->text($hasFrozenIdentity ? $calibration->snapshot_model : $type?->model),
+                'serial_number' => $this->text($hasFrozenIdentity ? $calibration->snapshot_serial_number : $calibration->instrument?->serial_number),
+                'asset_number' => $this->text($hasFrozenIdentity ? $calibration->snapshot_asset_number : $type?->asset_number),
                 'max_capacity' => $this->measurement(
-                    $this->certificate->calibration->snapshot_max_capacity ?? $type?->max_capacity,
-                    $this->certificate->calibration->snapshot_max_capacity_unit ?? $type?->max_capacity_unit,
+                    $hasFrozenIdentity ? $calibration->snapshot_max_capacity : $type?->max_capacity,
+                    $hasFrozenIdentity ? $calibration->snapshot_max_capacity_unit : $type?->max_capacity_unit,
                 ),
                 'resolution' => $this->measurement(
-                    $this->certificate->calibration->snapshot_resolution ?? $type?->resolution,
-                    $this->certificate->calibration->snapshot_resolution_unit ?? $type?->resolution_unit,
+                    $hasFrozenIdentity ? $calibration->snapshot_resolution : $type?->resolution,
+                    $hasFrozenIdentity ? $calibration->snapshot_resolution_unit : $type?->resolution_unit,
                 ),
             ];
         }
@@ -382,6 +460,28 @@ class ServiceReport
         $this->instrumentRows = $rows;
 
         return $this->instrumentRows;
+    }
+
+    private function hasFrozenIdentity(): bool
+    {
+        foreach ([
+            'snapshot_instrument_name',
+            'snapshot_location_name',
+            'snapshot_detail_location_name',
+            'snapshot_instrument_type_name',
+            'snapshot_brand',
+            'snapshot_model',
+            'snapshot_serial_number',
+            'snapshot_asset_number',
+            'snapshot_max_capacity',
+            'snapshot_resolution',
+        ] as $attribute) {
+            if (filled($this->certificate->calibration->getAttribute($attribute))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function showsMaxCapacity(): bool
@@ -451,6 +551,33 @@ class ServiceReport
         return $this->standards;
     }
 
+    /**
+     * @return list<string>
+     */
+    public function standardList(): array
+    {
+        $lines = [];
+
+        foreach ($this->standards() as $standard) {
+            $values = [
+                $standard['name'] ?? null,
+                $standard['type'] ?? null,
+                $standard['serial_number'] ?? null,
+            ];
+
+            if (collect($values)->every(fn (mixed $value): bool => self::isEmptyIdentityValue($value))) {
+                continue;
+            }
+
+            $lines[] = implode('; ', array_map(
+                fn (mixed $value): string => self::isEmptyIdentityValue($value) ? '-' : trim((string) $value),
+                $values,
+            ));
+        }
+
+        return $lines;
+    }
+
     private function optionalText(mixed $value): string
     {
         return filled($value) ? (string) $value : '';
@@ -505,6 +632,139 @@ class ServiceReport
         $this->testResultGroups = $groups;
 
         return $this->testResultGroups;
+    }
+
+    /**
+     * @return list<array{mode: 'full'|'half'|'pair', groups: list<array{label: string, remarks: string, tolerance: ?string, columns: list<array{label: string, unit: string}>, rows: list<array{cells: list<string>}>}>, widths?: list<int> }>
+     */
+    public function testResultLayouts(): array
+    {
+        return self::testResultLayoutsFor($this->testResultGroups());
+    }
+
+    /**
+     * @param  list<array{label: string, remarks: string, tolerance: ?string, columns: list<array{label: string, unit: string}>, rows: list<array{cells: list<string>}>}>  $groups
+     * @return list<array{mode: 'full'|'half'|'pair', groups: list<array{label: string, remarks: string, tolerance: ?string, columns: list<array{label: string, unit: string}>, rows: list<array{cells: list<string>}>}>, widths?: list<int> }>
+     */
+    public static function testResultLayoutsFor(array $groups): array
+    {
+        $layouts = [];
+        $lastPairLeftWidth = null;
+        $groupCount = count($groups);
+
+        for ($index = 0; $index < count($groups); $index++) {
+            if (! self::testResultGroupFitsHalfWidth($groups[$index])) {
+                $layouts[] = ['mode' => 'full', 'groups' => [$groups[$index]]];
+
+                continue;
+            }
+
+            if (isset($groups[$index + 1]) && self::testResultGroupsFitPair($groups[$index], $groups[$index + 1])) {
+                $leftDemand = self::testResultGroupWidthDemand($groups[$index]);
+                $rightDemand = self::testResultGroupWidthDemand($groups[$index + 1]);
+                $totalDemand = $leftDemand + $rightDemand;
+
+                $layouts[] = [
+                    'mode' => 'pair',
+                    'groups' => [$groups[$index], $groups[++$index]],
+                    'widths' => [
+                        (int) round(($leftDemand / $totalDemand) * 100),
+                        (int) round(($rightDemand / $totalDemand) * 100),
+                    ],
+                ];
+                $lastPairLeftWidth = $layouts[array_key_last($layouts)]['widths'][0];
+
+                continue;
+            }
+
+            $standaloneWidth = $groupCount === 1 || $lastPairLeftWidth === null
+                ? self::testResultStandaloneWidth($groups[$index])
+                : (self::testResultGroupWidthDemand($groups[$index]) <= $lastPairLeftWidth
+                    ? $lastPairLeftWidth
+                    : self::testResultStandaloneWidth($groups[$index]));
+
+            $layouts[] = [
+                'mode' => 'half',
+                'groups' => [$groups[$index]],
+                'widths' => [$standaloneWidth],
+            ];
+        }
+
+        return $layouts;
+    }
+
+    /**
+     * @param  array{label: string, remarks: string, tolerance: ?string, columns: list<array{label: string, unit: string}>, rows: list<array{cells: list<string>}>}  $group
+     */
+    private static function testResultGroupFitsHalfWidth(array $group): bool
+    {
+        if (count($group['rows']) > 5) {
+            return false;
+        }
+
+        if (mb_strlen($group['remarks']) > 80 || ($group['tolerance'] !== null && mb_strlen($group['tolerance']) > 36)) {
+            return false;
+        }
+
+        foreach ($group['rows'] as $row) {
+            foreach ($row['cells'] as $cell) {
+                if (mb_strlen($cell) > 24) {
+                    return false;
+                }
+            }
+        }
+
+        return self::testResultGroupWidthDemand($group) <= 52;
+    }
+
+    /**
+     * @param  array{columns: list<array{label: string, unit: string}>, rows: list<array{cells: list<string>}>}  $left
+     * @param  array{columns: list<array{label: string, unit: string}>, rows: list<array{cells: list<string>}>}  $right
+     */
+    private static function testResultGroupsFitPair(array $left, array $right): bool
+    {
+        return self::testResultGroupFitsHalfWidth($left)
+            && self::testResultGroupFitsHalfWidth($right)
+            && self::testResultGroupWidthDemand($left) + self::testResultGroupWidthDemand($right) <= 100;
+    }
+
+    /**
+     * Estimate the minimum readable width using wrapped headings and cell values.
+     * The result is relative to the printable report width, not a pixel width.
+     *
+     * @param  array{columns: list<array{label: string, unit: string}>, rows: list<array{cells: list<string>}>}  $group
+     */
+    private static function testResultGroupWidthDemand(array $group): int
+    {
+        $demand = 0;
+
+        foreach ($group['columns'] as $columnIndex => $column) {
+            $headingLength = mb_strlen(trim($column['label'].' '.$column['unit']));
+            $cellLength = 0;
+
+            foreach ($group['rows'] as $row) {
+                $cellLength = max($cellLength, mb_strlen((string) ($row['cells'][$columnIndex] ?? '')));
+            }
+
+            $demand += max(10, min(18, max($cellLength, min(10, $headingLength)) + 1));
+        }
+
+        return $demand + max(0, count($group['columns']) - 1);
+    }
+
+    /**
+     * @param  array{columns: list<array{label: string, unit: string}>, rows: list<array{cells: list<string>}>}  $group
+     */
+    private static function testResultStandaloneWidth(array $group): int
+    {
+        $columnCount = count($group['columns']);
+        $minimumWidth = match (true) {
+            $columnCount >= 4 => 70,
+            $columnCount === 3 => 55,
+            default => 45,
+        };
+
+        return min(90, max($minimumWidth, (int) ceil(self::testResultGroupWidthDemand($group) * 1.35)));
     }
 
     /**
@@ -636,7 +896,7 @@ class ServiceReport
             }
 
             $groups[] = [
-                'label' => $this->dynamicText($snapshot['display_title'] ?? $snapshot['profile_name'] ?? $scope->instrumentType?->type_name),
+                'label' => $this->displayTitle($snapshot['display_title'] ?? null),
                 'remarks' => $this->dynamicText($snapshot['remarks'] ?? $snapshot['description'] ?? null),
                 'tolerance' => null,
                 'columns' => array_map(fn (array $column): array => [
@@ -750,6 +1010,11 @@ class ServiceReport
     private function dynamicText(mixed $value): string
     {
         return filled($value) ? (string) $value : '';
+    }
+
+    private function displayTitle(mixed $value): string
+    {
+        return is_string($value) && trim($value) !== '' ? trim($value) : '';
     }
 
     private function snapshotRemarks(mixed $snapshot): string

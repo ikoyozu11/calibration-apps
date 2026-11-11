@@ -45,6 +45,12 @@ it('prefers frozen identity over live master values', function () {
         'snapshot_model' => 'Frozen Model',
         'snapshot_serial_number' => 'FZN-1',
         'snapshot_asset_number' => 'AST-F',
+        'snapshot_location_name' => 'Frozen Location',
+        'snapshot_detail_location_name' => 'Frozen Detail',
+        'snapshot_max_capacity' => '64.000',
+        'snapshot_max_capacity_unit' => 'g',
+        'snapshot_resolution' => '0.00001',
+        'snapshot_resolution_unit' => 'g',
         'calibration_method' => Calibration::METHOD_INTERNAL,
     ]);
     $calibration->setRelation('instrument', presenterModel(Instrument::class, [
@@ -60,11 +66,15 @@ it('prefers frozen identity over live master values', function () {
 
     expect(CalibrationSessionDetailPresenter::identity($calibration))->toBe([
         'name' => 'Frozen Gauge',
+        'location' => 'Frozen Location',
+        'detail_location' => 'Frozen Detail',
         'type' => 'Frozen Type',
-        'brand' => 'Frozen Brand',
-        'model' => 'Frozen Model',
         'serial_number' => 'FZN-1',
         'asset_number' => 'AST-F',
+        'brand' => 'Frozen Brand',
+        'model' => 'Frozen Model',
+        'max_capacity' => '64 g',
+        'resolution' => '0.00001 g',
     ]);
 });
 
@@ -76,6 +86,12 @@ it('renders null optional identity fields as em dashes', function () {
         'snapshot_model' => null,
         'snapshot_serial_number' => null,
         'snapshot_asset_number' => null,
+        'snapshot_location_name' => null,
+        'snapshot_detail_location_name' => null,
+        'snapshot_max_capacity' => null,
+        'snapshot_max_capacity_unit' => null,
+        'snapshot_resolution' => null,
+        'snapshot_resolution_unit' => null,
         'calibration_method' => Calibration::METHOD_INTERNAL,
     ]);
     $calibration->setRelation('instrument', presenterModel(Instrument::class, [
@@ -84,8 +100,12 @@ it('renders null optional identity fields as em dashes', function () {
     ]));
     $calibration->setRelation('instrumentType', null);
 
-    expect(CalibrationSessionDetailPresenter::identity($calibration))->toBe([
+    expect(CalibrationSessionDetailPresenter::identity($calibration))->toMatchArray([
         'name' => 'Frozen Gauge',
+        'location' => '—',
+        'detail_location' => '—',
+        'max_capacity' => '—',
+        'resolution' => '—',
         'type' => '—',
         'brand' => '—',
         'model' => '—',

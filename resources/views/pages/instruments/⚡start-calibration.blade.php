@@ -231,6 +231,9 @@ new class extends Component
                             wire:loading.attr="disabled"
                             wire:target="requestStartCalibration"
                         >
+                            <svg aria-hidden="true" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M6.5 4.75a1 1 0 0 1 1.54-.84l7.5 5.25a1 1 0 0 1 0 1.68l-7.5 5.25A1 1 0 0 1 6.5 15.25v-10.5Z" />
+                            </svg>
                             Start Calibration
                         </button>
                     </form>

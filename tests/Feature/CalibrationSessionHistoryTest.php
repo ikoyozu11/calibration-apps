@@ -12,10 +12,24 @@ use Livewire\Livewire;
 
 function createSessionHistoryTables(): void
 {
+    Schema::create('location', function (Blueprint $table): void {
+        $table->unsignedBigInteger('location_id')->primary();
+        $table->string('location_code');
+        $table->string('location_name');
+    });
+
+    Schema::create('detail_location', function (Blueprint $table): void {
+        $table->unsignedBigInteger('detail_location_id')->primary();
+        $table->unsignedBigInteger('location_id');
+        $table->string('detail_location_code');
+        $table->string('detail_location_name');
+    });
+
     Schema::create('instrument', function (Blueprint $table): void {
         $table->unsignedBigInteger('instrument_id')->primary();
         $table->string('instrument_name');
         $table->string('serial_number')->nullable();
+        $table->unsignedBigInteger('detail_location_id')->nullable();
         $table->timestamp('created_at');
     });
 
@@ -40,6 +54,14 @@ function createSessionHistoryTables(): void
         $table->string('calibration_result', 20)->nullable();
         $table->string('certificate_number', 100)->nullable();
         $table->timestamp('created_at')->nullable();
+        $table->timestamp('completed_at')->nullable();
+        $table->timestamp('cancelled_at')->nullable();
+        $table->string('snapshot_instrument_name')->nullable();
+        $table->string('snapshot_instrument_type_name')->nullable();
+        $table->string('snapshot_brand')->nullable();
+        $table->string('snapshot_model')->nullable();
+        $table->string('snapshot_serial_number')->nullable();
+        $table->string('snapshot_asset_number')->nullable();
         addCalibrationSessionColumns($table);
     });
 
@@ -136,9 +158,13 @@ it('loads session history with one row per persisted session', function () {
         ->assertSee('Session History')
         ->assertSee('CAL.VT0001/03/26')
         ->assertSee('CAL.VT0002/10/26')
-        ->assertSee('href="'.route('calibrations.show', 1).'"', false)
-        ->assertSee('href="'.route('calibrations.show', 2).'"', false)
-        ->assertDontSee('Start Calibration')
+        ->assertSee('/calibrations/1?return_tab=history', false)
+        ->assertSee('/calibrations/2?return_tab=history', false)
+        ->assertSee('tab=history', false)
+        ->assertSee('year=2026', false)
+        ->assertSee('status=all', false)
+        ->assertSee('search=', false)
+        ->assertSee('Start Calibration')
         ->assertDontSee('No Calibration Sessions Yet');
 });
 
@@ -309,8 +335,11 @@ it('paginates session history in deterministic calibration id order', function (
         ->set('sessionStatus', Calibration::STATUS_COMPLETED)
         ->assertSee('CAL.11')
         ->assertDontSee('CAL.01')
-        ->call('gotoPage', 2)
+        ->call('gotoPage', 2, 'historyPage')
         ->assertSee('CAL.01')
+        ->assertSee('/calibrations/1?return_tab=history', false)
+        ->assertSee('status=completed', false)
+        ->assertSee('search=Gauge', false)
         ->assertDontSee('CAL.11')
         ->assertSet('search', 'Gauge')
         ->assertSet('sessionStatus', Calibration::STATUS_COMPLETED)
@@ -475,7 +504,8 @@ it('keeps annual overview cards unchanged while session history is available', f
     ]);
 
     $this->get(route('calibrations.index'))
-        ->assertSeeInOrder(['Completed', '0', 'In Progress', '1', 'Not Calibrated', '0'])
-        ->assertSee('Annual Progress')
+        ->assertSee('Calibration Reports')
+        ->assertSee('Sodiline')
+        ->assertSee('Weight')
         ->assertDontSee('CAL.VT');
 });

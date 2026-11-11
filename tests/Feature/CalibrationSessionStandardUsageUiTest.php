@@ -75,7 +75,9 @@ it('lets an administrator add an assigned standard', function () {
         ->assertOk()
         ->assertSee('Add Standard')
         ->assertSee('Pressure Gauge')
-        ->assertSee('STD-5');
+        ->assertSee('0.1 class')
+        ->assertSee('SN-5')
+        ->assertDontSee('STD-5 ·', false);
 
     usageUiAdd(5, '', '', 'Working standard', 'Bench A')
         ->assertHasNoErrors()
@@ -704,6 +706,10 @@ it('filters the add-standard catalog by name, code, or serial number', function 
     $page->set('standardSearch', 'SN-8');
 
     expect(collect($page->instance()->searchableStandards())->pluck('standard_id')->all())->toBe([8]);
+
+    $page->set('standardSearch', 'STD-7');
+
+    expect(collect($page->instance()->searchableStandards())->pluck('standard_id')->all())->toBe([7]);
 });
 
 it('adds selected master standards and saves them immediately', function () {

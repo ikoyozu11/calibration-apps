@@ -57,7 +57,7 @@ final class ServiceReportPdfRenderer
                     $headerTitleY = $headerCenterY - ($headerTitleHeight / 2);
                     $headerSeparatorY = $headerTop + $headerRowHeight + 7;
                     $headerTitleWidth = $fontMetrics->getTextWidth($headerTitle, $headerBoldFont, $headerTitleSize);
-                    $certificateNumberText = 'Certificate No.: '.$certificate->certificate_number;
+                    $certificateNumberText = 'Document Number: '.$certificate->certificate_number;
                     $calibrationDate = $certificate->calibration->calibration_date?->format('d M Y') ?? '—';
                     $calibrationDateText = 'Calibration Date: '.$calibrationDate;
                     $certificateNumberX = $pageWidth - $rightMargin - $fontMetrics->getTextWidth($certificateNumberText, $font, $headerNumberSize);

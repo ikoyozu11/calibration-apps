@@ -245,6 +245,23 @@
         width: min(28rem, calc(100vw - 1rem));
     }
 
+    @media (max-width: 64rem) {
+        .swal2-container.swal2-top-end {
+            top: auto;
+            right: 0.75rem;
+            bottom: calc(env(safe-area-inset-bottom, 0px) + 0.75rem);
+        }
+    }
+
+    @media (max-width: 40rem) {
+        .swal2-container.swal2-top-end {
+            right: 0.5rem;
+            bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem);
+            left: auto;
+            align-items: flex-end;
+        }
+    }
+
     .instruments-desk-swal-publish {
         width: min(34rem, calc(100vw - 2rem));
     }

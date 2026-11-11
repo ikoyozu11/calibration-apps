@@ -234,7 +234,7 @@ final class CalibrationReport
                 'l.location_name',
                 'dl.detail_location_name',
             ] as $column) {
-                $query->orWhereRaw("{$column} LIKE ?", [$like]);
+                $query->orWhereRaw("LOWER({$column}) LIKE LOWER(?)", [$like]);
             }
         });
     }

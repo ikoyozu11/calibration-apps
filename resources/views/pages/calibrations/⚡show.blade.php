@@ -3471,9 +3471,17 @@ new class extends Component
             $this->resume = (string) ($fresh->resume ?? '');
         }
 
-        $fresh->load([
-            'instrument:instrument_id,instrument_name,serial_number',
-            'instrumentType:instrument_type_id,instrument_id,type_name,brand,model,asset_number',
+        $identityRelations = [
+            'instrument:instrument_id,instrument_name,serial_number,detail_location_id',
+            'instrumentType:instrument_type_id,instrument_id,type_name,brand,model,asset_number,max_capacity,max_capacity_unit,resolution,resolution_unit',
+        ];
+
+        if ($this->readSchema()->hasTable('detail_location')) {
+            $identityRelations[] = 'instrument.detailLocation:detail_location_id,location_id,detail_location_name';
+            $identityRelations[] = 'instrument.detailLocation.location:location_id,location_name';
+        }
+
+        $fresh->load(array_merge($identityRelations, [
             'calibrationScopes' => function (HasMany $query): void {
                 $query
                     ->select($this->scopeColumns())
@@ -3488,6 +3496,10 @@ new class extends Component
                     'brand',
                     'model',
                     'asset_number',
+                    'max_capacity',
+                    'max_capacity_unit',
+                    'resolution',
+                    'resolution_unit',
                 ]);
             },
             'calibrationScopes.testProfile' => function (BelongsTo $query): void {
@@ -3585,7 +3597,7 @@ new class extends Component
                     'instrument_name',
                 ]);
             },
-        ]);
+        ]));
 
         if ($this->readSchema()->hasTable('certificate')) {
             $fresh->load('certificate');
@@ -3733,11 +3745,33 @@ new class extends Component
     }
 
     /**
-     * @return array{name: string, type: string, brand: string, model: string, serial_number: string, asset_number: string}
+     * @return array{name: string, location: string, detail_location: string, type: string, serial_number: string, asset_number: string, brand: string, model: string, max_capacity: string, resolution: string}
      */
     public function identitySnapshot(): array
     {
         return CalibrationSessionDetailPresenter::identity($this->currentCalibration());
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function identityFields(): array
+    {
+        $identity = $this->identitySnapshot();
+        $empty = CalibrationSessionDetailPresenter::display(null);
+
+        return array_filter([
+            'Instrument Name' => $identity['name'],
+            'Location' => $identity['location'],
+            'Detail Location' => $identity['detail_location'],
+            'Instrument Type' => $identity['type'],
+            'Serial Number' => $identity['serial_number'],
+            'Asset Number' => $identity['asset_number'],
+            'Brand' => $identity['brand'],
+            'Model' => $identity['model'],
+            'Max Capacity' => $identity['max_capacity'],
+            'Resolution' => $identity['resolution'],
+        ], static fn (string $value): bool => $value !== $empty);
     }
 
     public function isInternalSession(): bool
@@ -4120,18 +4154,13 @@ new class extends Component
                     <h2 id="instrument-information-heading" class="text-base font-semibold tracking-tight text-white">Instrument Information</h2>
                 </div>
                 <dl class="grid gap-3 px-5 py-5 sm:grid-cols-2 lg:grid-cols-3">
-                    @foreach ([
-                        'Instrument Name' => $this->identitySnapshot()['name'],
-                        'Brand' => $this->identitySnapshot()['brand'],
-                        'Instrument Type' => $this->identitySnapshot()['type'],
-                        'Model' => $this->identitySnapshot()['model'],
-                        'Serial Number' => $this->identitySnapshot()['serial_number'],
-                        'Asset Number' => $this->identitySnapshot()['asset_number'],
-                    ] as $label => $value)
+                    @foreach (array_chunk($this->identityFields(), 3, true) as $row)
+                        @foreach ($row as $label => $value)
                         <div class="rounded-xl border border-white/70 bg-[#edf4fa] px-4 py-3 shadow-[inset_0_1px_0_rgb(255_255_255/0.8)]">
                             <dt class="text-xs font-medium text-muted">{{ $label }}</dt>
                             <dd class="mt-1 text-sm font-semibold text-navy">{{ $value }}</dd>
                         </div>
+                        @endforeach
                     @endforeach
                 </dl>
             </section>
@@ -4925,7 +4954,7 @@ new class extends Component
                                                             <path stroke-linecap="round" stroke-linejoin="round" d="M5 5.75A1.75 1.75 0 0 1 6.75 4h8.5L19 7.75v10.5A1.75 1.75 0 0 1 17.25 20h-10.5A1.75 1.75 0 0 1 5 18.25V5.75Z" />
                                                             <path stroke-linecap="round" stroke-linejoin="round" d="M8 4v5h7V4M8 20v-5h8v5" />
                                                         </svg>
-                                                        Save Measurement
+                                                        Save
                                                     </button>
                                                     @if ($environmentStatusKey === (string) $parameter['key'] && $environmentStatus !== null)
                                                         <p class="text-xs text-navy">{{ $environmentStatus }}</p>
@@ -5313,9 +5342,6 @@ new class extends Component
                                                 {{ $candidate['instrument_name'] }}
                                                 @if ($candidate['type_specification'] !== '')
                                                     · {{ $candidate['type_specification'] }}
-                                                @endif
-                                                @if ($candidate['standard_code'] !== '')
-                                                    · {{ $candidate['standard_code'] }}
                                                 @endif
                                                 @if ($candidate['serial_number'] !== '')
                                                     · {{ $candidate['serial_number'] }}

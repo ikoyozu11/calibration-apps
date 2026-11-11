@@ -83,38 +83,53 @@ final class CalibrationSessionDetailPresenter
     }
 
     /**
-     * @return array{name: string, type: string, brand: string, model: string, serial_number: string, asset_number: string}
+     * @return array{name: string, location: string, detail_location: string, type: string, serial_number: string, asset_number: string, brand: string, model: string, max_capacity: string, resolution: string}
      */
     public static function identity(Calibration $calibration): array
     {
         if (self::hasFrozenIdentity($calibration)) {
             return [
                 'name' => self::display($calibration->getAttribute('snapshot_instrument_name')),
+                'location' => self::display($calibration->getAttribute('snapshot_location_name')),
+                'detail_location' => self::display($calibration->getAttribute('snapshot_detail_location_name')),
                 'type' => self::display($calibration->getAttribute('snapshot_instrument_type_name')),
-                'brand' => self::display($calibration->getAttribute('snapshot_brand')),
-                'model' => self::display($calibration->getAttribute('snapshot_model')),
                 'serial_number' => self::display($calibration->getAttribute('snapshot_serial_number')),
                 'asset_number' => self::display($calibration->getAttribute('snapshot_asset_number')),
+                'brand' => self::display($calibration->getAttribute('snapshot_brand')),
+                'model' => self::display($calibration->getAttribute('snapshot_model')),
+                'max_capacity' => self::measurement(
+                    $calibration->getAttribute('snapshot_max_capacity'),
+                    $calibration->getAttribute('snapshot_max_capacity_unit'),
+                ),
+                'resolution' => self::measurement(
+                    $calibration->getAttribute('snapshot_resolution'),
+                    $calibration->getAttribute('snapshot_resolution_unit'),
+                ),
             ];
         }
 
         $instrument = $calibration->relationLoaded('instrument') ? $calibration->instrument : null;
         $type = $calibration->relationLoaded('instrumentType') ? $calibration->instrumentType : null;
+        $detailLocation = $instrument?->relationLoaded('detailLocation') ? $instrument->detailLocation : null;
 
         return [
             'name' => self::display($instrument?->instrument_name),
+            'location' => self::display($detailLocation?->location?->location_name),
+            'detail_location' => self::display($detailLocation?->detail_location_name),
             'type' => self::display($type?->type_name),
-            'brand' => self::display($type?->brand),
-            'model' => self::display($type?->model),
             'serial_number' => self::display($instrument?->serial_number),
             'asset_number' => self::display($type?->asset_number),
+            'brand' => self::display($type?->brand),
+            'model' => self::display($type?->model),
+            'max_capacity' => self::measurement($type?->max_capacity, $type?->max_capacity_unit),
+            'resolution' => self::measurement($type?->resolution, $type?->resolution_unit),
         ];
     }
 
     /**
      * Overlay frozen identity onto one calibrated-type row.
      *
-     * @return array{key: int, name: string, brand: string, type: string, model: string, serial_number: string, asset_number: string}
+     * @return array{key: int, name: string, location: string, detail_location: string, type: string, serial_number: string, asset_number: string, brand: string, model: string, max_capacity: string, resolution: string}
      */
     public static function typedIdentity(Calibration $calibration, int $key, ?object $type): array
     {
@@ -125,16 +140,17 @@ final class CalibrationSessionDetailPresenter
             ];
         }
 
-        $instrument = $calibration->relationLoaded('instrument') ? $calibration->instrument : null;
+        $identity = self::identity($calibration);
+        $identity['type'] = self::display($type?->type_name ?? null);
+        $identity['brand'] = self::display($type?->brand ?? null);
+        $identity['model'] = self::display($type?->model ?? null);
+        $identity['asset_number'] = self::display($type?->asset_number ?? null);
+        $identity['max_capacity'] = self::measurement($type?->max_capacity, $type?->max_capacity_unit);
+        $identity['resolution'] = self::measurement($type?->resolution, $type?->resolution_unit);
 
         return [
             'key' => $key,
-            'name' => self::display($instrument?->instrument_name),
-            'brand' => self::display($type?->brand ?? null),
-            'type' => self::display($type?->type_name ?? null),
-            'model' => self::display($type?->model ?? null),
-            'serial_number' => self::display($instrument?->serial_number),
-            'asset_number' => self::display($type?->asset_number ?? null),
+            ...$identity,
         ];
     }
 
@@ -142,11 +158,15 @@ final class CalibrationSessionDetailPresenter
     {
         foreach ([
             'snapshot_instrument_name',
+            'snapshot_location_name',
+            'snapshot_detail_location_name',
             'snapshot_instrument_type_name',
             'snapshot_brand',
             'snapshot_model',
             'snapshot_serial_number',
             'snapshot_asset_number',
+            'snapshot_max_capacity',
+            'snapshot_resolution',
         ] as $attribute) {
             if (filled($calibration->getAttribute($attribute))) {
                 return true;
@@ -154,6 +174,22 @@ final class CalibrationSessionDetailPresenter
         }
 
         return false;
+    }
+
+    private static function measurement(mixed $value, mixed $unit): string
+    {
+        if (! filled($value)) {
+            return self::display(null);
+        }
+
+        $amount = (string) $value;
+
+        if (is_numeric($amount) && str_contains($amount, '.')) {
+            $amount = rtrim(rtrim($amount, '0'), '.');
+            $amount = $amount === '' || $amount === '-' ? '0' : $amount;
+        }
+
+        return filled($unit) ? $amount.' '.$unit : $amount;
     }
 
     /**

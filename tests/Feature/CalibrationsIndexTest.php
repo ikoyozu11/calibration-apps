@@ -2,6 +2,7 @@
 
 use App\Authorization\ApplicationRoleName;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
 beforeEach(function () {
@@ -34,6 +35,119 @@ it('keeps calibration tab navigation for Administrator and Engineer', function (
             ->assertSee('Session History');
     }
 });
+
+it('reactively filters reports and resets report pagination for every role', function (ApplicationRoleName $role) {
+    createCalibrationIndexTables();
+    insertCalibrationIndexInstrument([
+        'instrument_id' => 3,
+        'instrument_name' => 'Sodiline Gauge',
+        'serial_number' => 'WEIGHT-001',
+    ]);
+    insertCalibrationIndexType([
+        'instrument_type_id' => 1,
+        'instrument_id' => 3,
+        'type_name' => 'Weight',
+        'brand' => 'Sodim',
+        'model' => 'PDV - PD',
+        'asset_number' => 'ASSET-9',
+    ]);
+    insertCalibrationIndexRecord([
+        'calibration_id' => 1,
+        'instrument_id' => 3,
+        'instrument_type_id' => 1,
+        'calibration_date' => '2026-10-01',
+        'calibration_due' => '2026-12-12',
+    ]);
+    DB::statement('PRAGMA case_sensitive_like = ON');
+    actingAsRole($role);
+
+    try {
+        Livewire::test('pages::calibrations')
+            ->set('paginators.reportPage', 2)
+            ->set('reportSearch', 'sOdIm')
+            ->assertSet('reportSearch', 'sOdIm')
+            ->assertSet('paginators.reportPage', 1)
+            ->assertSee('Sodiline Gauge')
+            ->set('reportSearch', 'does-not-exist')
+            ->assertSee('No instrument types match the selected filters.')
+            ->call('clearReportFilters')
+            ->assertSet('reportSearch', '')
+            ->assertSee('Sodiline Gauge');
+    } finally {
+        DB::statement('PRAGMA case_sensitive_like = OFF');
+    }
+})->with([
+    'Administrator' => ApplicationRoleName::Administrator,
+    'Engineer' => ApplicationRoleName::Engineer,
+    'Viewer' => ApplicationRoleName::Viewer,
+]);
+
+it('filters the start worklist by location and keeps its filters separate from reports', function (ApplicationRoleName $role) {
+    createCalibrationIndexTables();
+    DB::table('location')->insert([
+        ['location_id' => 1, 'location_code' => 'FMD', 'location_name' => 'Filling Hall'],
+        ['location_id' => 2, 'location_code' => 'LAB', 'location_name' => 'Laboratory'],
+    ]);
+    DB::table('detail_location')->insert([
+        ['detail_location_id' => 1, 'location_id' => 1, 'detail_location_code' => 'FM-01', 'detail_location_name' => 'Line 1'],
+        ['detail_location_id' => 2, 'location_id' => 2, 'detail_location_code' => 'LAB-01', 'detail_location_name' => 'Bench 1'],
+    ]);
+    insertCalibrationIndexInstrument([
+        'instrument_id' => 3,
+        'instrument_name' => 'Filling Gauge',
+        'detail_location_id' => 1,
+    ]);
+    insertCalibrationIndexInstrument([
+        'instrument_id' => 4,
+        'instrument_name' => 'Laboratory Gauge',
+        'detail_location_id' => 2,
+    ]);
+    insertCalibrationIndexType([
+        'instrument_type_id' => 1,
+        'instrument_id' => 3,
+        'type_name' => 'Pressure',
+        'brand' => 'Sodim',
+    ]);
+    insertCalibrationIndexType([
+        'instrument_type_id' => 2,
+        'instrument_id' => 4,
+        'type_name' => 'Temperature',
+        'brand' => 'Acme',
+    ]);
+    actingAsRole($role);
+
+    $component = Livewire::test('pages::calibrations')
+        ->set('tab', 'start')
+        ->assertSeeInOrder(['Calibration Year', 'Location', 'Search', 'Per page'])
+        ->assertSee('All Locations')
+        ->assertSeeInOrder(['Current Due Status', 'Location', 'Detail Location', 'Action'])
+        ->assertSeeInOrder(['Filling Hall', 'Line 1'])
+        ->assertSeeInOrder(['Laboratory', 'Bench 1'])
+        ->set('reportLocation', 'Filling Hall')
+        ->set('reportSearch', 'reports-only')
+        ->set('paginators.worklistPage', 2)
+        ->set('worklistLocation', 'Filling Hall')
+        ->set('worklistSearch', 'pressure')
+        ->assertSet('worklistLocation', 'Filling Hall')
+        ->assertSet('worklistSearch', 'pressure')
+        ->assertSet('reportLocation', 'Filling Hall')
+        ->assertSet('reportSearch', 'reports-only')
+        ->assertSet('paginators.worklistPage', 1)
+        ->assertSee('Filling Gauge')
+        ->assertDontSee('Laboratory Gauge')
+        ->call('clearWorklistFilters')
+        ->assertSet('worklistYear', 2026)
+        ->assertSet('worklistLocation', '')
+        ->assertSet('worklistSearch', '')
+        ->assertSet('worklistPerPage', 10)
+        ->assertSet('paginators.worklistPage', 1)
+        ->assertSet('reportLocation', 'Filling Hall')
+        ->assertSet('reportSearch', 'reports-only')
+        ->assertSee('Laboratory Gauge');
+})->with([
+    'Administrator' => ApplicationRoleName::Administrator,
+    'Engineer' => ApplicationRoleName::Engineer,
+]);
 
 it('shows each instrument type with the latest calibration standing', function () {
     createCalibrationIndexTables();

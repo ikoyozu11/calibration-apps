@@ -83,7 +83,7 @@ it('renders frozen parameter identity, units, types, and required indicators', f
         ->assertSee('optional')
         ->assertSee('23.5')
         ->assertSee('Required value missing')
-        ->assertSee('Save Measurement')
+        ->assertSee('Save')
         ->assertDontSee('Confirmation Reason')
         ->assertDontSee('Confirm Environment Configuration')
         ->assertDontSee('Environment configuration confirmed')
@@ -321,7 +321,7 @@ it('does not invent measurements or calculate sibling values', function () {
     environmentUiArrange();
     $before = calibrationSessionPinningUiFingerprint();
 
-    $this->get(route('calibrations.show', 5))->assertOk()->assertSee('Save Measurement');
+    $this->get(route('calibrations.show', 5))->assertOk()->assertSee('Save');
 
     expect(calibrationSessionPinningUiFingerprint())->toBe($before)
         ->and(DB::table('calibration_environment_value')->count())->toBe(0);
@@ -339,7 +339,7 @@ it('allows measurements while the environment requirement is not configured', fu
     $this->get(route('calibrations.show', 5))
         ->assertOk()
         ->assertDontSee('Apply Environment Mode')
-        ->assertSee('Save Measurement')
+        ->assertSee('Save')
         ->assertDontSee('skip');
 
     environmentUiSave(1, '23.5')->assertHasNoErrors();
@@ -360,7 +360,7 @@ it('resolves an unresolved environment requirement to required', function () {
         ->call('resolveEnvironmentRequirement')
         ->assertHasNoErrors()
         ->assertSee('The environment requirement was resolved.')
-        ->assertSee('Save Measurement')
+        ->assertSee('Save')
         ->assertDontSee('Apply Environment Mode');
 
     $snapshot = DB::table('calibration_requirement_snapshot')
