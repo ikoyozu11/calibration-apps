@@ -5,6 +5,7 @@ use App\CalibrationDueNotifications\CalibrationDueRecipients;
 return [
     'enabled' => (bool) env('CALIBRATION_DUE_NOTIFICATIONS_ENABLED', false),
     'recipient' => env('CALIBRATION_DUE_NOTIFICATIONS_RECIPIENT'),
+    'public_url' => env('INSTRUMENTS_DESK_PUBLIC_URL', ''),
     'recipients' => CalibrationDueRecipients::fromEnvironment(
         env('CALIBRATION_DUE_NOTIFICATIONS_RECIPIENTS'),
         env('CALIBRATION_DUE_NOTIFICATIONS_RECIPIENT'),
