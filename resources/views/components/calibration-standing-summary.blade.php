@@ -1,5 +1,5 @@
 <div class="flex flex-col gap-6">
-    <section aria-label="Current calibration standing metrics" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+    <section aria-label="Current calibration standing metrics" class="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-5">
         @foreach ([
             ['label' => 'Total Instruments', 'value' => $overview->total, 'surface' => 'bg-brand shadow-[0_16px_28px_-16px_rgb(30_86_160/0.75)]'],
             ['label' => 'On Track', 'value' => $overview->onTrack, 'surface' => 'bg-on-track shadow-[0_16px_28px_-16px_rgb(31_122_77/0.75)]'],
@@ -7,18 +7,18 @@
             ['label' => 'Overdue', 'value' => $overview->overdue, 'surface' => 'bg-overdue shadow-[0_16px_28px_-16px_rgb(180_35_24/0.75)]'],
             ['label' => 'Not Calibrated', 'value' => $overview->notCalibrated, 'surface' => 'bg-navy shadow-[0_16px_28px_-16px_rgb(22_49_114/0.75)]'],
         ] as $card)
-            <article class="relative overflow-hidden rounded-2xl p-5 text-white transition duration-200 hover:-translate-y-0.5 {{ $card['surface'] }}">
+            <article data-calibrations-stat data-calibrations-stat-index="{{ $loop->index }}" class="relative flex min-h-26 flex-col justify-between overflow-hidden rounded-2xl p-3 text-white transition duration-200 hover:-translate-y-0.5 md:min-h-0 md:p-5 {{ $card['surface'] }}">
                 <span class="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/25 via-transparent to-black/15" aria-hidden="true"></span>
                 <div class="relative">
-                    <p class="text-sm font-medium text-white/80">{{ $card['label'] }}</p>
-                    <p class="mt-3 text-4xl font-semibold tracking-tight tabular-nums">{{ $card['value'] }}</p>
+                    <p class="text-[11px] font-medium leading-tight text-white/80 md:text-sm">{{ $card['label'] }}</p>
+                    <p class="mt-2 text-3xl font-semibold tracking-tight tabular-nums md:mt-3 md:text-4xl" data-calibration-counter="{{ $card['value'] }}">{{ $card['value'] }}</p>
                 </div>
             </article>
         @endforeach
     </section>
 
-    <section class="ui-card p-6" aria-labelledby="calibration-status-heading">
-        <h2 id="calibration-status-heading" class="text-base font-semibold tracking-tight text-navy">Calibration Status</h2>
+    <section data-calibrations-status-panel data-calibrations-content class="ui-card p-6" aria-labelledby="calibration-status-heading">
+        <h2 id="calibration-status-heading" class="text-center text-base font-semibold tracking-tight text-navy md:text-left">Calibration Status</h2>
 
         @if ($overview->total === 0)
             <p class="mt-4 text-sm text-muted">No instruments found.</p>
@@ -64,6 +64,8 @@
                                 @endphp
                                 <circle
                                     class="chart-segment"
+                                    data-calibration-chart-segment
+                                    data-segment-length="{{ $length }}"
                                     style="--segment-index: {{ $drawn }}; stroke-dasharray: {{ $length }} {{ 100 - $length }}; stroke-dashoffset: {{ $offset }}"
                                     cx="21"
                                     cy="21"
@@ -86,9 +88,9 @@
 
                 <ul class="flex flex-1 flex-col">
                     @foreach ($overview->segments() as $segment)
-                        <li class="flex items-center justify-between gap-4 border-b border-line py-3 text-sm last:border-b-0">
+                        <li data-calibrations-status-row data-calibrations-status-index="{{ $loop->index }}" class="flex items-center justify-between gap-4 border-b border-line py-3 text-sm last:border-b-0">
                             <span class="inline-flex items-center gap-2 text-ink"><span class="size-2 rounded-full" style="background-color: {{ $segment['color'] }}" aria-hidden="true"></span>{{ $segment['label'] }}</span>
-                            <span class="font-medium tabular-nums text-navy">{{ $segment['count'] }}</span>
+                            <span class="font-medium tabular-nums text-navy"><span data-calibration-counter="{{ $segment['count'] }}">{{ $segment['count'] }}</span> <span data-calibration-percentage="{{ (float) str_replace('%', '', $segment['percent']) }}" data-calibration-percentage-label="{{ $segment['percent'] }}">({{ $segment['percent'] }})</span></span>
                         </li>
                     @endforeach
                 </ul>

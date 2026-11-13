@@ -1,12 +1,15 @@
-<section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="calibration-reports-heading">
-    <div class="flex flex-col gap-3 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-            <h2 id="calibration-reports-heading" class="text-base font-semibold tracking-tight text-navy">Calibration Reports</h2>
-        </div>
-        <div class="flex flex-wrap gap-2">
-            <button type="button" wire:click="clearReportFilters" class="ui-button-secondary">Clear Filters</button>
-            <button type="button" x-ref="exportButton" wire:click="openExportModal" class="ui-button-primary" wire:loading.attr="disabled" wire:target="openExportModal">
-                <svg aria-hidden="true" class="mr-1.5 h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+<section data-calibrations-reports-panel data-calibrations-content class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="calibration-reports-heading">
+    <div data-calibrations-reports-header class="flex flex-row items-center justify-between gap-3 px-5 py-4 md:flex-col lg:flex-row lg:items-center lg:justify-between">
+        <h2 id="calibration-reports-heading" class="min-w-0 flex-1 text-left text-base font-semibold tracking-tight text-navy">Calibration Reports</h2>
+        <div data-calibrations-report-actions class="flex shrink-0 flex-col items-end gap-1.5 md:flex-row md:items-center md:gap-2">
+            <button type="button" wire:click="clearReportFilters" class="ui-button-outline gap-1.5 whitespace-nowrap px-3 py-2 text-xs sm:px-4 sm:text-sm">
+                <svg aria-hidden="true" class="h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.5 5.25h8.25M3.5 10h5.5M3.5 14.75h3.25M14.25 11.5l3 3m0-3-3 3M12.5 5.25h4" />
+                </svg>
+                Clear Filters
+            </button>
+            <button type="button" x-ref="exportButton" wire:click="openExportModal" class="ui-button-primary gap-1.5 whitespace-nowrap px-3 py-2 text-xs sm:px-4 sm:text-sm" wire:loading.attr="disabled" wire:target="openExportModal">
+                <svg aria-hidden="true" class="h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor">
                     <path d="M10 2.5a1 1 0 0 1 1 1v7.09l2.3-2.3a1 1 0 1 1 1.4 1.42l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.42l2.3 2.3V3.5a1 1 0 0 1 1-1ZM4 15.5a1 1 0 0 1 1 1v.5h10v-.5a1 1 0 1 1 2 0v1.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-1.5a1 1 0 0 1 1-1Z" />
                 </svg>
                 Export XLSX
@@ -14,7 +17,7 @@
         </div>
     </div>
 
-    <div class="grid gap-3 border-y border-brand/15 px-5 py-4 sm:grid-cols-2 lg:grid-cols-[10rem_1fr_2fr_6rem]">
+    <div data-calibrations-toolbar class="grid grid-cols-2 gap-3 border-y border-brand/15 px-5 py-4 lg:grid-cols-[10rem_1fr_2fr_6rem]">
         <label class="text-sm font-medium text-navy">
             Calibration Year
             <select wire:model.live="reportYear" class="ui-input mt-1 w-full">
@@ -32,11 +35,11 @@
                 @endforeach
             </select>
         </label>
-        <label class="text-sm font-medium text-navy">
+        <label class="col-span-2 text-sm font-medium text-navy md:col-span-1">
             Search
             <input wire:model.live.debounce.300ms="reportSearch" type="search" placeholder="Name, brand, type, serial, asset..." class="ui-input mt-1 w-full">
         </label>
-        <label class="text-sm font-medium text-navy">
+        <label class="col-span-2 text-sm font-medium text-navy md:col-span-1">
             Per page
             <select wire:model.live="reportPerPage" class="ui-input mt-1 w-full">
                 <option value="10">10</option>
