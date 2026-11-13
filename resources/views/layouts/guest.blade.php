@@ -12,9 +12,10 @@
 
         @fonts
         @vite('resources/css/app.css')
+        @vite('resources/js/app.js')
     </head>
-    <body class="bg-canvas font-sans text-ink antialiased">
-        <div class="flex min-h-screen flex-col items-center justify-center px-4 py-10">
+    <body class="bg-white font-sans text-ink antialiased">
+        <div class="min-h-screen">
             @yield('content')
         </div>
     </body>
