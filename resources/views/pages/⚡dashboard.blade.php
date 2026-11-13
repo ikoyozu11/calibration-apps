@@ -83,29 +83,29 @@ new class extends Component
 };
 ?>
 
-<div class="px-4 py-8 sm:px-6 lg:px-10">
+<div data-dashboard-page class="px-4 py-8 sm:px-6 lg:px-10">
     <div class="mx-auto flex max-w-6xl flex-col gap-8">
-        <header>
+        <header data-dashboard-header>
             <h1 class="text-2xl font-semibold tracking-tight text-navy">Dashboard</h1>
             <p class="mt-1 text-sm text-muted">Instrument inventory and location overview.</p>
         </header>
 
-        <section aria-label="Inventory statistics" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <section data-dashboard-stats aria-label="Inventory statistics" class="grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
             @foreach ([
                 ['label' => 'Total Instruments', 'value' => $this->inventory['total'], 'surface' => 'bg-brand shadow-[0_16px_28px_-16px_rgb(30_86_160/0.75)]'],
                 ['label' => 'Instrument Types', 'value' => $this->inventory['types'], 'surface' => 'bg-on-track shadow-[0_16px_28px_-16px_rgb(31_122_77/0.75)]'],
                 ['label' => 'Locations', 'value' => $this->inventory['locations'], 'surface' => 'bg-due-soon shadow-[0_16px_28px_-16px_rgb(138_90_0/0.75)]'],
                 ['label' => 'Active Standards', 'value' => $this->inventory['standards'], 'surface' => 'bg-overdue shadow-[0_16px_28px_-16px_rgb(180_35_24/0.75)]'],
             ] as $card)
-                <article class="relative overflow-hidden rounded-2xl p-5 text-white transition duration-200 hover:-translate-y-0.5 {{ $card['surface'] }}">
+                <article data-dashboard-stat class="relative flex min-h-26 flex-col justify-between overflow-hidden rounded-2xl p-3 text-white transition duration-200 hover:-translate-y-0.5 md:min-h-0 md:p-5 {{ $card['surface'] }}">
                     <span class="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/25 via-transparent to-black/15" aria-hidden="true"></span>
-                    <div class="relative"><p class="text-sm font-medium text-white/80">{{ $card['label'] }}</p><p class="mt-3 text-4xl font-semibold tracking-tight tabular-nums">{{ $card['value'] }}</p></div>
+                    <div class="relative"><p class="text-[11px] font-medium leading-tight text-white/80 md:text-sm">{{ $card['label'] }}</p><p class="mt-2 text-3xl font-semibold tracking-tight tabular-nums md:mt-3 md:text-4xl" data-dashboard-counter="{{ $card['value'] }}">{{ $card['value'] }}</p></div>
                 </article>
             @endforeach
         </section>
 
-        <section class="ui-card p-6" aria-labelledby="distribution-heading">
-            <h2 id="distribution-heading" class="text-base font-semibold tracking-tight text-navy">Instrument Distribution by Location</h2>
+        <section data-dashboard-content class="ui-card p-6" aria-labelledby="distribution-heading">
+            <h2 id="distribution-heading" class="text-center text-sm font-semibold tracking-tight text-navy md:text-left md:text-base">Instrument Distribution by Location</h2>
             @if ($this->inventory['distribution'] === [])
                 <p class="mt-4 text-sm text-muted">No instrument locations found.</p>
             @else
@@ -157,6 +157,8 @@ new class extends Component
                                 @endphp
                                 <circle
                                     class="chart-segment"
+                                    data-dashboard-chart-segment
+                                    data-segment-length="{{ $segmentLength }}"
                                     style="--segment-index: {{ $index }};"
                                     cx="21"
                                     cy="21"
@@ -181,9 +183,9 @@ new class extends Component
                             >{{ $label['percent'] }}%</span>
                         @endforeach
                         <div class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-                            <span class="text-3xl font-semibold tracking-tight tabular-nums text-navy">{{ $totalInstruments }}</span>
+                            <span class="text-3xl font-semibold tracking-tight tabular-nums text-navy" data-dashboard-counter="{{ $totalInstruments }}">{{ $totalInstruments }}</span>
                             <span class="text-xs font-medium text-muted">Instruments</span>
-                            <span class="mt-1 text-[11px] text-muted">{{ $locationCount }} {{ $locationCount === 1 ? 'Location' : 'Locations' }}</span>
+                            <span class="mt-1 text-[11px] text-muted"><span data-dashboard-counter="{{ $locationCount }}">{{ $locationCount }}</span> {{ $locationCount === 1 ? 'Location' : 'Locations' }}</span>
                         </div>
                     </div>
 
@@ -194,7 +196,7 @@ new class extends Component
                             $percentage = $totalInstruments > 0 ? ($count / $totalInstruments) * 100 : 0;
                             $color = $chartColors[$index % count($chartColors)];
                         @endphp
-                        <li class="flex items-center justify-between gap-4 border-b border-line py-2.5 text-sm last:border-b-0" wire:key="location-distribution-{{ $location['location'] }}">
+                        <li data-dashboard-distribution-row="{{ $index }}" class="flex items-center justify-between gap-4 border-b border-line py-2.5 text-sm last:border-b-0" wire:key="location-distribution-{{ $location['location'] }}">
                             <span class="inline-flex min-w-0 flex-1 items-center gap-2">
                                 <span
                                     class="shrink-0 rounded-full"
@@ -203,7 +205,7 @@ new class extends Component
                                 ></span>
                                 <span class="min-w-0 truncate font-medium text-navy">{{ $location['location'] }}</span>
                             </span>
-                            <span class="shrink-0 text-right font-semibold tabular-nums text-brand">{{ $count }} <span class="font-normal text-muted">({{ number_format($percentage, 1) }}%)</span></span>
+                            <span class="shrink-0 text-right font-semibold tabular-nums text-brand"><span data-dashboard-counter="{{ $count }}">{{ $count }}</span> <span class="font-normal text-muted">(<span data-dashboard-percentage="{{ $percentage }}">{{ number_format($percentage, 1) }}%</span>)</span></span>
                         </li>
                     @endforeach
                     </ul>
@@ -211,10 +213,10 @@ new class extends Component
             @endif
         </section>
 
-        <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="recent-instruments-heading">
+        <section data-dashboard-content class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="recent-instruments-heading">
             <div class="flex flex-col gap-3 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
                 <h2 id="recent-instruments-heading" class="text-base font-semibold tracking-tight text-navy">Recent Instruments</h2>
-                <div class="flex flex-col gap-2 sm:flex-row sm:items-center"><label for="recent-instrument-search" class="sr-only">Search by name</label><input id="recent-instrument-search" type="search" wire:model.live.debounce.300ms="search" placeholder="Search by name" class="ui-input sm:w-64"><a href="{{ route('instruments.index') }}" class="ui-button-primary shrink-0 items-center gap-2"><svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12s3.5-6 9.75-6 9.75 6 9.75 6-3.5 6-9.75 6-9.75-6-9.75-6Z" /><circle cx="12" cy="12" r="2.5" /></svg>View All</a></div>
+                <div class="flex min-w-0 flex-1 items-center gap-2 lg:flex-none"><label for="recent-instrument-search" class="sr-only">Search by name</label><input id="recent-instrument-search" type="search" wire:model.live.debounce.300ms="search" placeholder="Search by name" class="ui-input min-w-0 flex-1 lg:w-64 lg:flex-none"><a href="{{ route('instruments.index') }}" class="ui-button-primary shrink-0">View All</a></div>
             </div>
 
             @if ($this->inventory['recent'] === [])

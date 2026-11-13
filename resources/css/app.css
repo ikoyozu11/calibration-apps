@@ -432,6 +432,25 @@
         animation: chart-label-in 0.35s ease both;
         animation-delay: calc(0.7s + (var(--segment-index) * 0.16s));
     }
+
+    html.dashboard-animation-pending [data-dashboard-page] {
+        opacity: 0;
+    }
+
+    html.shell-animation-pending [data-dashboard-sidebar] {
+        opacity: 0;
+    }
+
+    html.shell-animation-pending [data-mobile-header] {
+        opacity: 0;
+    }
+
+    [data-dashboard-page] .chart-ring,
+    [data-dashboard-page] .chart-track,
+    [data-dashboard-page] .chart-segment,
+    [data-dashboard-page] .chart-label {
+        animation: none;
+    }
 }
 
 @keyframes chart-ring-in {

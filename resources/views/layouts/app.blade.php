@@ -10,6 +10,58 @@
         <link rel="icon" href="/favicon.svg" type="image/svg+xml">
         <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
+        <script>
+            (() => {
+                const isHome = @js(request()->routeIs('home'));
+
+                if ('scrollRestoration' in history) {
+                    history.scrollRestoration = isHome ? 'manual' : 'auto';
+                }
+
+                if (! isHome) {
+                    return;
+                }
+
+                const resetHomeScroll = () => {
+                    document.scrollingElement?.scrollTo({
+                        top: 0,
+                        left: 0,
+                        behavior: 'auto',
+                    });
+                };
+
+                resetHomeScroll();
+            })();
+        </script>
+
+        @if (request()->routeIs('home') || session('animate_shell_entrance'))
+            <script>
+                (() => {
+                    const root = document.documentElement;
+
+                    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true) {
+                        return;
+                    }
+
+                    @if (request()->routeIs('home'))
+                        root.classList.add('dashboard-animation-pending');
+                    @endif
+
+                    @if (session('animate_shell_entrance'))
+                        root.classList.add('shell-animation-pending');
+                    @endif
+
+                    const revealAnimations = () => root.classList.remove(
+                        'dashboard-animation-pending',
+                        'shell-animation-pending',
+                    );
+
+                    window.addEventListener('error', revealAnimations, { once: true });
+                    window.addEventListener('unhandledrejection', revealAnimations, { once: true });
+                })();
+            </script>
+        @endif
+
         @fonts
         @vite('resources/css/app.css')
         @vite('resources/js/app.js')
@@ -21,13 +73,13 @@
         </a>
 
         <div class="min-h-screen">
-            <aside class="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col gap-8 overflow-y-auto bg-gradient-to-b from-brand to-navy px-4 py-6 text-white shadow-[8px_0_28px_-18px_rgb(22_49_114/0.7)] lg:flex">
+            <aside data-dashboard-sidebar class="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col gap-8 overflow-y-auto bg-gradient-to-b from-brand to-navy px-4 py-6 text-white shadow-[8px_0_28px_-18px_rgb(22_49_114/0.7)] lg:flex">
                 <div class="flex flex-col gap-3 px-1">
-                    <div class="flex items-center justify-center rounded-xl bg-white px-3 py-2 shadow-[0_8px_16px_-10px_rgb(0_0_0/0.45)]">
+                    <div class="flex items-center justify-center">
                         <img
-                            src="{{ asset('images/vision-teknik-logo.png') }}"
-                            alt="Vision Teknik"
-                            class="h-12 w-auto max-w-full object-contain"
+                            src="{{ asset('images/icon/instruments-desk-logo-icon.svg') }}"
+                            alt="Instruments Desk"
+                            class="h-14 w-14 object-contain"
                         >
                     </div>
                     <div class="px-1">
@@ -44,19 +96,19 @@
             </aside>
 
             <div class="min-w-0 lg:pl-64">
-                <header class="mobile-nav bg-navy text-white lg:hidden" data-mobile-nav>
+                <header class="mobile-nav bg-navy text-white lg:hidden" data-mobile-nav data-mobile-header>
                     <button
                         type="button"
                         class="mobile-nav-toggle flex h-16 min-h-0 w-full items-center justify-between gap-3 px-4 text-sm font-semibold leading-none"
                         aria-controls="mobile-primary-navigation"
                         aria-expanded="false"
                     >
-                        <span class="flex min-w-0 items-center gap-2">
-                            <span class="flex h-8 w-16 shrink-0 items-center justify-center rounded-lg bg-white px-2">
+                        <span class="flex min-w-0 items-center gap-2" data-mobile-header-brand>
+                            <span class="flex h-8 w-8 shrink-0 items-center justify-center">
                                 <img
-                                    src="{{ asset('images/vision-teknik-logo.png') }}"
-                                    alt=""
-                                    class="block h-6 w-auto max-w-full object-contain"
+                                    src="{{ asset('images/icon/instruments-desk-logo-icon.svg') }}"
+                                    alt="Instruments Desk"
+                                    class="block h-8 w-8 object-contain"
                                 >
                             </span>
                             <span class="truncate">
@@ -64,7 +116,7 @@
                                 <span>Desk</span>
                             </span>
                         </span>
-                        <span class="flex items-center gap-2">
+                        <span class="flex items-center gap-2" data-mobile-header-menu>
                             <span>Menu</span>
                             <span class="mobile-nav-icon" aria-hidden="true">
                                 <span></span>

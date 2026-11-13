@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="533" viewBox="38 22 148 154" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">Instruments Desk — stacked layers icon</title>
+  <desc id="desc">Three rounded blue layers stacked diagonally, recreated as scalable vector paths with a transparent background.</desc>
+  <defs>
+    <linearGradient id="layerTop" x1="46" y1="49" x2="178" y2="94" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0856AA"/>
+      <stop offset="0.58" stop-color="#07458F"/>
+      <stop offset="1" stop-color="#063A7E"/>
+    </linearGradient>
+    <linearGradient id="layerMiddle" x1="47" y1="91" x2="178" y2="135" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0988ED"/>
+      <stop offset="0.58" stop-color="#087CE1"/>
+      <stop offset="1" stop-color="#0671D1"/>
+    </linearGradient>
+    <linearGradient id="layerBottom" x1="46" y1="123" x2="178" y2="165" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#55B6FA"/>
+      <stop offset="0.55" stop-color="#4CAAF4"/>
+      <stop offset="1" stop-color="#3F9DEB"/>
+    </linearGradient>
+  </defs>
+  <!-- Bottom rounded chevron -->
+  <path fill="url(#layerBottom)" d="M51.2 125.3  C56.3 122.4 60.6 120.8 65.0 122.7  L105.2 144.2  C109.5 146.5 114.1 146.5 118.5 144.2  L159.2 122.6  C163.9 120.1 168.3 122.4 173.6 125.3  C181.0 129.5 180.9 135.9 173.4 140.0  L119.7 168.3  C115.0 170.8 109.4 170.8 104.7 168.3  L51.0 140.0  C43.7 136.0 43.8 129.4 51.2 125.3 Z"/>
+  <!-- Middle rounded chevron -->
+  <path fill="url(#layerMiddle)" d="M51.2 93.0  C56.2 90.1 60.7 88.3 65.2 90.6  L105.0 111.8  C109.4 114.2 114.1 114.2 118.5 111.8  L159.3 90.4  C163.9 88.0 168.3 90.2 173.5 93.0  C180.9 97.1 180.8 103.5 173.4 107.6  L119.7 135.6  C115.0 138.1 109.4 138.1 104.7 135.6  L51.0 107.6  C43.6 103.6 43.8 97.1 51.2 93.0 Z"/>
+  <!-- Top rounded diamond -->
+  <path fill="url(#layerTop)" d="M103.8 30.5  C109.2 27.6 114.9 27.6 120.2 30.5  L173.5 59.6  C180.8 63.6 180.9 70.6 173.5 74.7  L120.2 102.8  C114.9 105.7 109.2 105.7 103.8 102.8  L50.2 74.7  C42.8 70.6 42.9 63.6 50.2 59.6 Z"/>
+</svg>

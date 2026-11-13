@@ -50,6 +50,7 @@ class LoginController extends Controller
         RateLimiter::clear($this->throttleKey($request));
 
         $request->session()->regenerate();
+        $request->session()->flash('animate_shell_entrance', true);
 
         return redirect()->intended(route('home'));
     }

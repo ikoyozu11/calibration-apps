@@ -1,4 +1,5 @@
 import Swal from 'sweetalert2';
+import { gsap } from 'gsap';
 
 const toast = Swal.mixin({
     toast: true,
@@ -3010,6 +3011,566 @@ function registerCertificateRefreshConfirmation() {
     });
 }
 
+function prefersReducedMotion() {
+    return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+}
+
+function synchronizeHomeScrollPosition() {
+    const isHome = document.querySelector('[data-dashboard-page]') !== null;
+
+    if ('scrollRestoration' in history) {
+        history.scrollRestoration = isHome ? 'manual' : 'auto';
+    }
+
+    if (!isHome) {
+        return;
+    }
+
+    document.scrollingElement?.scrollTo({
+        top: 0,
+        left: 0,
+        behavior: 'auto',
+    });
+}
+
+function setLoginLoaderVisibility(loader, visible) {
+    if (visible) {
+        loader.classList.remove('hidden');
+        loader.setAttribute('aria-hidden', 'false');
+
+        return;
+    }
+
+    loader.classList.add('hidden');
+    loader.setAttribute('aria-hidden', 'true');
+}
+
+function runLoginLogoAssembly(loader, { hideAfter = true } = {}) {
+    const layers = [...loader.querySelectorAll('[data-logo-layer]')];
+
+    if (layers.length !== 3) {
+        return;
+    }
+
+    const top = loader.querySelector('[data-logo-layer="top"]');
+    const middle = loader.querySelector('[data-logo-layer="middle"]');
+    const bottom = loader.querySelector('[data-logo-layer="bottom"]');
+
+    gsap.killTweensOf([loader, ...layers]);
+    setLoginLoaderVisibility(loader, true);
+    gsap.set(loader, { autoAlpha: 1 });
+    gsap.set(layers, {
+        opacity: 1,
+        rotation: 0,
+        scale: 1,
+        x: 0,
+        y: 0,
+        transformOrigin: '50% 50%',
+    });
+    gsap.set(top, { rotation: -8, x: 23, y: -24, scale: 0.9 });
+    gsap.set(middle, { rotation: 6, x: -19, y: 14, scale: 0.94 });
+    gsap.set(bottom, { rotation: 8, x: 20, y: 27, scale: 0.92 });
+
+    const timeline = gsap.timeline({ defaults: { ease: 'power3.out' } });
+
+    timeline.to(layers, {
+        duration: 0.74,
+        rotation: 0,
+        scale: 1,
+        x: 0,
+        y: 0,
+        stagger: 0.08,
+    }).to(loader.querySelector('[data-login-logo]'), {
+        duration: 0.35,
+        ease: 'sine.inOut',
+        scale: 1.04,
+    }).to(loader.querySelector('[data-login-logo]'), {
+        duration: 0.35,
+        ease: 'sine.inOut',
+        scale: 1,
+    }).to({}, {
+        duration: 0.5,
+    });
+
+    if (hideAfter) {
+        timeline.to(loader, {
+            autoAlpha: 0,
+            duration: 0.4,
+            ease: 'power2.out',
+            onComplete: () => setLoginLoaderVisibility(loader, false),
+        });
+
+        window.setTimeout(() => {
+            if (!loader.classList.contains('hidden')) {
+                setLoginLoaderVisibility(loader, false);
+            }
+        }, 2700);
+    }
+}
+
+function initializeLoginAnimations() {
+    const page = document.querySelector('[data-login-page]');
+    const loader = page?.querySelector('[data-login-loader]');
+
+    if (!page || !loader || page.dataset.animationsInitialized === 'true') {
+        return;
+    }
+
+    page.dataset.animationsInitialized = 'true';
+
+    const illustration = page.querySelector('[data-login-illustration]');
+    const mobileBrand = page.querySelector('[data-login-mobile-brand]');
+    const formContent = page.querySelector('[data-login-form-content]');
+    const heading = page.querySelector('[data-login-heading]');
+    const form = page.querySelector('[data-login-form]');
+    const footer = formContent?.querySelector('p.mt-8');
+    const reducedMotion = prefersReducedMotion();
+
+    form?.addEventListener('submit', () => {
+        if (form.dataset.submitting === 'true') {
+            return;
+        }
+
+        form.dataset.submitting = 'true';
+
+        if (reducedMotion) {
+            setLoginLoaderVisibility(loader, true);
+
+            return;
+        }
+
+        runLoginLogoAssembly(loader, { hideAfter: false });
+    });
+
+    if (reducedMotion) {
+        setLoginLoaderVisibility(loader, false);
+
+        return;
+    }
+
+    runLoginLogoAssembly(loader);
+
+    if (window.matchMedia('(min-width: 1280px)').matches) {
+        gsap.from(illustration, {
+            duration: 0.68,
+            ease: 'power3.out',
+            opacity: 0,
+            y: 20,
+            delay: 2.5,
+        });
+        gsap.from(formContent, {
+            duration: 0.68,
+            ease: 'power3.out',
+            opacity: 0,
+            x: 20,
+            delay: 2.62,
+        });
+
+        return;
+    }
+
+    gsap.from(mobileBrand, {
+        duration: 0.52,
+        ease: 'power3.out',
+        opacity: 0,
+        y: -14,
+        delay: 2.5,
+    });
+    gsap.from(heading, {
+        duration: 0.52,
+        ease: 'power3.out',
+        opacity: 0,
+        y: 16,
+        delay: 2.62,
+    });
+    gsap.from(form, {
+        duration: 0.52,
+        ease: 'power3.out',
+        opacity: 0,
+        y: 16,
+        delay: 2.72,
+    });
+    gsap.from(footer, {
+        duration: 0.52,
+        ease: 'power3.out',
+        opacity: 0,
+        y: 12,
+        delay: 2.82,
+    });
+
+}
+
+function dashboardAnimationTargets(page) {
+    const header = page.querySelector('[data-dashboard-header]');
+    const stats = [...page.querySelectorAll('[data-dashboard-stat]')];
+    const content = [...page.querySelectorAll('[data-dashboard-content]')];
+
+    return [
+        header,
+        ...stats,
+        ...content,
+        ...page.querySelectorAll('[data-dashboard-counter], [data-dashboard-percentage], [data-dashboard-chart-segment]'),
+    ].filter(Boolean);
+}
+
+function dashboardCounterValue(counter) {
+    const value = Number.parseInt(counter.dataset.dashboardCounter ?? '0', 10);
+
+    return Number.isFinite(value) ? value : 0;
+}
+
+function restoreDashboardCounterValues(page) {
+    page.querySelectorAll('[data-dashboard-counter]').forEach((counter) => {
+        counter.textContent = String(dashboardCounterValue(counter));
+    });
+}
+
+function dashboardPercentageValue(percentage) {
+    const value = Number.parseFloat(percentage.dataset.dashboardPercentage ?? '0');
+
+    return Number.isFinite(value) ? value : 0;
+}
+
+function restoreDashboardPercentageValues(page) {
+    page.querySelectorAll('[data-dashboard-percentage]').forEach((percentage) => {
+        percentage.textContent = `${dashboardPercentageValue(percentage).toFixed(1)}%`;
+    });
+}
+
+function dashboardDistributionStart(element) {
+    const row = element.closest('[data-dashboard-distribution-row]');
+    const index = Number.parseInt(row?.dataset.dashboardDistributionRow ?? '0', 10);
+
+    return 0.2 + (Number.isFinite(index) ? index * 0.07 : 0);
+}
+
+function restoreDashboardChartSegments(page) {
+    page.querySelectorAll('[data-dashboard-chart-segment]').forEach((segment) => {
+        const length = Number.parseFloat(segment.dataset.segmentLength ?? '0');
+        const remainder = Math.max(100 - length, 0);
+
+        segment.style.strokeDasharray = `${length} ${remainder}`;
+    });
+}
+
+function restoreDashboardAnimationState(page) {
+    const targets = dashboardAnimationTargets(page);
+    const stats = [...page.querySelectorAll('[data-dashboard-stat]')];
+
+    page._dashboardAnimationTimeline?.kill();
+    page._dashboardAnimationTimeline = null;
+    page._dashboardCounterStates = null;
+    page._dashboardPercentageStates = null;
+    page._dashboardSegmentStates = null;
+    gsap.killTweensOf(targets);
+    gsap.set(targets, { clearProps: 'opacity,transform,visibility' });
+    gsap.set(stats, { clearProps: 'transition' });
+    restoreDashboardCounterValues(page);
+    restoreDashboardPercentageValues(page);
+    restoreDashboardChartSegments(page);
+    document.documentElement.classList.remove('dashboard-animation-pending');
+}
+
+function initializeShellAnimations() {
+    const root = document.documentElement;
+
+    if (root.dataset.shellAnimationInitialized === 'true') {
+        return;
+    }
+
+    if (!root.classList.contains('shell-animation-pending')) {
+        return;
+    }
+
+    const sidebar = document.querySelector('[data-dashboard-sidebar]');
+    const header = document.querySelector('[data-mobile-header]');
+    const brand = header?.querySelector('[data-mobile-header-brand]');
+    const menu = header?.querySelector('[data-mobile-header-menu]');
+    const targets = [sidebar, header, brand, menu].filter(Boolean);
+
+    if (!sidebar) {
+        root.classList.remove('shell-animation-pending');
+
+        return;
+    }
+
+    root.dataset.shellAnimationInitialized = 'true';
+    root._shellAnimationTimeline?.kill();
+    gsap.killTweensOf(targets);
+
+    if (prefersReducedMotion()) {
+        gsap.set(targets, { clearProps: 'opacity,transform,visibility' });
+        root.classList.remove('shell-animation-pending');
+
+        return;
+    }
+
+    try {
+        gsap.set(sidebar, { opacity: 0, x: -28 });
+        if (header) {
+            gsap.set(header, { opacity: 0, y: -20 });
+        }
+        if (brand) {
+            gsap.set(brand, { opacity: 0, x: -16 });
+        }
+        if (menu) {
+            gsap.set(menu, { opacity: 0, x: 14 });
+        }
+
+        const timeline = gsap.timeline({
+            paused: true,
+            defaults: { ease: 'power3.out' },
+            onComplete: () => {
+                gsap.set(targets, { clearProps: 'opacity,transform,visibility' });
+                root.classList.remove('shell-animation-pending');
+                root._shellAnimationTimeline = null;
+            },
+        });
+
+        root._shellAnimationTimeline = timeline;
+        root.classList.remove('shell-animation-pending');
+        timeline.to(sidebar, {
+            duration: 0.7,
+            opacity: 1,
+            x: 0,
+        }, 0);
+        if (header) {
+            timeline.to(header, {
+                duration: 0.65,
+                opacity: 1,
+                y: 0,
+            }, 0);
+        }
+        if (brand) {
+            timeline.to(brand, {
+                duration: 0.65,
+                opacity: 1,
+                x: 0,
+            }, 0.12);
+        }
+        if (menu) {
+            timeline.to(menu, {
+                duration: 0.55,
+                opacity: 1,
+                x: 0,
+            }, 0.18);
+        }
+        timeline.play(0);
+    } catch {
+        gsap.set(targets, { clearProps: 'opacity,transform,visibility' });
+        root.classList.remove('shell-animation-pending');
+    }
+}
+
+function initializeDashboardAnimations() {
+    const page = document.querySelector('[data-dashboard-page]');
+
+    if (!page || page.dataset.animationsInitialized === 'true') {
+        return;
+    }
+
+    const header = page.querySelector('[data-dashboard-header]');
+    const stats = [...page.querySelectorAll('[data-dashboard-stat]')];
+    const content = [...page.querySelectorAll('[data-dashboard-content]')];
+    const distribution = content[0];
+    const recent = content[1];
+    const targets = dashboardAnimationTargets(page);
+    const animationPending = document.documentElement.classList.contains('dashboard-animation-pending');
+
+    if (!animationPending) {
+        restoreDashboardAnimationState(page);
+        page.dataset.animationsInitialized = 'true';
+
+        return;
+    }
+
+    page._dashboardAnimationTimeline?.kill();
+    page._dashboardAnimationTimeline = null;
+    gsap.killTweensOf(targets);
+    page.dataset.animationsInitialized = 'true';
+
+    if (prefersReducedMotion()) {
+        restoreDashboardAnimationState(page);
+
+        return;
+    }
+
+    try {
+        const counters = [...page.querySelectorAll('[data-dashboard-counter]')];
+        const counterStates = counters.map((counter) => ({
+            element: counter,
+            state: { value: 0 },
+            target: dashboardCounterValue(counter),
+        }));
+        const percentageStates = [...page.querySelectorAll('[data-dashboard-percentage]')].map((percentage) => ({
+            element: percentage,
+            state: { value: 0 },
+            target: dashboardPercentageValue(percentage),
+        }));
+        const segmentStates = [...page.querySelectorAll('[data-dashboard-chart-segment]')].map((segment) => ({
+            element: segment,
+            length: Number.parseFloat(segment.dataset.segmentLength ?? '0'),
+            state: { progress: 0 },
+        }));
+
+        page._dashboardCounterStates = counterStates;
+        page._dashboardPercentageStates = percentageStates;
+        page._dashboardSegmentStates = segmentStates;
+
+        gsap.set(header, { opacity: 0, y: 20 });
+        gsap.set(stats, { opacity: 0, y: 26, transition: 'none' });
+        gsap.set(distribution, { opacity: 0, y: 16 });
+        gsap.set(recent, { opacity: 0, x: 12 });
+
+        counterStates.forEach(({ element }) => {
+            element.textContent = '0';
+        });
+        percentageStates.forEach(({ element }) => {
+            element.textContent = '0.0%';
+        });
+
+        segmentStates.forEach(({ element }) => {
+            element.style.strokeDasharray = '0 100';
+        });
+
+        const timeline = gsap.timeline({
+            paused: true,
+            defaults: { ease: 'power3.out' },
+            onComplete: () => {
+                gsap.set(targets, { clearProps: 'opacity,transform,visibility' });
+                gsap.set(stats, { clearProps: 'transition' });
+                restoreDashboardCounterValues(page);
+                restoreDashboardPercentageValues(page);
+                restoreDashboardChartSegments(page);
+                page._dashboardCounterStates = null;
+                page._dashboardPercentageStates = null;
+                page._dashboardSegmentStates = null;
+                page._dashboardAnimationTimeline = null;
+            },
+        });
+
+        page._dashboardAnimationTimeline = timeline;
+        timeline.to(header, {
+            duration: 0.65,
+            opacity: 1,
+            y: 0,
+        }, 0.08).to(stats, {
+            duration: 0.8,
+            opacity: 1,
+            y: 0,
+            stagger: 0.08,
+        }, 0.18).to(distribution, {
+            duration: 0.85,
+            opacity: 1,
+            y: 0,
+            ease: 'power2.out',
+        }, 0.28).to(recent, {
+            duration: 0.8,
+            opacity: 1,
+            x: 0,
+        }, 0.35);
+
+        counterStates.forEach(({ element, state, target }) => {
+            const start = element.closest('[data-dashboard-stat]') ? 0.18 : dashboardDistributionStart(element);
+
+            timeline.to(state, {
+                duration: 1.35,
+                value: target,
+                ease: 'power2.out',
+                snap: { value: 1 },
+                onUpdate: () => {
+                    element.textContent = String(Math.round(state.value));
+                },
+            }, start);
+        });
+
+        percentageStates.forEach(({ element, state, target }) => {
+            timeline.to(state, {
+                duration: 1.35,
+                value: target,
+                ease: 'power2.out',
+                onUpdate: () => {
+                    element.textContent = `${state.value.toFixed(1)}%`;
+                },
+            }, dashboardDistributionStart(element));
+        });
+
+        segmentStates.forEach(({ element, length, state }, index) => {
+            timeline.to(state, {
+                duration: 0.68,
+                progress: 1,
+                ease: 'power2.out',
+                onUpdate: () => {
+                    const visibleLength = length * state.progress;
+
+                    element.style.strokeDasharray = `${visibleLength} ${Math.max(100 - visibleLength, 0)}`;
+                },
+            }, 0.2 + (index * 0.07));
+        });
+
+        document.documentElement.classList.remove('dashboard-animation-pending');
+        timeline.play(0);
+    } catch {
+        restoreDashboardAnimationState(page);
+    }
+}
+
+function restoreDashboardAfterHistoryNavigation(event) {
+    if (!event.persisted) {
+        return;
+    }
+
+    const page = document.querySelector('[data-dashboard-page]');
+
+    if (page) {
+        restoreDashboardAnimationState(page);
+    }
+
+    const root = document.documentElement;
+    const sidebar = document.querySelector('[data-dashboard-sidebar]');
+
+    root._shellAnimationTimeline?.kill();
+    root._shellAnimationTimeline = null;
+    root.classList.remove('shell-animation-pending');
+
+    if (sidebar) {
+        gsap.killTweensOf(sidebar);
+        gsap.set(sidebar, { clearProps: 'opacity,transform,visibility' });
+    }
+
+    const header = document.querySelector('[data-mobile-header]');
+    const headerTargets = [header, header?.querySelector('[data-mobile-header-brand]'), header?.querySelector('[data-mobile-header-menu]')].filter(Boolean);
+
+    gsap.killTweensOf(headerTargets);
+    gsap.set(headerTargets, { clearProps: 'opacity,transform,visibility' });
+}
+
+function cleanupDashboardBeforeNavigation() {
+    const page = document.querySelector('[data-dashboard-page]');
+
+    if (page) {
+        restoreDashboardAnimationState(page);
+    }
+
+    const root = document.documentElement;
+    const sidebar = document.querySelector('[data-dashboard-sidebar]');
+
+    root._shellAnimationTimeline?.kill();
+    root._shellAnimationTimeline = null;
+    root.classList.remove('shell-animation-pending');
+
+    if (sidebar) {
+        gsap.killTweensOf(sidebar);
+        gsap.set(sidebar, { clearProps: 'opacity,transform,visibility' });
+    }
+
+    const header = document.querySelector('[data-mobile-header]');
+    const headerTargets = [header, header?.querySelector('[data-mobile-header-brand]'), header?.querySelector('[data-mobile-header-menu]')].filter(Boolean);
+
+    gsap.killTweensOf(headerTargets);
+    gsap.set(headerTargets, { clearProps: 'opacity,transform,visibility' });
+}
+
 window.instrumentsDeskNotifications = {
     success: (message) => notify('success', message),
     error: (message) => notify('error', message),
@@ -3041,11 +3602,22 @@ document.addEventListener('livewire:init', registerLivewireNotifications);
 document.addEventListener('DOMContentLoaded', registerMobileNavigation);
 document.addEventListener('DOMContentLoaded', registerCertificateRefreshConfirmation);
 document.addEventListener('DOMContentLoaded', registerUserStatusConfirmation);
+document.addEventListener('DOMContentLoaded', initializeLoginAnimations);
+document.addEventListener('DOMContentLoaded', initializeShellAnimations);
+document.addEventListener('DOMContentLoaded', synchronizeHomeScrollPosition);
+document.addEventListener('DOMContentLoaded', initializeDashboardAnimations);
 document.addEventListener('livewire:navigated', registerMobileNavigation);
 document.addEventListener('livewire:navigated', registerCertificateRefreshConfirmation);
 document.addEventListener('livewire:navigated', registerUserStatusConfirmation);
+document.addEventListener('livewire:navigated', initializeLoginAnimations);
+document.addEventListener('livewire:navigated', initializeShellAnimations);
+document.addEventListener('livewire:navigated', synchronizeHomeScrollPosition);
+document.addEventListener('livewire:navigated', initializeDashboardAnimations);
+document.addEventListener('livewire:navigating', cleanupDashboardBeforeNavigation);
 document.addEventListener('DOMContentLoaded', registerExternalPdfUpload);
 document.addEventListener('livewire:navigated', registerExternalPdfUpload);
+window.addEventListener('pageshow', restoreDashboardAfterHistoryNavigation);
+window.addEventListener('pageshow', synchronizeHomeScrollPosition);
 
 if (window.Livewire) {
     registerLivewireNotifications();
