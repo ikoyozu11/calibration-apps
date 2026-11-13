@@ -153,6 +153,30 @@
         @apply border-transparent text-muted hover:border-brand/40 hover:text-navy;
     }
 
+    @media (max-width: 48rem) {
+        [data-calibrations-report-actions] button:first-child {
+            order: 2;
+        }
+
+        [data-calibrations-report-actions] button:last-child {
+            order: 1;
+        }
+
+        [data-calibrations-page] .desk-tabs {
+            gap: 0;
+            overflow-x: hidden;
+        }
+
+        [data-calibrations-page] .desk-tab {
+            min-width: 0;
+            flex: 1 1 0%;
+            padding-inline: 0.375rem;
+            font-size: 0.75rem;
+            line-height: 1.25;
+            text-align: center;
+        }
+    }
+
     .certificate-pdf-preview {
         display: block;
         width: 100%;
@@ -437,6 +461,14 @@
         opacity: 0;
     }
 
+    html.instruments-animation-pending [data-instruments-page] {
+        opacity: 0;
+    }
+
+    html.calibrations-animation-pending [data-calibrations-page] {
+        opacity: 0;
+    }
+
     html.shell-animation-pending [data-dashboard-sidebar] {
         opacity: 0;
     }
@@ -449,6 +481,12 @@
     [data-dashboard-page] .chart-track,
     [data-dashboard-page] .chart-segment,
     [data-dashboard-page] .chart-label {
+        animation: none;
+    }
+
+    [data-calibrations-page] .chart-track,
+    [data-calibrations-page] .chart-segment,
+    [data-calibrations-page] .chart-label {
         animation: none;
     }
 }

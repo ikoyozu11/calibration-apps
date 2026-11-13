@@ -171,35 +171,35 @@ new class extends Component
 };
 ?>
 
-<div class="px-4 py-8 sm:px-6 lg:px-10">
+<div data-instruments-page class="px-4 py-8 sm:px-6 lg:px-10">
     <div class="mx-auto flex max-w-6xl flex-col gap-8">
-        <header>
+        <header data-instruments-header>
             <h1 class="text-2xl font-semibold tracking-tight text-navy">Instruments</h1>
             <p class="mt-1 text-sm text-muted">Browse instruments by name, type, and location.</p>
         </header>
 
-        <section aria-label="Instrument totals" class="grid gap-4 sm:grid-cols-3">
+        <section aria-label="Instrument totals" class="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
             @foreach ([
                 ['label' => 'Instruments', 'value' => $this->totals['instruments'], 'surface' => 'bg-on-track shadow-[0_16px_28px_-16px_rgb(31_122_77/0.75)]'],
                 ['label' => 'Types', 'value' => $this->totals['types'], 'surface' => 'bg-overdue shadow-[0_16px_28px_-16px_rgb(180_35_24/0.75)]'],
                 ['label' => 'Locations', 'value' => $this->totals['locations'], 'surface' => 'bg-due-soon shadow-[0_16px_28px_-16px_rgb(138_90_0/0.75)]'],
             ] as $card)
-                <article class="relative overflow-hidden rounded-2xl p-5 text-white transition duration-200 hover:-translate-y-0.5 {{ $card['surface'] }}">
+                <article data-instruments-stat class="relative min-h-26 overflow-hidden rounded-2xl p-3 text-white transition duration-200 hover:-translate-y-0.5 md:min-h-0 md:p-5 {{ $card['surface'] }}">
                     <span class="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/25 via-transparent to-black/15" aria-hidden="true"></span>
                     <div class="relative">
-                        <p class="text-sm font-medium text-white/80">{{ $card['label'] }}</p>
-                        <p class="mt-3 text-4xl font-semibold tracking-tight tabular-nums">{{ $card['value'] }}</p>
+                        <p class="text-[11px] font-medium leading-tight text-white/80 md:text-sm">{{ $card['label'] }}</p>
+                        <p class="mt-2 text-3xl font-semibold tracking-tight tabular-nums md:mt-3 md:text-4xl" data-instruments-counter="{{ $card['value'] }}">{{ $card['value'] }}</p>
                     </div>
                 </article>
             @endforeach
         </section>
 
-        <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="instruments-heading">
-            <div class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <section data-instruments-panel class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="instruments-heading">
+            <div class="flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center md:justify-between">
                 <h2 id="instruments-heading" class="text-base font-semibold tracking-tight text-navy">Instrument List</h2>
-                <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div data-instruments-toolbar class="grid grid-cols-2 gap-2 md:flex md:items-center">
                     <label for="instrument-location" class="sr-only">Filter by location</label>
-                    <select id="instrument-location" wire:model.live="locationId" class="rounded-lg border border-line bg-white px-3 py-2 text-sm text-navy sm:w-48">
+                    <select id="instrument-location" wire:model.live="locationId" class="order-2 min-w-0 w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-navy md:order-none md:w-48">
                         <option value="">All Locations</option>
                         @foreach ($this->locations as $location)
                             <option value="{{ $location->location_id }}">{{ $location->location_name }}</option>
@@ -211,10 +211,10 @@ new class extends Component
                         type="search"
                         wire:model.live.debounce.300ms="search"
                         placeholder="Name, brand, type, or model"
-                        class="ui-input sm:w-64"
+                        class="ui-input order-1 col-span-2 w-full md:order-none md:col-span-1 md:w-64"
                     >
                     <label for="instrument-page-size" class="sr-only">Rows per page</label>
-                    <select id="instrument-page-size" wire:model.live="perPage" class="rounded-lg border border-line bg-white px-3 py-2 text-sm text-navy">
+                    <select id="instrument-page-size" wire:model.live="perPage" class="order-3 min-w-0 w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-navy md:order-none md:w-auto">
                         <option value="10">10</option>
                         <option value="25">25</option>
                         <option value="50">50</option>

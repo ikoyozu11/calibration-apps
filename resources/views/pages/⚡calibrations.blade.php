@@ -515,6 +515,7 @@ new class extends Component
 ?>
 
 <div
+    data-calibrations-page
     class="px-4 py-8 sm:px-6 lg:px-10"
     x-data="{
         exportModalOpen: $wire.entangle('exportModalOpen'),
@@ -524,7 +525,7 @@ new class extends Component
     x-init="$watch('exportModalOpen', (open) => $nextTick(() => open ? $refs.exportYear?.focus() : $refs.exportButton?.focus()))"
 >
     <div class="mx-auto flex max-w-6xl flex-col gap-8">
-        <header class="flex flex-col gap-4">
+        <header data-calibrations-header class="flex flex-col gap-4">
             <div>
                 <h1 class="text-2xl font-semibold tracking-tight text-navy">Calibrations</h1>
                 <p class="mt-1 text-sm text-muted">
@@ -538,7 +539,7 @@ new class extends Component
 
             @if (Gate::allows(ApplicationCapability::SessionHistoryView->value)
                 || Gate::allows(ApplicationCapability::SessionStart->value))
-                <div class="desk-tabs" role="tablist" aria-label="Calibrations views">
+                <div data-calibrations-tabs class="desk-tabs" role="tablist" aria-label="Calibrations views">
                 <button
                     type="button"
                     role="tab"
@@ -589,7 +590,7 @@ new class extends Component
                 'reportPerPage' => $reportPerPage,
             ])
         @elseif ($tab === CalibrationAnnualOverview::TAB_HISTORY)
-            <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="session-history-heading">
+            <section data-calibrations-content class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="session-history-heading">
                 <div class="flex flex-col gap-3 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
                     <h2 id="session-history-heading" class="text-base font-semibold tracking-tight text-navy">Session History</h2>
                     <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -677,7 +678,7 @@ new class extends Component
                 @endif
             </section>
         @else
-            <section aria-label="Annual progress totals" class="grid gap-4 sm:grid-cols-3">
+            <section data-calibrations-content class="grid gap-4 sm:grid-cols-3">
                 <article class="relative overflow-hidden rounded-2xl bg-on-track p-5 text-white shadow-[0_16px_28px_-16px_rgb(31_122_77/0.75)] transition duration-200 hover:-translate-y-0.5">
                     <span class="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/25 via-transparent to-black/15" aria-hidden="true"></span>
                     <div class="relative">
@@ -701,7 +702,7 @@ new class extends Component
                 </article>
             </section>
 
-            <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="calibrations-heading">
+            <section data-calibrations-content class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="calibrations-heading">
                 <div class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <h2 id="calibrations-heading" class="text-base font-semibold tracking-tight text-navy">Calibration Worklist</h2>
                     <button type="button" wire:click="clearWorklistFilters" class="ui-button-secondary">Clear Filters</button>

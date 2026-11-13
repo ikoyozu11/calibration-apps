@@ -3015,14 +3015,14 @@ function prefersReducedMotion() {
     return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
 }
 
-function synchronizeHomeScrollPosition() {
-    const isHome = document.querySelector('[data-dashboard-page]') !== null;
+function synchronizeTopLevelPageScrollPosition() {
+    const shouldResetScroll = document.querySelector('[data-dashboard-page], [data-instruments-page], [data-calibrations-page]') !== null;
 
     if ('scrollRestoration' in history) {
-        history.scrollRestoration = isHome ? 'manual' : 'auto';
+        history.scrollRestoration = shouldResetScroll ? 'manual' : 'auto';
     }
 
-    if (!isHome) {
+    if (!shouldResetScroll) {
         return;
     }
 
@@ -3269,6 +3269,341 @@ function restoreDashboardAnimationState(page) {
     restoreDashboardPercentageValues(page);
     restoreDashboardChartSegments(page);
     document.documentElement.classList.remove('dashboard-animation-pending');
+}
+
+function instrumentAnimationTargets(page) {
+    return [
+        page.querySelector('[data-instruments-header]'),
+        ...page.querySelectorAll('[data-instruments-stat]'),
+        page.querySelector('[data-instruments-panel]'),
+        page.querySelector('[data-instruments-toolbar]'),
+        ...page.querySelectorAll('[data-instruments-counter]'),
+    ].filter(Boolean);
+}
+
+function instrumentCounterValue(counter) {
+    const value = Number.parseInt(counter.dataset.instrumentsCounter ?? '0', 10);
+
+    return Number.isFinite(value) ? value : 0;
+}
+
+function restoreInstrumentAnimationState(page) {
+    const targets = instrumentAnimationTargets(page);
+    const stats = [...page.querySelectorAll('[data-instruments-stat]')];
+
+    page._instrumentsAnimationTimeline?.kill();
+    page._instrumentsAnimationTimeline = null;
+    page._instrumentsCounterStates = null;
+    gsap.killTweensOf(targets);
+    gsap.set(targets, { clearProps: 'opacity,transform,visibility' });
+    gsap.set(stats, { clearProps: 'transition' });
+
+    page.querySelectorAll('[data-instruments-counter]').forEach((counter) => {
+        counter.textContent = String(instrumentCounterValue(counter));
+    });
+
+    document.documentElement.classList.remove('instruments-animation-pending');
+}
+
+function initializeInstrumentsAnimations() {
+    const page = document.querySelector('[data-instruments-page]');
+
+    if (!page || page.dataset.animationsInitialized === 'true') {
+        return;
+    }
+
+    page.dataset.animationsInitialized = 'true';
+
+    if (!document.documentElement.classList.contains('instruments-animation-pending')) {
+        restoreInstrumentAnimationState(page);
+
+        return;
+    }
+
+    const header = page.querySelector('[data-instruments-header]');
+    const stats = [...page.querySelectorAll('[data-instruments-stat]')];
+    const panel = page.querySelector('[data-instruments-panel]');
+    const toolbar = page.querySelector('[data-instruments-toolbar]');
+    const counters = [...page.querySelectorAll('[data-instruments-counter]')];
+    const targets = instrumentAnimationTargets(page);
+
+    if (!header || stats.length === 0 || !panel || !toolbar) {
+        restoreInstrumentAnimationState(page);
+
+        return;
+    }
+
+    if (prefersReducedMotion()) {
+        restoreInstrumentAnimationState(page);
+
+        return;
+    }
+
+    try {
+        const counterStates = counters.map((counter) => ({
+            element: counter,
+            state: { value: 0 },
+            target: instrumentCounterValue(counter),
+        }));
+
+        page._instrumentsCounterStates = counterStates;
+
+        gsap.set(header, { opacity: 0, y: 18 });
+        gsap.set(stats, { opacity: 0, y: 24, transition: 'none' });
+        gsap.set(panel, { opacity: 0, y: 18 });
+        gsap.set(toolbar, { opacity: 0, x: 12 });
+
+        counterStates.forEach(({ element }) => {
+            element.textContent = '0';
+        });
+
+        const timeline = gsap.timeline({
+            paused: true,
+            defaults: { ease: 'power3.out' },
+            onComplete: () => {
+                gsap.set(targets, { clearProps: 'opacity,transform,visibility' });
+                gsap.set(stats, { clearProps: 'transition' });
+                counterStates.forEach(({ element, target }) => {
+                    element.textContent = String(target);
+                });
+                page._instrumentsCounterStates = null;
+                page._instrumentsAnimationTimeline = null;
+            },
+        });
+
+        page._instrumentsAnimationTimeline = timeline;
+        timeline.to(header, {
+            duration: 0.65,
+            opacity: 1,
+            y: 0,
+        }, 0).to(stats, {
+            duration: 0.75,
+            opacity: 1,
+            y: 0,
+            stagger: 0.08,
+        }, 0.12).to(panel, {
+            duration: 0.85,
+            opacity: 1,
+            y: 0,
+        }, 0.24).to(toolbar, {
+            duration: 0.6,
+            opacity: 1,
+            x: 0,
+        }, 0.32);
+
+        counterStates.forEach(({ element, state, target }, index) => {
+            timeline.to(state, {
+                duration: 1.35,
+                value: target,
+                ease: 'power2.out',
+                snap: { value: 1 },
+                onUpdate: () => {
+                    element.textContent = String(Math.round(state.value));
+                },
+            }, 0.12 + (index * 0.08));
+        });
+
+        document.documentElement.classList.remove('instruments-animation-pending');
+        timeline.play(0);
+    } catch {
+        restoreInstrumentAnimationState(page);
+    }
+}
+
+function calibrationAnimationTargets(page) {
+    return [
+        page.querySelector('[data-calibrations-header]'),
+        page.querySelector('[data-calibrations-tabs]'),
+        ...page.querySelectorAll('[data-calibrations-stat]'),
+        ...page.querySelectorAll('[data-calibrations-content]'),
+        page.querySelector('[data-calibrations-toolbar]'),
+        ...page.querySelectorAll('[data-calibration-counter], [data-calibration-percentage], [data-calibration-chart-segment]'),
+    ].filter(Boolean);
+}
+
+function calibrationCounterValue(counter) {
+    const value = Number.parseInt(counter.dataset.calibrationCounter ?? '0', 10);
+
+    return Number.isFinite(value) ? value : 0;
+}
+
+function calibrationPercentageValue(percentage) {
+    const value = Number.parseFloat(percentage.dataset.calibrationPercentage ?? '0');
+
+    return Number.isFinite(value) ? value : 0;
+}
+
+function calibrationStatusStart(element) {
+    const row = element.closest('[data-calibrations-status-row]');
+    const index = Number.parseInt(row?.dataset.calibrationsStatusIndex ?? '0', 10);
+
+    return 0.22 + (Number.isFinite(index) ? index * 0.07 : 0);
+}
+
+function restoreCalibrationAnimationState(page) {
+    const targets = calibrationAnimationTargets(page);
+    const stats = [...page.querySelectorAll('[data-calibrations-stat]')];
+
+    page._calibrationsAnimationTimeline?.kill();
+    page._calibrationsAnimationTimeline = null;
+    page._calibrationsCounterStates = null;
+    page._calibrationsPercentageStates = null;
+    page._calibrationsSegmentStates = null;
+    gsap.killTweensOf(targets);
+    gsap.set(targets, { clearProps: 'opacity,transform,visibility' });
+    gsap.set(stats, { clearProps: 'transition' });
+
+    page.querySelectorAll('[data-calibration-counter]').forEach((counter) => {
+        counter.textContent = String(calibrationCounterValue(counter));
+    });
+    page.querySelectorAll('[data-calibration-percentage]').forEach((percentage) => {
+        percentage.textContent = `(${percentage.dataset.calibrationPercentageLabel ?? `${calibrationPercentageValue(percentage).toFixed(1)}%`})`;
+    });
+    page.querySelectorAll('[data-calibration-chart-segment]').forEach((segment) => {
+        const length = Number.parseFloat(segment.dataset.segmentLength ?? '0');
+
+        segment.style.strokeDasharray = `${length} ${Math.max(100 - length, 0)}`;
+    });
+
+    document.documentElement.classList.remove('calibrations-animation-pending');
+}
+
+function initializeCalibrationsAnimations() {
+    const page = document.querySelector('[data-calibrations-page]');
+
+    if (!page || page.dataset.animationsInitialized === 'true') {
+        return;
+    }
+
+    page.dataset.animationsInitialized = 'true';
+
+    if (!document.documentElement.classList.contains('calibrations-animation-pending')) {
+        restoreCalibrationAnimationState(page);
+
+        return;
+    }
+
+    const header = page.querySelector('[data-calibrations-header]');
+    const tabs = page.querySelector('[data-calibrations-tabs]');
+    const stats = [...page.querySelectorAll('[data-calibrations-stat]')];
+    const content = [...page.querySelectorAll('[data-calibrations-content]')];
+    const toolbar = page.querySelector('[data-calibrations-toolbar]');
+    const targets = calibrationAnimationTargets(page);
+
+    if (!header || targets.length === 0 || prefersReducedMotion()) {
+        restoreCalibrationAnimationState(page);
+
+        return;
+    }
+
+    try {
+        const counters = [...page.querySelectorAll('[data-calibration-counter]')];
+        const counterStates = counters.map((counter) => ({
+            element: counter,
+            state: { value: 0 },
+            target: calibrationCounterValue(counter),
+        }));
+        const percentageStates = [...page.querySelectorAll('[data-calibration-percentage]')].map((percentage) => ({
+            element: percentage,
+            state: { value: 0 },
+            target: calibrationPercentageValue(percentage),
+        }));
+        const segmentStates = [...page.querySelectorAll('[data-calibration-chart-segment]')].map((segment) => ({
+            element: segment,
+            length: Number.parseFloat(segment.dataset.segmentLength ?? '0'),
+            state: { progress: 0 },
+        }));
+
+        page._calibrationsCounterStates = counterStates;
+        page._calibrationsPercentageStates = percentageStates;
+        page._calibrationsSegmentStates = segmentStates;
+
+        gsap.set(header, { opacity: 0, y: 18 });
+        if (tabs) {
+            gsap.set(tabs, { opacity: 0, y: 10 });
+        }
+        gsap.set(stats, { opacity: 0, y: 24, transition: 'none' });
+        gsap.set(content, { opacity: 0, y: 18 });
+        if (toolbar) {
+            gsap.set(toolbar, { opacity: 0, x: 12 });
+        }
+        counterStates.forEach(({ element }) => { element.textContent = '0'; });
+        percentageStates.forEach(({ element }) => { element.textContent = '(0.0%)'; });
+        segmentStates.forEach(({ element }) => { element.style.strokeDasharray = '0 100'; });
+
+        const timeline = gsap.timeline({
+            paused: true,
+            defaults: { ease: 'power3.out' },
+            onComplete: () => {
+                gsap.set(targets, { clearProps: 'opacity,transform,visibility' });
+                gsap.set(stats, { clearProps: 'transition' });
+                counterStates.forEach(({ element, target }) => { element.textContent = String(target); });
+                percentageStates.forEach(({ element }) => {
+                    element.textContent = `(${element.dataset.calibrationPercentageLabel ?? `${calibrationPercentageValue(element).toFixed(1)}%`})`;
+                });
+                segmentStates.forEach(({ element, length }) => {
+                    element.style.strokeDasharray = `${length} ${Math.max(100 - length, 0)}`;
+                });
+                page._calibrationsCounterStates = null;
+                page._calibrationsPercentageStates = null;
+                page._calibrationsSegmentStates = null;
+                page._calibrationsAnimationTimeline = null;
+            },
+        });
+
+        page._calibrationsAnimationTimeline = timeline;
+        timeline.to(header, { duration: 0.65, opacity: 1, y: 0 }, 0);
+        if (tabs) {
+            timeline.to(tabs, { duration: 0.6, opacity: 1, y: 0 }, 0.08);
+        }
+        if (stats.length > 0) {
+            timeline.to(stats, { duration: 0.75, opacity: 1, y: 0, stagger: 0.08 }, 0.12);
+        }
+        if (content.length > 0) {
+            timeline.to(content, { duration: 0.85, opacity: 1, y: 0, ease: 'power2.out' }, 0.24);
+        }
+        if (toolbar) {
+            timeline.to(toolbar, { duration: 0.6, opacity: 1, x: 0 }, 0.36);
+        }
+
+        counterStates.forEach(({ element, state, target }) => {
+            const card = element.closest('[data-calibrations-stat]');
+            const cardIndex = Number.parseInt(card?.dataset.calibrationsStatIndex ?? '0', 10);
+            const start = card ? 0.12 + (Number.isFinite(cardIndex) ? cardIndex * 0.08 : 0) : calibrationStatusStart(element);
+
+            timeline.to(state, {
+                duration: 1.35,
+                value: target,
+                ease: 'power2.out',
+                snap: { value: 1 },
+                onUpdate: () => { element.textContent = String(Math.round(state.value)); },
+            }, start);
+        });
+        percentageStates.forEach(({ element, state, target }) => {
+            timeline.to(state, {
+                duration: 1.35,
+                value: target,
+                ease: 'power2.out',
+                onUpdate: () => { element.textContent = `(${state.value.toFixed(1)}%)`; },
+            }, calibrationStatusStart(element));
+        });
+        segmentStates.forEach(({ element, length, state }, index) => {
+            timeline.to(state, {
+                duration: 0.68,
+                progress: 1,
+                ease: 'power2.out',
+                onUpdate: () => {
+                    const visibleLength = length * state.progress;
+                    element.style.strokeDasharray = `${visibleLength} ${Math.max(100 - visibleLength, 0)}`;
+                },
+            }, 0.22 + (index * 0.07));
+        });
+
+        document.documentElement.classList.remove('calibrations-animation-pending');
+        timeline.play(0);
+    } catch {
+        restoreCalibrationAnimationState(page);
+    }
 }
 
 function initializeShellAnimations() {
@@ -3543,6 +3878,13 @@ function restoreDashboardAfterHistoryNavigation(event) {
 
     gsap.killTweensOf(headerTargets);
     gsap.set(headerTargets, { clearProps: 'opacity,transform,visibility' });
+
+    const calibrationsPage = document.querySelector('[data-calibrations-page]');
+
+    if (calibrationsPage) {
+        restoreCalibrationAnimationState(calibrationsPage);
+        calibrationsPage.dataset.animationsInitialized = 'false';
+    }
 }
 
 function cleanupDashboardBeforeNavigation() {
@@ -3569,6 +3911,12 @@ function cleanupDashboardBeforeNavigation() {
 
     gsap.killTweensOf(headerTargets);
     gsap.set(headerTargets, { clearProps: 'opacity,transform,visibility' });
+
+    const calibrationsPage = document.querySelector('[data-calibrations-page]');
+
+    if (calibrationsPage) {
+        restoreCalibrationAnimationState(calibrationsPage);
+    }
 }
 
 window.instrumentsDeskNotifications = {
@@ -3604,20 +3952,24 @@ document.addEventListener('DOMContentLoaded', registerCertificateRefreshConfirma
 document.addEventListener('DOMContentLoaded', registerUserStatusConfirmation);
 document.addEventListener('DOMContentLoaded', initializeLoginAnimations);
 document.addEventListener('DOMContentLoaded', initializeShellAnimations);
-document.addEventListener('DOMContentLoaded', synchronizeHomeScrollPosition);
+document.addEventListener('DOMContentLoaded', synchronizeTopLevelPageScrollPosition);
 document.addEventListener('DOMContentLoaded', initializeDashboardAnimations);
+document.addEventListener('DOMContentLoaded', initializeInstrumentsAnimations);
+document.addEventListener('DOMContentLoaded', initializeCalibrationsAnimations);
 document.addEventListener('livewire:navigated', registerMobileNavigation);
 document.addEventListener('livewire:navigated', registerCertificateRefreshConfirmation);
 document.addEventListener('livewire:navigated', registerUserStatusConfirmation);
 document.addEventListener('livewire:navigated', initializeLoginAnimations);
 document.addEventListener('livewire:navigated', initializeShellAnimations);
-document.addEventListener('livewire:navigated', synchronizeHomeScrollPosition);
+document.addEventListener('livewire:navigated', synchronizeTopLevelPageScrollPosition);
 document.addEventListener('livewire:navigated', initializeDashboardAnimations);
+document.addEventListener('livewire:navigated', initializeInstrumentsAnimations);
+document.addEventListener('livewire:navigated', initializeCalibrationsAnimations);
 document.addEventListener('livewire:navigating', cleanupDashboardBeforeNavigation);
 document.addEventListener('DOMContentLoaded', registerExternalPdfUpload);
 document.addEventListener('livewire:navigated', registerExternalPdfUpload);
 window.addEventListener('pageshow', restoreDashboardAfterHistoryNavigation);
-window.addEventListener('pageshow', synchronizeHomeScrollPosition);
+window.addEventListener('pageshow', synchronizeTopLevelPageScrollPosition);
 
 if (window.Livewire) {
     registerLivewireNotifications();

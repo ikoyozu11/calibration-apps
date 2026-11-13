@@ -12,17 +12,17 @@
 
         <script>
             (() => {
-                const isHome = @js(request()->routeIs('home'));
+                const shouldResetScroll = @js(request()->routeIs('home') || request()->routeIs('instruments.index') || request()->routeIs('calibrations.index'));
 
                 if ('scrollRestoration' in history) {
-                    history.scrollRestoration = isHome ? 'manual' : 'auto';
+                    history.scrollRestoration = shouldResetScroll ? 'manual' : 'auto';
                 }
 
-                if (! isHome) {
+                if (! shouldResetScroll) {
                     return;
                 }
 
-                const resetHomeScroll = () => {
+                const resetPageScroll = () => {
                     document.scrollingElement?.scrollTo({
                         top: 0,
                         left: 0,
@@ -30,11 +30,11 @@
                     });
                 };
 
-                resetHomeScroll();
+                resetPageScroll();
             })();
         </script>
 
-        @if (request()->routeIs('home') || session('animate_shell_entrance'))
+        @if (request()->routeIs('home') || request()->routeIs('instruments.index') || request()->routeIs('calibrations.index') || session('animate_shell_entrance'))
             <script>
                 (() => {
                     const root = document.documentElement;
@@ -47,12 +47,22 @@
                         root.classList.add('dashboard-animation-pending');
                     @endif
 
+                    @if (request()->routeIs('instruments.index'))
+                        root.classList.add('instruments-animation-pending');
+                    @endif
+
+                    @if (request()->routeIs('calibrations.index'))
+                        root.classList.add('calibrations-animation-pending');
+                    @endif
+
                     @if (session('animate_shell_entrance'))
                         root.classList.add('shell-animation-pending');
                     @endif
 
                     const revealAnimations = () => root.classList.remove(
                         'dashboard-animation-pending',
+                        'instruments-animation-pending',
+                        'calibrations-animation-pending',
                         'shell-animation-pending',
                     );
 
