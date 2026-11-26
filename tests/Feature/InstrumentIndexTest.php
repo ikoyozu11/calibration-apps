@@ -220,7 +220,7 @@ it('shows ten instruments per page and the rest on the next page', function () {
     $component->assertDontSee('Gauge 01');
 });
 
-it('filters the instrument list by name, brand, type, or model', function () {
+it('filters the instrument list by name, brand, type, model, or serial number', function () {
     createInstrumentIndexTables();
 
     insertInstrumentIndexRow(['instrument_id' => 1, 'instrument_name' => 'Digital Caliper']);
@@ -271,7 +271,9 @@ it('filters the instrument list by name, brand, type, or model', function () {
 
     $component
         ->set('search', 'WEIGHT-001')
-        ->assertDontSee('Sodiline');
+        ->assertSee('Sodiline')
+        ->assertSee('WEIGHT-001')
+        ->assertDontSee('Digital Caliper');
 
     $component
         ->set('search', '%')

@@ -56,7 +56,7 @@ class Instrument extends Model
     }
 
     /**
-     * Limit a type-row query to a name, brand, type, or model.
+     * Limit a type-row query to a name, brand, type, model, or serial number.
      *
      * The query must already left join instrument_type.
      *
@@ -78,6 +78,7 @@ class Instrument extends Model
             'instrument_type.brand',
             'instrument_type.type_name',
             'instrument_type.model',
+            'instrument.serial_number',
         ];
 
         $query->where(function (Builder $query) use ($like, $pattern, $columns): void {
