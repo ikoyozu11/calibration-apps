@@ -41,7 +41,8 @@ it('forces file sessions, file cache, and sync queue in the launcher', function 
         ->and($source)->toContain("EnvironmentVariables['CACHE_STORE'] = 'file'")
         ->and($source)->toContain("EnvironmentVariables['QUEUE_CONNECTION'] = 'sync'")
         ->and($source)->toContain("EnvironmentVariables['STAGING_PREFLIGHT_HTTP'] = '1'")
-        ->and($source)->toContain("EnvironmentVariables['STAGING_RUNTIME_ISOLATION'] = '1'");
+        ->and($source)->toContain("EnvironmentVariables['STAGING_RUNTIME_ISOLATION'] = '1'")
+        ->and($source)->toContain("EnvironmentVariables['CALIBRATION_NOTIFICATION_CENTER_STAGING'] = '1'");
 });
 
 it('refuses to launch when config cache exists', function () {

@@ -35,6 +35,13 @@ function stagingIsolationConfigArray(array $overrides = []): array
                     'username' => 'unused',
                     'password' => 'unused-secret',
                 ],
+                'pgsql_staging' => [
+                    'driver' => 'pgsql',
+                    'database' => StagingRuntimeIsolation::REQUIRED_DATABASE,
+                    'host' => StagingRuntimeIsolation::REQUIRED_HOST,
+                    'port' => StagingRuntimeIsolation::REQUIRED_PORT,
+                    'url' => null,
+                ],
             ],
         ],
         'session' => [
@@ -85,6 +92,88 @@ it('accepts a fully isolated staging configuration without connecting to Postgre
 
     expect($isolation->violations(stagingIsolationRepository(), false, stagingIsolationMissingCachePath()))->toBe([])
         ->and(TestRefusingPostgresConnector::$connectCalls)->toBe(0);
+});
+
+it('enables the notification center only for an explicit isolated staging opt-in', function () {
+    $config = stagingIsolationRepository([
+        'calibration_notification_center' => ['staging_opt_in' => true],
+    ]);
+
+    expect((new StagingRuntimeIsolation)->notificationCenterEnabled(
+        $config,
+        false,
+        stagingIsolationMissingCachePath(),
+    ))->toBeTrue();
+});
+
+it('fails closed for an invalid staging notification opt-in', function () {
+    $isolation = new StagingRuntimeIsolation;
+
+    expect($isolation->notificationCenterEnabled(
+        stagingIsolationRepository([
+            'calibration_notification_center' => ['staging_opt_in' => true],
+            'database' => ['connections' => ['pgsql_staging' => ['host' => '10.0.0.1']]],
+        ]),
+        false,
+        stagingIsolationMissingCachePath(),
+    ))->toBeFalse()
+        ->and($isolation->notificationCenterEnabled(
+            stagingIsolationRepository([
+                'calibration_notification_center' => ['staging_opt_in' => true],
+                'database' => ['connections' => ['pgsql_staging' => ['database' => StagingRuntimeIsolation::FORBIDDEN_PRODUCTION_DATABASE]]],
+            ]),
+            false,
+            stagingIsolationMissingCachePath(),
+        ))->toBeFalse();
+});
+
+it('keeps the notification center disabled without the staging opt-in', function () {
+    expect((new StagingRuntimeIsolation)->notificationCenterEnabled(
+        stagingIsolationRepository(),
+        false,
+        stagingIsolationMissingCachePath(),
+    ))->toBeFalse();
+});
+
+it('enables reconciliation only for an explicit isolated staging opt-in', function () {
+    $config = stagingIsolationRepository([
+        'calibration_notification_reconciliation' => ['staging_opt_in' => true],
+    ]);
+
+    expect((new StagingRuntimeIsolation)->notificationReconciliationEnabled(
+        $config,
+        false,
+        stagingIsolationMissingCachePath(),
+    ))->toBeTrue();
+});
+
+it('fails closed for reconciliation without isolation, with the wrong host, or with production', function () {
+    $isolation = new StagingRuntimeIsolation;
+
+    expect($isolation->notificationReconciliationEnabled(
+        stagingIsolationRepository([
+            'calibration_notification_reconciliation' => ['staging_opt_in' => true],
+            'database' => ['staging_runtime_isolation' => false],
+        ]),
+        false,
+        stagingIsolationMissingCachePath(),
+    ))->toBeFalse()
+        ->and($isolation->notificationReconciliationEnabled(
+            stagingIsolationRepository([
+                'calibration_notification_reconciliation' => ['staging_opt_in' => true],
+                'database' => ['connections' => ['pgsql_staging' => ['host' => '10.0.0.1']]],
+            ]),
+            false,
+            stagingIsolationMissingCachePath(),
+        ))->toBeFalse()
+        ->and($isolation->notificationReconciliationEnabled(
+            stagingIsolationRepository([
+                'calibration_notification_reconciliation' => ['staging_opt_in' => true],
+                'database' => ['connections' => ['pgsql' => ['database' => StagingRuntimeIsolation::FORBIDDEN_PRODUCTION_DATABASE]]],
+            ]),
+            false,
+            stagingIsolationMissingCachePath(),
+        ))->toBeFalse();
 });
 
 it('refuses when configuration cache is present', function () {

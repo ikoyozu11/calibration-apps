@@ -5,6 +5,7 @@ namespace App\CalibrationDueNotifications;
 use App\CalibrationSessions\CalibrationSessionConnection;
 use App\Models\Calibration;
 use Illuminate\Database\Connection;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
 
 final class CurrentCalibrationDueResolver
@@ -17,6 +18,26 @@ final class CurrentCalibrationDueResolver
     public function resolve(Connection $connection): Collection
     {
         $connection = $this->sessionConnection->resolve($connection);
+
+        return $this->query($connection)->get();
+    }
+
+    /**
+     * Resolve one exact pair. A null result means the pair target is absent;
+     * a thrown exception means the source could not be determined safely.
+     */
+    public function resolvePair(Connection $connection, int $instrumentId, int $instrumentTypeId): ?object
+    {
+        $connection = $this->sessionConnection->resolve($connection);
+
+        return $this->query($connection)
+            ->where('i.instrument_id', $instrumentId)
+            ->where('it.instrument_type_id', $instrumentTypeId)
+            ->first();
+    }
+
+    private function query(Connection $connection): Builder
+    {
         $completed = $connection
             ->table('calibration')
             ->where('session_status', Calibration::STATUS_COMPLETED)
@@ -57,7 +78,6 @@ final class CurrentCalibrationDueResolver
                 'l.location_name',
             ])
             ->orderBy('i.instrument_name')
-            ->orderBy('it.instrument_type_id')
-            ->get();
+            ->orderBy('it.instrument_type_id');
     }
 }

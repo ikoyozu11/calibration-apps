@@ -7,6 +7,10 @@ use App\Authorization\LiveDatabaseIdentity;
 use App\Authorization\ResolveApplicationRole;
 use App\Authorization\ResolvesLiveDatabaseIdentity;
 use App\Authorization\StagingAuthConnection;
+use App\CalibrationDueNotifications\AuthoritativeCalibrationPairEnumerator;
+use App\CalibrationDueNotifications\CalibrationPairEnumerator;
+use App\CalibrationDueNotifications\CalibrationPairStateDiscovery;
+use App\CalibrationDueNotifications\CurrentCalibrationNotificationCandidateDiscovery;
 use App\CalibrationSessions\CalibrationHttpConnection;
 use App\CalibrationSessions\CalibrationHttpConnectionException;
 use App\CalibrationSessions\CalibrationNumberAllocator;
@@ -43,6 +47,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        $this->app->bind(CalibrationPairEnumerator::class, function (): AuthoritativeCalibrationPairEnumerator {
+            return AuthoritativeCalibrationPairEnumerator::fromConfiguredValue(
+                config('calibration_notification_reconciliation.chunk_size'),
+            );
+        });
+        $this->app->bind(CalibrationPairStateDiscovery::class, CurrentCalibrationNotificationCandidateDiscovery::class);
         $this->app->singleton(CalibrationNumberAllocator::class, PostgresCalibrationNumberAllocator::class);
         $this->app->singleton(ResolveApplicationRole::class);
         $this->app->singleton(ResolvesLiveDatabaseIdentity::class, LiveDatabaseIdentity::class);

@@ -41,6 +41,15 @@ final class EnsureStagingRuntimeIsolation
                     $this->app->getCachedConfigPath(),
                 );
             }
+
+            $this->config->set(
+                'calibration_notification_center.enabled',
+                $this->isolation->notificationCenterEnabled(
+                    $this->config,
+                    $this->app->configurationIsCached(),
+                    $this->app->getCachedConfigPath(),
+                ),
+            );
         } catch (Throwable $exception) {
             abort(503, $exception->getMessage());
         }

@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\EnsureApplicationRole;
 use App\Http\Middleware\EnsureStagingRuntimeIsolation;
+use App\StagingRuntime\StagingRuntimeIsolation;
 use Illuminate\Auth\Middleware\Authenticate;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
@@ -27,6 +28,19 @@ return Application::configure(basePath: dirname(__DIR__))
             ->dailyAt('08:00')
             ->timezone((string) config('calibration_due_notifications.timezone', 'Asia/Jakarta'))
             ->withoutOverlapping();
+
+        $notificationReconciliationEnabled = (new StagingRuntimeIsolation)->notificationReconciliationEnabled(
+            config(),
+            app()->configurationIsCached(),
+            app()->getCachedConfigPath(),
+        );
+
+        if ($notificationReconciliationEnabled) {
+            $schedule->command('calibration:reconcile-notifications')
+                ->dailyAt('08:00')
+                ->timezone((string) config('calibration_notification_reconciliation.timezone', 'Asia/Jakarta'))
+                ->withoutOverlapping();
+        }
     })
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([

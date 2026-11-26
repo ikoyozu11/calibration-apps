@@ -13,7 +13,7 @@
 #
 # Also clear SESSION_DRIVER / CACHE_STORE / QUEUE_CONNECTION / STAGING_* if set
 # in the parent shell before Pest:
-#   Remove-Item Env:SESSION_DRIVER, Env:CACHE_STORE, Env:QUEUE_CONNECTION, Env:STAGING_PREFLIGHT_HTTP, Env:STAGING_RUNTIME_ISOLATION -ErrorAction SilentlyContinue
+#   Remove-Item Env:SESSION_DRIVER, Env:CACHE_STORE, Env:QUEUE_CONNECTION, Env:STAGING_PREFLIGHT_HTTP, Env:STAGING_RUNTIME_ISOLATION, Env:CALIBRATION_NOTIFICATION_CENTER_STAGING, Env:CALIBRATION_NOTIFICATION_RECONCILIATION_STAGING -ErrorAction SilentlyContinue
 
 param(
     [int]$Port = 8000
@@ -81,6 +81,7 @@ function Set-StagingChildEnvironment {
     $Info.EnvironmentVariables['QUEUE_CONNECTION'] = 'sync'
     $Info.EnvironmentVariables['STAGING_PREFLIGHT_HTTP'] = '1'
     $Info.EnvironmentVariables['STAGING_RUNTIME_ISOLATION'] = '1'
+    $Info.EnvironmentVariables['CALIBRATION_NOTIFICATION_CENTER_STAGING'] = '1'
 }
 
 function Invoke-StagingPhp {

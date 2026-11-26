@@ -2,6 +2,7 @@
 
 namespace App\StagingRuntime;
 
+use App\CalibrationSessions\CalibrationSessionConnection;
 use App\Database\DestructiveCommandGuard;
 use Illuminate\Contracts\Config\Repository;
 use RuntimeException;
@@ -167,6 +168,50 @@ final class StagingRuntimeIsolation
     public function enabled(Repository $config): bool
     {
         return (bool) $config->get('database.staging_runtime_isolation', false);
+    }
+
+    public function notificationCenterEnabled(
+        Repository $config,
+        bool $configurationIsCached,
+        string $configCachePath,
+    ): bool {
+        if (! (bool) $config->get('calibration_notification_center.staging_opt_in', false)
+            || ! $this->enabled($config)
+            || $this->violations($config, $configurationIsCached, $configCachePath) !== []
+            || $this->productionTargetViolations($config) !== []) {
+            return false;
+        }
+
+        $staging = $config->get('database.connections.'.CalibrationSessionConnection::STAGING_CONNECTION);
+
+        return is_array($staging)
+            && ($staging['driver'] ?? null) === 'pgsql'
+            && ($staging['url'] ?? null) === null
+            && ($staging['database'] ?? null) === self::REQUIRED_DATABASE
+            && ($staging['host'] ?? null) === self::REQUIRED_HOST
+            && (int) ($staging['port'] ?? 0) === self::REQUIRED_PORT;
+    }
+
+    public function notificationReconciliationEnabled(
+        Repository $config,
+        bool $configurationIsCached,
+        string $configCachePath,
+    ): bool {
+        if (! (bool) $config->get('calibration_notification_reconciliation.staging_opt_in', false)
+            || ! $this->enabled($config)
+            || $this->violations($config, $configurationIsCached, $configCachePath) !== []
+            || $this->productionTargetViolations($config) !== []) {
+            return false;
+        }
+
+        $staging = $config->get('database.connections.'.CalibrationSessionConnection::STAGING_CONNECTION);
+
+        return is_array($staging)
+            && ($staging['driver'] ?? null) === 'pgsql'
+            && ($staging['url'] ?? null) === null
+            && ($staging['database'] ?? null) === self::REQUIRED_DATABASE
+            && ($staging['host'] ?? null) === self::REQUIRED_HOST
+            && (int) ($staging['port'] ?? 0) === self::REQUIRED_PORT;
     }
 
     /**

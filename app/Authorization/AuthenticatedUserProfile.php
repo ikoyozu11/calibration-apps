@@ -3,6 +3,7 @@
 namespace App\Authorization;
 
 use App\Models\User;
+use Illuminate\Database\Connection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -19,10 +20,10 @@ final class AuthenticatedUserProfile
      *     initials: string
      * }
      */
-    public function resolve(User $user): array
+    public function resolve(User $user, ?Connection $connection = null): array
     {
-        $role = app(ResolveApplicationRole::class)->tryResolve((int) $user->getKey());
-        $identity = $this->activeIdentity((int) $user->getKey());
+        $role = app(ResolveApplicationRole::class)->tryResolve((int) $user->getKey(), $connection);
+        $identity = $this->activeIdentity((int) $user->getKey(), $connection);
         $fullName = $identity?->full_name ?: $user->name;
         $isActive = $identity !== null;
 
@@ -36,23 +37,30 @@ final class AuthenticatedUserProfile
         ];
     }
 
-    private function activeIdentity(int $laravelUserId): ?object
+    private function activeIdentity(int $laravelUserId, ?Connection $connection = null): ?object
     {
-        if (! Schema::hasTable('app_user')
-            || ! Schema::hasTable('user_app_user_map')
-            || ! Schema::hasColumn('app_user', 'app_user_id')
-            || ! Schema::hasColumn('app_user', 'username')
-            || ! Schema::hasColumn('app_user', 'full_name')
-            || ! Schema::hasColumn('app_user', 'is_active')
-            || ! Schema::hasColumn('user_app_user_map', 'user_app_user_map_id')
-            || ! Schema::hasColumn('user_app_user_map', 'laravel_user_id')
-            || ! Schema::hasColumn('user_app_user_map', 'app_user_id')
-            || ! Schema::hasColumn('user_app_user_map', 'status')
-            || ! Schema::hasColumn('user_app_user_map', 'inactivated_at')) {
+        $schema = $connection === null
+            ? Schema::getFacadeRoot()
+            : Schema::connection($connection->getName());
+
+        if (! $schema->hasTable('app_user')
+            || ! $schema->hasTable('user_app_user_map')
+            || ! $schema->hasColumn('app_user', 'app_user_id')
+            || ! $schema->hasColumn('app_user', 'username')
+            || ! $schema->hasColumn('app_user', 'full_name')
+            || ! $schema->hasColumn('app_user', 'is_active')
+            || ! $schema->hasColumn('user_app_user_map', 'user_app_user_map_id')
+            || ! $schema->hasColumn('user_app_user_map', 'laravel_user_id')
+            || ! $schema->hasColumn('user_app_user_map', 'app_user_id')
+            || ! $schema->hasColumn('user_app_user_map', 'status')
+            || ! $schema->hasColumn('user_app_user_map', 'inactivated_at')) {
             return null;
         }
 
-        $identities = DB::table('user_app_user_map as mapping')
+        $query = $connection?->table('user_app_user_map as mapping')
+            ?? DB::table('user_app_user_map as mapping');
+
+        $identities = $query
             ->join('app_user as identity', 'identity.app_user_id', '=', 'mapping.app_user_id')
             ->where('mapping.laravel_user_id', $laravelUserId)
             ->where('mapping.status', 'active')
