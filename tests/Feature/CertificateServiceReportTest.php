@@ -2,7 +2,9 @@
 
 use App\Certificates\ServiceReport;
 use App\Certificates\ServiceReportPdfRenderer;
+use App\Models\Calibration;
 use App\Models\Certificate;
+use App\Models\Customer;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -172,6 +174,23 @@ function createServiceReportTestTables(): void
         $table->string('correction_value', 50)->nullable();
     });
 }
+
+it('uses the TPO customer details for service reports', function (): void {
+    $calibration = new Calibration;
+    $calibration->snapshot_location_name = ' tpo ';
+    $customer = new Customer;
+    $customer->customer_name = 'PT. BENTOEL PRIMA';
+    $customer->address = 'Jl. Raya Perusahaan, Karanglo, Singosari, Malang';
+    $calibration->setRelation('customer', $customer);
+
+    $certificate = new Certificate;
+    $certificate->setRelation('calibration', $calibration);
+
+    $report = new ServiceReport($certificate);
+
+    expect($report->customerName())->toBe('PT. RESTU SEJATI INTI ABADI')
+        ->and($report->customerAddress())->toBe('Sayung Gg. 4, Kecamatan Sayung, Kota Semarang, Jawa Tengah');
+});
 
 it('renders a one-page service report pdf from stored certificate data', function () {
     createServiceReportTestTables();

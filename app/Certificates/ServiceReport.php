@@ -252,12 +252,20 @@ class ServiceReport
 
     public function customerName(): string
     {
+        if ($this->isTpoLocation()) {
+            return 'PT. RESTU SEJATI INTI ABADI';
+        }
+
         return $this->text($this->certificate->calibration->customer?->customer_name ?? 'PT. BENTOEL PRIMA');
     }
 
     public function customerAddress(): ?string
     {
         $location = $this->normalizedLocation();
+
+        if ($this->isTpoLocation()) {
+            return 'Sayung Gg. 4, Kecamatan Sayung, Kota Semarang, Jawa Tengah';
+        }
 
         if ($location === 'thp' || str_starts_with($location, 'thp ')) {
             return 'Jl. Simpang Kavaleri, Randuagung, Singosari, Malang';
@@ -270,6 +278,13 @@ class ServiceReport
         }
 
         return null;
+    }
+
+    private function isTpoLocation(): bool
+    {
+        $location = $this->normalizedLocation();
+
+        return $location === 'tpo' || str_starts_with($location, 'tpo ');
     }
 
     public function instrumentName(): string

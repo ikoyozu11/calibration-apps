@@ -116,9 +116,9 @@
         <div class="section-bar"><span class="section-number">01</span>GENERAL INFORMATION</div>
         <table class="field-grid content-area-border">
             <tr>
-                <td><div class="field-label">Customer</div><div class="field-value">{{ $report->customerName() }}</div></td>
+                <td style="width: 42%;"><div class="field-label">Customer</div><div class="field-value">{{ $report->customerName() }}</div></td>
                 @if ($shortAddress)
-                    <td><div class="field-label">Address</div><div class="field-value long">{{ $report->customerAddress() }}</div></td>
+                    <td style="width: 58%;"><div class="field-label">Address</div><div class="field-value long">{{ $report->customerAddress() }}</div></td>
                 @endif
             </tr>
             @if (!$shortAddress && $report->customerAddress() !== null)
