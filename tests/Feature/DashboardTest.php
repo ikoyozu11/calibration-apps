@@ -53,6 +53,10 @@ function createDashboardTestTables(): void
         $table->string('calibration_result', 20)->nullable();
         $table->string('certificate_number', 100)->nullable();
         addCalibrationSessionColumns($table);
+        $table->timestamp('created_at')->nullable();
+        $table->timestamp('updated_at')->nullable();
+        $table->timestamp('completed_at')->nullable();
+        $table->timestamp('cancelled_at')->nullable();
     });
 
     Schema::create('calibration_scope', function (Blueprint $table): void {
@@ -86,283 +90,153 @@ function insertDashboardCalibration(array $attributes): void
     ], $attributes));
 }
 
-beforeEach(function () {
+beforeEach(function (): void {
     Model::preventLazyLoading();
 });
 
-it('shows the dashboard at the root for authenticated users', function () {
+it('renders the operational command center at the root', function (): void {
+    createDashboardTestTables();
+    insertDashboardInstrument(['instrument_id' => 1, 'instrument_name' => 'On Track Gauge']);
+    insertDashboardInstrument(['instrument_id' => 2, 'instrument_name' => 'Due Gauge']);
+    insertDashboardInstrument(['instrument_id' => 3, 'instrument_name' => 'Overdue Gauge']);
+    insertDashboardCalibration(['calibration_id' => 1, 'instrument_id' => 1, 'calibration_due' => today()->addDays(61)->toDateString()]);
+    insertDashboardCalibration(['calibration_id' => 2, 'instrument_id' => 2, 'calibration_due' => today()->addDays(60)->toDateString()]);
+    insertDashboardCalibration(['calibration_id' => 3, 'instrument_id' => 3, 'calibration_due' => today()->subDay()->toDateString()]);
+
+    $this->get(route('home'))
+        ->assertOk()
+        ->assertSee('Dashboard')
+        ->assertSee('Instrument calibration and operational overview.')
+        ->assertSeeInOrder(['Total Instruments', '3', 'On Track', '1', 'Due Soon', '1', 'Overdue', '1'])
+        ->assertSee('Calibration Health')
+        ->assertSee('Needs Attention')
+        ->assertSee('Location Overview')
+        ->assertSee('Recent Activity');
+});
+
+it('renders safe empty states and zero health percentages', function (): void {
     createDashboardTestTables();
 
     $response = $this->get(route('home'));
 
-    $response->assertOk();
-    $response->assertSee('Dashboard');
-    $response->assertSee('Overview of instrument calibration');
-    $response->assertSeeInOrder(['Recent Instruments', 'View All']);
-    $response->assertSee('href="'.route('instruments.index').'"', false);
-    $response->assertSee('href="'.route('calibrations.index').'"', false);
-    $response->assertDontSee('Open an instrument to view its calibration history');
+    $response->assertOk()
+        ->assertSee('All Clear')
+        ->assertSee('No overdue or due-soon instruments at the moment.')
+        ->assertSee('No instrument locations found.')
+        ->assertSee('No calibration activity found.')
+        ->assertSee('data-dashboard-percentage="0"', false)
+        ->assertSee('0%', false);
 });
 
-it('keeps the dashboard instrument links available to Viewer', function () {
+it('renders needs attention in operational priority order with authorized links', function (): void {
+    createDashboardTestTables();
+    insertDashboardInstrument(['instrument_id' => 1, 'instrument_name' => 'Due Later', 'serial_number' => 'DUE-2']);
+    insertDashboardInstrument(['instrument_id' => 2, 'instrument_name' => 'Overdue Alpha', 'serial_number' => 'OD-1']);
+    insertDashboardInstrument(['instrument_id' => 3, 'instrument_name' => 'Due Soon', 'serial_number' => 'DUE-1']);
+    insertDashboardInstrument(['instrument_id' => 4, 'instrument_name' => 'No History']);
+    insertDashboardCalibration(['calibration_id' => 1, 'instrument_id' => 1, 'calibration_due' => today()->addDays(30)->toDateString()]);
+    insertDashboardCalibration(['calibration_id' => 2, 'instrument_id' => 2, 'calibration_due' => today()->subDay()->toDateString()]);
+    insertDashboardCalibration(['calibration_id' => 3, 'instrument_id' => 3, 'calibration_due' => today()->addDays(7)->toDateString()]);
+
+    $response = $this->get(route('home'));
+
+    $response->assertOk()
+        ->assertSeeInOrder(['Overdue Alpha', 'Overdue', 'Due Soon', 'Due Soon', 'Due Later'])
+        ->assertSee('href="'.route('instruments.show', 2).'"', false)
+        ->assertSee('href="'.route('instruments.show', 3).'"', false)
+        ->assertDontSee('No History');
+});
+
+it('renders location overview including Unassigned and recent activity timestamps', function (): void {
+    createDashboardTestTables();
+    DB::table('location')->insert([
+        ['location_id' => 1, 'location_name' => 'Lab A'],
+    ]);
+    DB::table('detail_location')->insert([
+        ['detail_location_id' => 1, 'location_id' => 1, 'detail_location_name' => 'Room 1'],
+    ]);
+    insertDashboardInstrument(['instrument_id' => 1, 'instrument_name' => 'Located Gauge', 'detail_location_id' => 1]);
+    insertDashboardInstrument(['instrument_id' => 2, 'instrument_name' => 'Located Gauge 2', 'detail_location_id' => 1]);
+    insertDashboardInstrument(['instrument_id' => 3, 'instrument_name' => 'Unassigned Gauge']);
+    insertDashboardCalibration([
+        'calibration_id' => 1,
+        'instrument_id' => 1,
+        'session_status' => 'completed',
+        'created_at' => '2026-11-18 08:00:00',
+        'completed_at' => '2026-11-19 09:30:00',
+    ]);
+
+    $response = $this->get(route('home'));
+
+    $response->assertOk()
+        ->assertSeeInOrder(['Lab A', '2', 'Unassigned', '1'])
+        ->assertSee('style="width: 100%"', false)
+        ->assertSee('style="width: 50%"', false)
+        ->assertSee('Started')
+        ->assertSee('Completed')
+        ->assertSee('Status:')
+        ->assertSee('19 Nov 2026, 09:30')
+        ->assertSee('href="'.route('calibrations.show', 1).'"', false);
+});
+
+it('paginates dashboard attention and activity lists independently', function (): void {
+    createDashboardTestTables();
+
+    foreach (range(1, 7) as $index) {
+        insertDashboardInstrument([
+            'instrument_id' => $index,
+            'instrument_name' => 'Attention '.str_pad((string) $index, 2, '0', STR_PAD_LEFT),
+            'serial_number' => 'ATT-'.$index,
+        ]);
+        insertDashboardCalibration([
+            'calibration_id' => $index,
+            'instrument_id' => $index,
+            'calibration_due' => today()->addDays(30)->toDateString(),
+            'created_at' => today()->subDays($index)->startOfDay()->toDateTimeString(),
+        ]);
+    }
+
+    $this->get(route('home'))
+        ->assertSee('Page 1 of 3')
+        ->assertSee('Page 1 of 2')
+        ->assertSee('Attention 01')
+        ->assertSee('Attention 03')
+        ->assertDontSee('href="'.route('instruments.show', 4).'"', false)
+        ->assertSee('aria-label="Next Needs Attention page"', false)
+        ->assertSee('aria-label="Next Recent Activity page"', false);
+
+    Livewire::test('pages::dashboard')
+        ->assertSet('needsAttentionPage', 1)
+        ->assertSet('recentActivityPage', 1)
+        ->call('nextNeedsAttentionPage')
+        ->assertSet('needsAttentionPage', 2)
+        ->assertSet('recentActivityPage', 1)
+        ->assertSee('href="'.route('instruments.show', 4).'"', false)
+        ->assertDontSee('href="'.route('instruments.show', 1).'"', false)
+        ->call('nextRecentActivityPage')
+        ->assertSet('needsAttentionPage', 2)
+        ->assertSet('recentActivityPage', 2)
+        ->assertSee('href="'.route('calibrations.show', 6).'"', false)
+        ->call('nextRecentActivityPage')
+        ->assertSet('recentActivityPage', 2);
+});
+
+it('keeps the authenticated dashboard navigation contract available to Viewer', function (): void {
     createDashboardTestTables();
     actingAsRole(ApplicationRoleName::Viewer);
 
     $this->get(route('home'))
         ->assertOk()
-        ->assertSee('Recent Instruments')
-        ->assertSee('View All')
-        ->assertSee('href="'.route('instruments.index').'"', false)
-        ->assertSee('Instruments')
+        ->assertSee('href="'.route('calibrations.index').'"', false)
         ->assertDontSee('href="'.route('standards.index').'"', false)
         ->assertDontSee('href="'.route('activities.index').'"', false);
 });
 
-it('keeps the instrument and calibration routes available', function () {
+it('keeps the instrument and calibration routes available', function (): void {
     createDashboardTestTables();
 
     $this->get(route('instruments.index'))->assertOk();
     $this->get(route('instruments.show', 999))->assertNotFound();
     $this->get(route('calibrations.index'))->assertOk();
     $this->get(route('calibrations.show', 999))->assertNotFound();
-});
-
-it('classifies each instrument once from its latest calibration', function () {
-    createDashboardTestTables();
-
-    insertDashboardInstrument(['instrument_id' => 1, 'instrument_name' => 'Tie Gauge', 'serial_number' => 'ONLY-SERIAL']);
-    insertDashboardInstrument(['instrument_id' => 2, 'instrument_name' => 'Due Today']);
-    insertDashboardInstrument(['instrument_id' => 3, 'instrument_name' => 'Due In 60']);
-    insertDashboardInstrument(['instrument_id' => 4, 'instrument_name' => 'Due In 61']);
-    insertDashboardInstrument(['instrument_id' => 5, 'instrument_name' => 'No History']);
-
-    DB::table('instrument_type')->insert([
-        [
-            'instrument_type_id' => 1,
-            'instrument_id' => 1,
-            'type_name' => 'Weight',
-            'created_at' => '2026-01-01 00:00:00',
-        ],
-        [
-            'instrument_type_id' => 2,
-            'instrument_id' => 1,
-            'type_name' => 'Diameter',
-            'created_at' => '2026-01-01 00:00:00',
-        ],
-    ]);
-
-    insertDashboardCalibration([
-        'calibration_id' => 1,
-        'instrument_id' => 1,
-        'calibration_date' => '2026-08-01',
-        'calibration_due' => today()->addDays(61)->toDateString(),
-    ]);
-    insertDashboardCalibration([
-        'calibration_id' => 2,
-        'instrument_id' => 1,
-        'calibration_date' => '2026-08-01',
-        'calibration_due' => today()->subDay()->toDateString(),
-    ]);
-    insertDashboardCalibration([
-        'calibration_id' => 3,
-        'instrument_id' => 2,
-        'calibration_due' => today()->toDateString(),
-    ]);
-    insertDashboardCalibration([
-        'calibration_id' => 4,
-        'instrument_id' => 3,
-        'calibration_due' => today()->addDays(60)->toDateString(),
-    ]);
-    insertDashboardCalibration([
-        'calibration_id' => 5,
-        'instrument_id' => 4,
-        'calibration_due' => today()->addDays(61)->toDateString(),
-    ]);
-
-    $response = $this->get(route('home'));
-
-    $response->assertOk();
-    $response->assertSeeInOrder(['Total Instruments', '5']);
-    $response->assertSeeInOrder(['On Track', '1']);
-    $response->assertSeeInOrder(['Overdue', '1']);
-    $response->assertSeeInOrder(['Due Soon', '2']);
-    $response->assertSeeInOrder(['Not Calibrated', '1']);
-    $response->assertSeeInOrder(['On Track', '1', '20%']);
-    $response->assertSeeInOrder(['Due Soon', '2', '40%']);
-    $response->assertSee('ONLY-SERIAL');
-    $response->assertSeeInOrder(['Tie Gauge', 'Overdue']);
-
-    expect(substr_count($response->getContent(), 'Tie Gauge'))->toBe(1);
-});
-
-it('limits recent instruments to ten distinct identities', function () {
-    createDashboardTestTables();
-
-    foreach (range(1, 12) as $id) {
-        insertDashboardInstrument([
-            'instrument_id' => $id,
-            'instrument_name' => sprintf('Gauge %02d', $id),
-            'created_at' => '2026-02-01 00:00:00',
-        ]);
-    }
-
-    $response = $this->get(route('home'));
-
-    $response->assertOk();
-    $response->assertSee('Gauge 12');
-    $response->assertSee('Gauge 03');
-    $response->assertDontSee('Gauge 02');
-    $response->assertDontSee('Gauge 01');
-    $response->assertSee('Not Calibrated');
-    $response->assertSee('100%');
-    $response->assertSee('0%');
-    $response->assertSee('data-location-distribution-donut', false);
-    $response->assertSee('Instrument Distribution by Location', false);
-    $response->assertSee('Unassigned');
-    $response->assertSee('href="'.route('instruments.index').'"', false);
-});
-
-it('renders the location distribution as a sorted donut with legend percentages', function () {
-    createDashboardTestTables();
-
-    DB::table('location')->insert([
-        ['location_id' => 1, 'location_name' => 'Lab B'],
-        ['location_id' => 2, 'location_name' => 'Lab A'],
-    ]);
-    DB::table('detail_location')->insert([
-        ['detail_location_id' => 1, 'location_id' => 1, 'detail_location_name' => 'Room 1'],
-        ['detail_location_id' => 2, 'location_id' => 2, 'detail_location_name' => 'Room 2'],
-    ]);
-
-    insertDashboardInstrument(['instrument_id' => 1, 'instrument_name' => 'Gauge 1', 'detail_location_id' => 1]);
-    insertDashboardInstrument(['instrument_id' => 2, 'instrument_name' => 'Gauge 2', 'detail_location_id' => 1]);
-    insertDashboardInstrument(['instrument_id' => 3, 'instrument_name' => 'Gauge 3', 'detail_location_id' => 2]);
-    insertDashboardInstrument(['instrument_id' => 4, 'instrument_name' => 'Gauge 4']);
-
-    $response = $this->get(route('home'));
-
-    $response->assertOk();
-    $response->assertSee('data-location-distribution-donut', false);
-    $response->assertSee('width: min(256px, 100%); aspect-ratio: 1 / 1;', false);
-    $response->assertSeeInOrder(['Lab B', '2', '(50.0%)', 'Lab A', '1', '(25.0%)', 'Unassigned', '1', '(25.0%)']);
-    $response->assertSee('>50.0%</span>', false);
-    $response->assertSee('>25.0%</span>', false);
-    $response->assertSee('aria-label="Lab B: 2 instruments, 50.0 percent"', false);
-    $response->assertSee('aria-label="Lab A: 1 instruments, 25.0 percent"', false);
-    $response->assertSee('aria-label="Unassigned: 1 instruments, 25.0 percent"', false);
-    $response->assertSee('width: 9px; height: 9px; min-width: 9px; min-height: 9px; flex-shrink: 0; border-radius: 50%; background-color: #20559A;', false);
-    $response->assertSee('background-color: #3692C7;', false);
-    $response->assertSee('background-color: #12A99C;', false);
-    $response->assertSee('3 Locations', false);
-});
-
-it('only renders location percentage labels for segments at or above five percent', function () {
-    createDashboardTestTables();
-
-    DB::table('location')->insert([
-        ['location_id' => 1, 'location_name' => 'Location A'],
-        ['location_id' => 2, 'location_name' => 'Location B'],
-        ['location_id' => 3, 'location_name' => 'Location C'],
-        ['location_id' => 4, 'location_name' => 'Location D'],
-    ]);
-    DB::table('detail_location')->insert([
-        ['detail_location_id' => 1, 'location_id' => 1, 'detail_location_name' => 'Room A'],
-        ['detail_location_id' => 2, 'location_id' => 2, 'detail_location_name' => 'Room B'],
-        ['detail_location_id' => 3, 'location_id' => 3, 'detail_location_name' => 'Room C'],
-        ['detail_location_id' => 4, 'location_id' => 4, 'detail_location_name' => 'Room D'],
-    ]);
-
-    foreach (range(1, 100) as $id) {
-        $detailLocationId = $id <= 50 ? 1 : ($id <= 55 ? 2 : ($id <= 59 ? 3 : 4));
-
-        insertDashboardInstrument([
-            'instrument_id' => $id,
-            'instrument_name' => sprintf('Gauge %03d', $id),
-            'detail_location_id' => $detailLocationId,
-        ]);
-    }
-
-    $response = $this->get(route('home'));
-
-    $response->assertOk();
-    $response->assertSee('>50.0%</span>', false);
-    $response->assertSee('>5.0%</span>', false);
-    $response->assertSee('>41.0%</span>', false);
-    $response->assertDontSee('>4.0%</span>', false);
-    $response->assertSee('Location C');
-    $response->assertSee('(4.0%)');
-});
-
-it('filters the recent table by instrument name without changing the totals', function () {
-    createDashboardTestTables();
-
-    foreach (range(1, 12) as $id) {
-        insertDashboardInstrument([
-            'instrument_id' => $id,
-            'instrument_name' => sprintf('Gauge %02d', $id),
-            'created_at' => '2026-02-01 00:00:00',
-        ]);
-    }
-
-    $component = Livewire::test('pages::dashboard')
-        ->set('search', 'gauge 0');
-
-    $component->assertSee('Search by name');
-    $component->assertSee('ui-button-primary', false);
-    $component->assertSeeInOrder(['Total Instruments', '12']);
-    $component->assertSee('Gauge 09');
-    $component->assertSee('Gauge 01');
-    $component->assertDontSee('Gauge 12');
-    $component->assertDontSee('Gauge 10');
-
-    Livewire::test('pages::dashboard')
-        ->set('search', 'missing-name')
-        ->assertSee('No instruments found.')
-        ->assertDontSee('Gauge 12')
-        ->assertSeeInOrder(['Total Instruments', '12']);
-});
-
-it('classifies standing from completed calibrations only', function () {
-    createDashboardTestTables();
-
-    insertDashboardInstrument(['instrument_id' => 1, 'instrument_name' => 'Open Gauge']);
-    insertDashboardInstrument(['instrument_id' => 2, 'instrument_name' => 'Cancelled Gauge']);
-    DB::table('instrument_type')->insert([
-        [
-            'instrument_type_id' => 1,
-            'instrument_id' => 1,
-            'type_name' => 'Weight',
-            'created_at' => '2026-01-01 00:00:00',
-        ],
-        [
-            'instrument_type_id' => 2,
-            'instrument_id' => 2,
-            'type_name' => 'Weight',
-            'created_at' => '2026-01-01 00:00:00',
-        ],
-    ]);
-    insertDashboardCalibration([
-        'calibration_id' => 1,
-        'instrument_id' => 1,
-        'instrument_type_id' => 1,
-        'session_status' => 'in_progress',
-        'calibration_due' => today()->subDay()->toDateString(),
-    ]);
-    insertDashboardCalibration([
-        'calibration_id' => 2,
-        'instrument_id' => 2,
-        'instrument_type_id' => 2,
-        'session_status' => 'cancelled',
-        'calibration_due' => today()->addDays(61)->toDateString(),
-    ]);
-
-    $response = $this->get(route('home'));
-
-    $response->assertOk();
-    $response->assertSeeInOrder(['Total Instruments', '2']);
-    $response->assertSeeInOrder(['On Track', '0']);
-    $response->assertSeeInOrder(['Overdue', '0']);
-    $response->assertSeeInOrder(['Not Calibrated', '2']);
-    $response->assertSeeInOrder(['Open Gauge', 'Not Calibrated']);
-    $response->assertSeeInOrder(['Cancelled Gauge', 'Not Calibrated']);
 });

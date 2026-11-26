@@ -39,6 +39,8 @@ new class extends Component
 
     public string $editInstrumentName = '';
 
+    public string $editInstrumentType = '';
+
     public string $editSerialNumber = '';
 
     public ?int $editDetailLocationId = null;
@@ -157,6 +159,7 @@ new class extends Component
         $type = $this->currentInstrumentType();
 
         $this->editInstrumentName = (string) $instrument->instrument_name;
+        $this->editInstrumentType = (string) ($type?->type_name ?? '');
         $this->editSerialNumber = (string) ($instrument->serial_number ?? '');
         $this->editDetailLocationId = $instrument->detail_location_id !== null ? (int) $instrument->detail_location_id : null;
         $this->editAssetNumber = (string) ($type?->asset_number ?? '');
@@ -250,6 +253,7 @@ new class extends Component
                         ->where('instrument_type_id', $this->instrumentTypeId)
                         ->where('instrument_id', $this->instrumentId)
                         ->update([
+                            'type_name' => trim($this->editInstrumentType),
                             'asset_number' => $this->nullableText($this->editAssetNumber),
                             'brand' => $this->nullableText($this->editBrand),
                             'model' => $this->nullableText($this->editModel),
@@ -276,6 +280,7 @@ new class extends Component
         }
 
         $this->loadedInstrument?->setAttribute('instrument_name', trim($this->editInstrumentName));
+        $this->loadedInstrumentType?->setAttribute('type_name', trim($this->editInstrumentType));
         $this->loadedInstrument?->setAttribute('serial_number', $this->nullableText($this->editSerialNumber));
         $this->loadedInstrument?->setAttribute('detail_location_id', $this->editDetailLocationId);
         $this->loadedInstrumentType?->setAttribute('asset_number', $this->nullableText($this->editAssetNumber));
@@ -520,6 +525,7 @@ new class extends Component
     {
         $this->validate([
             'editInstrumentName' => ['required', 'string', 'max:150'],
+            'editInstrumentType' => ['required', 'string', 'max:150'],
             'editSerialNumber' => ['nullable', 'string', 'max:255'],
             'editDetailLocationId' => ['nullable', 'integer'],
             'editAssetNumber' => ['nullable', 'string', 'max:255'],
@@ -531,6 +537,7 @@ new class extends Component
             'editResolutionUnit' => ['nullable', 'string', 'max:50'],
         ], [
             'editInstrumentName.required' => 'Instrument Name is required.',
+            'editInstrumentType.required' => 'Type is required.',
             'editMaxCapacity.numeric' => 'Max Capacity must be a number.',
             'editResolution.numeric' => 'Resolution must be a number.',
         ]);
@@ -547,6 +554,7 @@ new class extends Component
     {
         $this->reset(
             'editInstrumentName',
+            'editInstrumentType',
             'editSerialNumber',
             'editDetailLocationId',
             'editAssetNumber',
@@ -858,7 +866,7 @@ new class extends Component
                     <h2 id="edit-identity-modal-heading" class="text-base font-semibold tracking-tight text-white">Edit Instrument Identity</h2>
                 </x-slot:title>
                 <x-slot:subtitle>
-                    <p class="mt-1 text-sm text-white/80">Update instrument and type details. Type cannot be changed here.</p>
+                    <p class="mt-1 text-sm text-white/80">Update instrument and type details.</p>
                 </x-slot:subtitle>
                 <x-slot:close>
                     <button type="button" class="shrink-0 rounded-lg px-3 py-2 text-xl leading-none text-white/80 transition hover:bg-white/15 hover:text-white" aria-label="Close" x-on:click="requestCloseIdentityModal()">&times;</button>
@@ -894,7 +902,8 @@ new class extends Component
 
                     <div>
                         <label class="ui-label">Type</label>
-                        <input type="text" class="ui-input mt-1 bg-white/60" value="{{ $this->currentInstrumentType()?->type_name ?? '—' }}" disabled>
+                        <input id="edit-identity-type" data-identity-field data-initial-value="{{ $this->editInstrumentType }}" wire:model="editInstrumentType" type="text" class="ui-input mt-1" autocomplete="off">
+                        @error('editInstrumentType') <p class="ui-error">{{ $message }}</p> @enderror
                     </div>
 
                     <div>

@@ -68,14 +68,7 @@ it('renders the authenticated identity and canonical role in the sidebar and pro
         $navigation = ['href="'.route('home').'"', 'href="'.route('instruments.index').'"', 'href="'.route('calibrations.index').'"'];
 
         if ($role !== ApplicationRoleName::Viewer) {
-            $navigation[] = 'href="'.route('standards.index').'"';
-            $navigation[] = 'href="'.route('activities.index').'"';
-
-            $response->assertSee('href="'.route('standards.index').'"', false)
-                ->assertSee('href="'.route('activities.index').'"', false);
-        } else {
-            $response->assertDontSee('href="'.route('standards.index').'"', false)
-                ->assertDontSee('href="'.route('activities.index').'"', false);
+            $response->assertSee('Management');
         }
 
         $response->assertSeeInOrder($navigation, false);

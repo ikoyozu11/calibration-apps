@@ -232,6 +232,32 @@ new class extends Component
         return $query->orderBy('users.name')->paginate(10);
     }
 
+    /**
+     * @return array{total: int, active: int, inactive: int}
+     */
+    public function userStatistics(): array
+    {
+        $query = $this->userQuery();
+
+        $activeQuery = (clone $query)
+            ->where('identity.is_active', true)
+            ->where('mapping.status', 'active')
+            ->whereNull('mapping.inactivated_at');
+
+        $inactiveQuery = (clone $query)->where(function (Builder $query): void {
+            $query->whereNull('mapping.laravel_user_id')
+                ->orWhere('identity.is_active', false)
+                ->orWhere('mapping.status', '!=', 'active')
+                ->orWhereNotNull('mapping.inactivated_at');
+        });
+
+        return [
+            'total' => (clone $query)->distinct()->count('users.id'),
+            'active' => $activeQuery->distinct()->count('users.id'),
+            'inactive' => $inactiveQuery->distinct()->count('users.id'),
+        ];
+    }
+
     /** @return array<string, array<int, mixed>> */
     private function userRules(): array
     {
@@ -328,22 +354,52 @@ new class extends Component
 ?>
 
 <div class="px-4 py-8 sm:px-6 lg:px-10" data-component-id="{{ $this->getId() }}">
-    <div class="mx-auto flex max-w-7xl flex-col gap-6">
-        <header class="flex flex-wrap items-start justify-between gap-4">
-            <div>
-                <p class="text-sm font-medium text-brand">Administration</p>
-                <h1 class="mt-1 text-2xl font-semibold tracking-tight text-navy">User Management</h1>
-                <p class="mt-1 text-sm text-muted">Manage application users and access.</p>
-            </div>
-            <button type="button" wire:click="openCreate" class="ui-button-primary gap-2">
-                <span class="text-lg leading-none" aria-hidden="true">+</span>
-                Add User
-            </button>
-        </header>
+    @php
+        $userStatistics = $this->userStatistics();
+    @endphp
 
-        <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="user-management-table-heading">
-            <div class="sr-only" id="user-management-table-heading">Application users</div>
-            <div class="grid gap-3 border-y border-brand/15 px-5 py-4 sm:grid-cols-3">
+    <div class="mx-auto flex max-w-[1760px] flex-col gap-6 xl:gap-8">
+        <section class="overflow-hidden rounded-2xl bg-gradient-to-br from-[#14263F] via-[#1D4E73] to-[#365F83] p-4 text-white shadow-[0_22px_44px_-28px_rgb(20_38_63/0.8)] sm:p-6" aria-labelledby="user-management-heading">
+            <header>
+                <h1 id="user-management-heading" class="text-2xl font-semibold tracking-tight text-white">User Management</h1>
+                <p class="mt-1 text-sm text-blue-100/75">Manage application users and access.</p>
+            </header>
+
+            <div class="mt-5 h-px bg-white/20" aria-hidden="true"></div>
+
+            <section aria-label="User account statistics" class="mt-4 grid grid-cols-2 gap-y-4 sm:gap-y-0 md:grid-cols-3">
+                @foreach ([
+                    ['label' => 'Total Users', 'value' => $userStatistics['total']],
+                    ['label' => 'Active', 'value' => $userStatistics['active']],
+                    ['label' => 'Inactive', 'value' => $userStatistics['inactive']],
+                ] as $metric)
+                    <article class="relative flex min-w-0 flex-col items-center gap-1 px-2 py-1 text-center sm:gap-2 sm:px-4">
+                        @if ($loop->index > 0)
+                            <span class="pointer-events-none absolute left-0 top-1/2 hidden h-10 w-px -translate-y-1/2 bg-white/15 md:block" aria-hidden="true"></span>
+                        @endif
+                        @if ($loop->index === 2)
+                            <span class="pointer-events-none absolute left-0 top-0 h-full w-px bg-white/15 md:hidden" aria-hidden="true"></span>
+                        @endif
+                        <div class="flex items-center gap-2">
+                            <span class="size-2 shrink-0 rounded-full bg-white/15" aria-hidden="true"></span>
+                            <p class="text-[10px] font-medium leading-tight text-blue-50/80 sm:text-sm">{{ $metric['label'] }}</p>
+                        </div>
+                        <p class="text-2xl font-semibold tracking-tight tabular-nums text-white sm:text-4xl">{{ $metric['value'] }}</p>
+                    </article>
+                @endforeach
+            </section>
+        </section>
+
+        <section class="overflow-hidden rounded-2xl border border-line/80 bg-white shadow-[0_1px_2px_rgb(22_49_114/0.06),0_18px_36px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="user-management-table-heading">
+            <div class="flex flex-col gap-3 border-b border-line/80 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <h2 id="user-management-table-heading" class="text-base font-semibold tracking-tight text-navy">User Directory</h2>
+                <button type="button" wire:click="openCreate" class="ui-button-management-primary">
+                    <span class="text-lg leading-none" aria-hidden="true">+</span>
+                    Add User
+                </button>
+            </div>
+
+            <div class="grid gap-3 border-b border-line/80 bg-white px-5 py-4 sm:grid-cols-3">
                 <label class="text-sm font-medium text-navy sm:col-span-1">
                     Search
                     <input wire:model.live.debounce.300ms="search" type="search" class="ui-input mt-1 w-full" placeholder="Name, username, or email">
@@ -368,57 +424,49 @@ new class extends Component
             </div>
 
             <div class="overflow-x-auto">
-                <table class="ui-table w-full table-fixed min-w-max xl:min-w-0">
-                    <colgroup>
-                        <col class="w-[14%]">
-                        <col class="w-[12%]">
-                        <col class="w-[18%]">
-                        <col class="w-[11%]">
-                        <col class="w-[10%]">
-                        <col class="w-[35%]">
-                    </colgroup>
-                    <thead class="bg-navy text-xs font-medium text-white">
+                <table class="management-table w-full min-w-[980px]">
+                    <thead>
                         <tr>
-                            <th scope="col" class="px-5 py-3 font-medium">Full Name</th>
-                            <th scope="col" class="px-5 py-3 font-medium">Username</th>
-                            <th scope="col" class="px-5 py-3 font-medium">Email</th>
-                            <th scope="col" class="px-5 py-3 font-medium">Application Role</th>
-                            <th scope="col" class="px-5 py-3 font-medium">Account Status</th>
-                            <th scope="col" class="px-5 py-3 text-right font-medium">Actions</th>
+                            <th scope="col">Full Name</th>
+                            <th scope="col">Username</th>
+                            <th scope="col">Email</th>
+                            <th scope="col">Application Role</th>
+                            <th scope="col">Account Status</th>
+                            <th scope="col" class="text-right">Actions</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-white/70">
+                    <tbody>
                         @forelse ($this->users() as $user)
-                            <tr wire:key="managed-user-{{ $user->id }}" class="odd:bg-[#d6e4f0] even:bg-[#c5d8ec] hover:bg-[#edf4fa]">
-                                <td class="px-5 py-3.5 font-medium text-navy"><span class="block truncate" title="{{ $user->name }}">{{ $user->name }}</span></td>
-                                <td class="px-5 py-3.5 text-navy"><span class="block truncate" title="{{ $user->username ?? 'Unavailable' }}">{{ $user->username ?? 'Unavailable' }}</span></td>
-                                <td class="break-words px-5 py-3.5 text-navy">{{ $user->email }}</td>
-                                <td class="px-5 py-3.5 text-navy"><span class="block truncate" title="{{ $user->role_name ?? 'Unavailable' }}">{{ $user->role_name ?? 'Unavailable' }}</span></td>
-                                <td class="whitespace-nowrap px-5 py-3.5">
+                            <tr wire:key="managed-user-{{ $user->id }}">
+                                <td class="font-medium text-navy"><span class="block truncate" title="{{ $user->name }}">{{ $user->name }}</span></td>
+                                <td class="text-navy/80"><span class="block truncate" title="{{ $user->username ?? 'Unavailable' }}">{{ $user->username ?? 'Unavailable' }}</span></td>
+                                <td class="break-words text-navy/80">{{ $user->email }}</td>
+                                <td class="text-navy/80"><span class="block truncate" title="{{ $user->role_name ?? 'Unavailable' }}">{{ $user->role_name ?? 'Unavailable' }}</span></td>
+                                <td class="whitespace-nowrap">
                                     <span class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium {{ $user->account_status === 'Active' ? 'bg-emerald-50 text-on-track' : 'bg-slate-100 text-muted' }}">
                                         {{ $user->account_status }}
                                     </span>
                                 </td>
-                                <td class="whitespace-nowrap px-5 py-3.5">
+                                <td class="whitespace-nowrap">
                                     <div class="flex items-center justify-end gap-2">
-                                        <button type="button" wire:click="openEdit({{ $user->id }})" class="btn-edit shrink-0">
+                                        <button type="button" wire:click="openEdit({{ $user->id }})" class="management-action management-action-edit shrink-0">
                                             <svg aria-hidden="true" class="size-4" viewBox="0 0 20 20" fill="currentColor">
                                                 <path d="m13.7 2.3 4 4a1 1 0 0 1 0 1.4l-9.5 9.5-5.2 1.2 1.2-5.2 9.5-9.5a1 1 0 0 1 1.4 0ZM5.1 14.1l-.5 2.3 2.3-.5 7.7-7.7-1.8-1.8-7.7 7.7Z" />
                                             </svg>
                                             Edit
                                         </button>
-                                        <button type="button" wire:click="openResetPassword({{ $user->id }})" class="btn-select shrink-0">
+                                        <button type="button" wire:click="openResetPassword({{ $user->id }})" class="management-action management-action-neutral shrink-0">
                                             <svg aria-hidden="true" class="size-4" viewBox="0 0 20 20" fill="currentColor">
                                                 <path d="M11.8 2.5a4.7 4.7 0 0 0-4.5 6.1L2.8 13a1 1 0 0 0-.3.7v2.8h2.8v-1.8h1.8v-1.8h1.8l1.6-1.6a4.7 4.7 0 1 0 1.3-8.8Zm2.5 4.7a1.2 1.2 0 1 1-2.4 0 1.2 1.2 0 0 1 2.4 0Z" />
                                             </svg>
                                             Reset Password
                                         </button>
                                         @if ($user->account_status === 'Active' && (int) $user->id === (int) auth()->id())
-                                        <button type="button" class="btn-deactivate shrink-0 cursor-not-allowed opacity-60" disabled aria-disabled="true" title="You cannot deactivate your own account">
+                                        <button type="button" class="management-action management-action-neutral shrink-0 cursor-not-allowed opacity-60" disabled aria-disabled="true" title="You cannot deactivate your own account">
                                         @elseif ($user->account_status === 'Active')
-                                        <button type="button" data-user-status data-user-action="deactivate" data-user-id="{{ $user->id }}" data-user-name="{{ $user->name }}" class="btn-deactivate shrink-0">
+                                        <button type="button" data-user-status data-user-action="deactivate" data-user-id="{{ $user->id }}" data-user-name="{{ $user->name }}" class="management-action management-action-neutral shrink-0">
                                         @else
-                                        <button type="button" data-user-status data-user-action="activate" data-user-id="{{ $user->id }}" data-user-name="{{ $user->name }}" class="btn-activate shrink-0">
+                                        <button type="button" data-user-status data-user-action="activate" data-user-id="{{ $user->id }}" data-user-name="{{ $user->name }}" class="management-action management-action-neutral shrink-0">
                                         @endif
                                             <svg aria-hidden="true" class="size-4" viewBox="0 0 20 20" fill="currentColor">
                                                 @if ($user->account_status === 'Active')
@@ -441,9 +489,11 @@ new class extends Component
                 </table>
             </div>
 
-            <div class="border-t border-line px-5 py-4">
-                {{ $this->users()->links() }}
-            </div>
+            @if ($this->users()->hasPages())
+                <div>
+                    {{ $this->users()->links('vendor.pagination.management-tailwind') }}
+                </div>
+            @endif
         </section>
     </div>
 

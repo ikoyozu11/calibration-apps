@@ -18,14 +18,16 @@ enum CalibrationStanding: string
         return self::fromDueDate($calibration?->calibration_due);
     }
 
-    public static function fromDueDate(?CarbonInterface $due): self
+    public static function fromDueDate(?CarbonInterface $due, ?CarbonInterface $evaluationDate = null): self
     {
         if ($due === null) {
             return self::NotCalibrated;
         }
 
         $due = CarbonImmutable::instance($due)->startOfDay();
-        $today = today();
+        $today = $evaluationDate === null
+            ? today()
+            : CarbonImmutable::instance($evaluationDate)->startOfDay();
 
         if ($today->greaterThan($due)) {
             return self::Overdue;

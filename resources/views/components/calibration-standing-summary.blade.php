@@ -1,100 +1,68 @@
-<div class="flex flex-col gap-6">
-    <section aria-label="Current calibration standing metrics" class="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-5">
-        @foreach ([
-            ['label' => 'Total Instruments', 'value' => $overview->total, 'surface' => 'bg-brand shadow-[0_16px_28px_-16px_rgb(30_86_160/0.75)]'],
-            ['label' => 'On Track', 'value' => $overview->onTrack, 'surface' => 'bg-on-track shadow-[0_16px_28px_-16px_rgb(31_122_77/0.75)]'],
-            ['label' => 'Due Soon', 'value' => $overview->dueSoon, 'surface' => 'bg-due-soon shadow-[0_16px_28px_-16px_rgb(138_90_0/0.75)]'],
-            ['label' => 'Overdue', 'value' => $overview->overdue, 'surface' => 'bg-overdue shadow-[0_16px_28px_-16px_rgb(180_35_24/0.75)]'],
-            ['label' => 'Not Calibrated', 'value' => $overview->notCalibrated, 'surface' => 'bg-navy shadow-[0_16px_28px_-16px_rgb(22_49_114/0.75)]'],
-        ] as $card)
-            <article data-calibrations-stat data-calibrations-stat-index="{{ $loop->index }}" class="relative flex min-h-26 flex-col justify-between overflow-hidden rounded-2xl p-3 text-white transition duration-200 hover:-translate-y-0.5 md:min-h-0 md:p-5 {{ $card['surface'] }}">
-                <span class="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/25 via-transparent to-black/15" aria-hidden="true"></span>
-                <div class="relative">
-                    <p class="text-[11px] font-medium leading-tight text-white/80 md:text-sm">{{ $card['label'] }}</p>
-                    <p class="mt-2 text-3xl font-semibold tracking-tight tabular-nums md:mt-3 md:text-4xl" data-calibration-counter="{{ $card['value'] }}">{{ $card['value'] }}</p>
-                </div>
-            </article>
-        @endforeach
-    </section>
+<section data-calibrations-status-panel data-calibrations-content class="ui-card min-w-0 p-5 sm:p-6" aria-labelledby="calibration-status-heading">
+    <div class="flex items-start justify-between gap-4">
+        <div>
+            <h2 id="calibration-status-heading" class="text-base font-semibold tracking-tight text-navy">Calibration Status</h2>
+            <p class="mt-1 text-sm text-muted">Current operational standing across all instruments.</p>
+        </div>
+        <span class="hidden rounded-full bg-brand/10 px-3 py-1 text-xs font-semibold text-brand sm:inline-flex">{{ $overview->total }} total</span>
+    </div>
 
-    <section data-calibrations-status-panel data-calibrations-content class="ui-card p-6" aria-labelledby="calibration-status-heading">
-        <h2 id="calibration-status-heading" class="text-center text-base font-semibold tracking-tight text-navy md:text-left">Calibration Status</h2>
+    @php
+        $statusSegments = $overview->segments();
+        $statusTotal = (int) $overview->total;
+        $chartRadius = 15.915;
+        $chartOffset = 25;
+    @endphp
 
-        @if ($overview->total === 0)
-            <p class="mt-4 text-sm text-muted">No instruments found.</p>
-        @else
-            <div class="mt-4 flex flex-col gap-6 md:flex-row md:items-center">
-                <div class="chart-ring relative mx-auto size-52 shrink-0">
-                    <svg viewBox="0 0 42 42" class="size-full drop-shadow-[0_14px_18px_rgb(22_49_114/0.16)]" role="img" aria-labelledby="calibration-status-heading">
+    @if ($statusTotal === 0)
+        <p class="mt-4 text-sm text-muted">No instruments found.</p>
+    @else
+        <div class="mt-5 flex flex-col items-center gap-5 lg:flex-row lg:items-center lg:justify-center lg:gap-5 xl:justify-start">
+            <div class="chart-ring relative size-44 shrink-0 xl:size-48" data-calibration-status-donut>
+                <svg viewBox="0 0 42 42" class="size-full drop-shadow-[0_14px_18px_rgb(22_49_114/0.12)]" role="img" aria-label="Calibration status distribution">
+                    <circle class="chart-track" cx="21" cy="21" r="{{ $chartRadius }}" fill="none" stroke="#E6EDF4" stroke-width="6"></circle>
+                    @foreach ($statusSegments as $index => $segment)
                         @php
-                            $offset = 25;
-                            $drawn = 0;
-                            $labels = [];
-                            $gradients = [
-                                'On Track' => ['#6EE7B7', '#12B76A'],
-                                'Due Soon' => ['#FDE68A', '#F5A524'],
-                                'Overdue' => ['#FDA29B', '#F04438'],
-                                'Not Calibrated' => ['#D6E4F0', '#7C93B0'],
-                            ];
+                            $percentage = (float) rtrim($segment['percent'], '%');
+                            $segmentLength = $statusTotal > 0 ? max($percentage - min(1.1, $percentage * 0.12), 0.35) : 0;
                         @endphp
-                        <defs>
-                            @foreach ($gradients as $label => $stops)
-                                <linearGradient id="report-chart-{{ \Illuminate\Support\Str::slug($label) }}" x1="0" y1="0" x2="1" y2="1">
-                                    <stop offset="0%" stop-color="{{ $stops[0] }}"></stop>
-                                    <stop offset="100%" stop-color="{{ $stops[1] }}"></stop>
-                                </linearGradient>
-                            @endforeach
-                        </defs>
-                        <circle class="chart-track" cx="21" cy="21" r="15.915" fill="none" stroke="#D6E4F0" stroke-width="6"></circle>
-                        @foreach ($overview->segments() as $segment)
-                            @if ($segment['count'] > 0)
-                                @php
-                                    $raw = ($segment['count'] / $overview->total) * 100;
-                                    $gap = min(1.8, $raw * 0.22);
-                                    $length = max($raw - $gap, 0.6);
-                                    $midpoint = (25 - $offset) + ($length / 2);
-                                    $angle = ($midpoint / 100) * 2 * M_PI;
-                                    $labelRadius = (15.915 / 42) * 100;
-                                    $labels[] = [
-                                        'percent' => $segment['percent'],
-                                        'x' => 50 + sin($angle) * $labelRadius,
-                                        'y' => 50 - cos($angle) * $labelRadius,
-                                        'index' => $drawn,
-                                    ];
-                                @endphp
-                                <circle
-                                    class="chart-segment"
-                                    data-calibration-chart-segment
-                                    data-segment-length="{{ $length }}"
-                                    style="--segment-index: {{ $drawn }}; stroke-dasharray: {{ $length }} {{ 100 - $length }}; stroke-dashoffset: {{ $offset }}"
-                                    cx="21"
-                                    cy="21"
-                                    r="15.915"
-                                    fill="none"
-                                    stroke="url(#report-chart-{{ \Illuminate\Support\Str::slug($segment['label']) }})"
-                                    stroke-width="6"
-                                ></circle>
-                                @php
-                                    $offset -= $raw;
-                                    $drawn++;
-                                @endphp
-                            @endif
-                        @endforeach
-                    </svg>
-                    @foreach ($labels as $label)
-                        <span class="chart-label pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full bg-white px-1.5 py-0.5 text-[11px] font-semibold leading-none text-navy shadow-sm" style="left: {{ $label['x'] }}%; top: {{ $label['y'] }}%; --segment-index: {{ $label['index'] }}">{{ $label['percent'] }}</span>
+                        <circle
+                            class="chart-segment"
+                            data-calibration-chart-segment
+                            data-calibration-segment-index="{{ $index }}"
+                            data-segment-length="{{ $segmentLength }}"
+                            cx="21"
+                            cy="21"
+                            r="{{ $chartRadius }}"
+                            fill="none"
+                            stroke="{{ $segment['color'] }}"
+                            stroke-width="6"
+                            stroke-linecap="butt"
+                            stroke-dasharray="{{ $segmentLength }} {{ 100 - $segmentLength }}"
+                            stroke-dashoffset="{{ $chartOffset }}"
+                            role="img"
+                            aria-label="{{ $segment['label'] }}: {{ $segment['count'] }} instruments, {{ $segment['percent'] }} percent"
+                        ><title>{{ $segment['label'] }}: {{ $segment['count'] }} instruments, {{ $segment['percent'] }} of total</title></circle>
+                        @php $chartOffset -= $percentage; @endphp
                     @endforeach
+                </svg>
+                <div class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+                    <span class="text-3xl font-semibold tracking-tight tabular-nums text-navy" data-calibration-counter="{{ $statusTotal }}">{{ $statusTotal }}</span>
+                    <span class="text-xs font-medium text-muted">Instruments</span>
                 </div>
-
-                <ul class="flex flex-1 flex-col">
-                    @foreach ($overview->segments() as $segment)
-                        <li data-calibrations-status-row data-calibrations-status-index="{{ $loop->index }}" class="flex items-center justify-between gap-4 border-b border-line py-3 text-sm last:border-b-0">
-                            <span class="inline-flex items-center gap-2 text-ink"><span class="size-2 rounded-full" style="background-color: {{ $segment['color'] }}" aria-hidden="true"></span>{{ $segment['label'] }}</span>
-                            <span class="font-medium tabular-nums text-navy"><span data-calibration-counter="{{ $segment['count'] }}">{{ $segment['count'] }}</span> <span data-calibration-percentage="{{ (float) str_replace('%', '', $segment['percent']) }}" data-calibration-percentage-label="{{ $segment['percent'] }}">({{ $segment['percent'] }})</span></span>
-                        </li>
-                    @endforeach
-                </ul>
             </div>
-        @endif
-    </section>
-</div>
+
+            <ul class="w-full min-w-0 max-w-lg divide-y divide-line xl:max-w-sm">
+                @foreach ($statusSegments as $index => $segment)
+                    <li data-calibrations-status-row data-calibrations-status-index="{{ $index }}" class="flex items-center justify-between gap-4 py-3 text-sm" wire:key="calibration-status-{{ $segment['label'] }}">
+                        <span class="inline-flex min-w-0 items-center gap-2">
+                            <span class="size-2.5 shrink-0 rounded-full" style="background-color: {{ $segment['color'] }}" aria-hidden="true"></span>
+                            <span class="truncate text-sm font-medium text-navy">{{ $segment['label'] }}</span>
+                        </span>
+                        <span class="shrink-0 text-right text-sm font-semibold tabular-nums text-navy"><span data-calibration-counter="{{ $segment['count'] }}">{{ $segment['count'] }}</span> <span class="font-normal text-muted">(<span data-calibration-percentage="{{ (float) rtrim($segment['percent'], '%') }}" data-calibration-percentage-label="{{ $segment['percent'] }}">{{ $segment['percent'] }}</span>)</span></span>
+                    </li>
+                @endforeach
+            </ul>
+        </div>
+    @endif
+</section>

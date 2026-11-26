@@ -96,7 +96,7 @@ it('allows Viewer to open instrument detail read-only', function () {
         ->assertDontSee('Manage Standards');
 });
 
-it('edits instrument identity without changing the instrument type name', function () {
+it('edits instrument identity including the instrument type name', function () {
     createInstrumentDetailTestTables();
 
     DB::table('location')->insert([
@@ -133,6 +133,7 @@ it('edits instrument identity without changing the instrument type name', functi
     Livewire::test('pages::instruments.show', ['instrument' => 3, 'instrumentType' => 31])
         ->call('startEditingIdentity')
         ->set('editInstrumentName', 'Sodiline Updated')
+        ->set('editInstrumentType', 'Updated Weight')
         ->set('editSerialNumber', 'NEW-001')
         ->set('editAssetNumber', 'ASSET-10')
         ->set('editBrand', 'Updated Brand')
@@ -149,7 +150,7 @@ it('edits instrument identity without changing the instrument type name', functi
         ->instrument_name->toBe('Sodiline Updated')
         ->serial_number->toBe('NEW-001');
     expect(DB::table('instrument_type')->where('instrument_type_id', 31)->first())
-        ->type_name->toBe('Weight')
+        ->type_name->toBe('Updated Weight')
         ->asset_number->toBe('ASSET-10')
         ->brand->toBe('Updated Brand')
         ->max_capacity->toBe(1200);

@@ -226,6 +226,13 @@ it('calculates account status and applies active and inactive filters consistent
     actingAsRole(ApplicationRoleName::Administrator, $admin);
     $component = Livewire::test('pages::users');
     $allRows = collect($component->instance()->users()->items())->keyBy('id');
+    $statistics = $component->instance()->userStatistics();
+
+    expect($statistics)->toBe([
+        'total' => 6,
+        'active' => 2,
+        'inactive' => 4,
+    ]);
 
     expect($allRows[$active->id]->account_status)->toBe('Active')
         ->and($allRows[$inactiveIdentity->id]->account_status)->toBe('Inactive')

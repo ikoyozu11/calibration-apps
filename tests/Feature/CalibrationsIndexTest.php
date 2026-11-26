@@ -36,6 +36,36 @@ it('keeps calibration tab navigation for Administrator and Engineer', function (
     }
 });
 
+it('shares the reports statistics across every authorized calibration tab', function () {
+    createCalibrationIndexTables();
+    insertCalibrationIndexInstrument(['instrument_id' => 1, 'instrument_name' => 'Shared Metrics Gauge']);
+    insertCalibrationIndexType([
+        'instrument_type_id' => 1,
+        'instrument_id' => 1,
+        'type_name' => 'Gauge',
+    ]);
+    actingAsRole(ApplicationRoleName::Administrator);
+
+    $component = Livewire::test('pages::calibrations');
+
+    foreach (['reports', 'start', 'history'] as $tab) {
+        $component
+            ->set('tab', $tab)
+            ->assertSeeInOrder([
+                'Total Instruments',
+                '1',
+                'On Track',
+                '0',
+                'Due Soon',
+                '0',
+                'Overdue',
+                '0',
+                'Not Calibrated',
+                '1',
+            ]);
+    }
+});
+
 it('reactively filters reports and resets report pagination for every role', function (ApplicationRoleName $role) {
     createCalibrationIndexTables();
     insertCalibrationIndexInstrument([
@@ -249,7 +279,7 @@ it('shows each instrument type with the latest calibration standing', function (
             'Current Due Status',
         ])
         ->assertSee('Calibration Worklist')
-        ->assertSeeInOrder(['Completed', '5', 'In Progress', '0', 'Not Calibrated', '1'])
+        ->assertSeeInOrder(['Calibration Worklist', 'Completed', '5', 'In Progress', '0'])
         ->assertSeeInOrder(['Sodiline', 'Sodim', 'Weight', 'PDV - PD', 'WEIGHT-001', 'ASSET-9', '2026-10-01', '2026-12-12', 'Completed', 'On Track'])
         ->assertSeeInOrder(['Sodiline', 'Diameter', '2026-10-01', '2026-12-12', 'Completed', 'On Track'])
         ->assertSeeInOrder(['Due Today', '2026-10-12', '2026-10-12', 'Completed', 'Due Soon'])
@@ -267,7 +297,6 @@ it('shows each instrument type with the latest calibration standing', function (
             'instrument' => 6,
             'instrumentType' => 5,
         ])).'"', false)
-        ->assertDontSee('Total Instruments')
         ->assertSee('href="'.route('calibrations.show', 2).'"', false)
         ->assertDontSee('href="'.route('calibrations.show', 1).'"', false);
 });
@@ -352,11 +381,11 @@ it('keeps the calibration totals when the type list moves to the next page', fun
     $secondPage = Livewire::test('pages::calibrations')->set('tab', 'start')->set('paginators.worklistPage', 2);
 
     $firstPage
-        ->assertSeeInOrder(['Completed', '1', 'In Progress', '0', 'Not Calibrated', '10'])
+        ->assertSeeInOrder(['Calibration Worklist', 'Completed', '1', 'In Progress', '0'])
         ->assertSee('Gauge 01')
         ->assertDontSee('Gauge 11');
     $secondPage
-        ->assertSeeInOrder(['Completed', '1', 'In Progress', '0', 'Not Calibrated', '10'])
+        ->assertSeeInOrder(['Calibration Worklist', 'Completed', '1', 'In Progress', '0'])
         ->assertSee('Gauge 11')
         ->assertDontSee('Gauge 01');
 });
@@ -400,17 +429,17 @@ it('filters calibration rows by name brand type or model without changing the to
         ->assertSee('Diameter')
         ->assertDontSee('Weight')
         ->assertDontSee('Digital Caliper')
-        ->assertSeeInOrder(['Completed', '1', 'In Progress', '0', 'Not Calibrated', '2'])
+        ->assertSeeInOrder(['Calibration Worklist', 'Completed', '1', 'In Progress', '0'])
         ->set('worklistSearch', 'sodim')
         ->assertSee('Weight')
         ->assertDontSee('Diameter')
-        ->assertSeeInOrder(['Completed', '1', 'In Progress', '0', 'Not Calibrated', '2'])
+        ->assertSeeInOrder(['Calibration Worklist', 'Completed', '1', 'In Progress', '0'])
         ->set('worklistSearch', 'pdv')
         ->assertSee('PDV - PD')
         ->assertDontSee('Diameter')
         ->set('worklistSearch', 'WEIGHT-001')
-        ->assertDontSee('Sodiline')
-        ->assertSeeInOrder(['Completed', '1', 'In Progress', '0', 'Not Calibrated', '2']);
+        ->assertSee('Sodiline')
+        ->assertSeeInOrder(['Calibration Worklist', 'Completed', '1', 'In Progress', '0']);
 });
 
 it('rejects a page size outside the allowed choices', function () {
@@ -442,7 +471,7 @@ it('shows zero totals when no instruments exist', function () {
     $response = Livewire::test('pages::calibrations')->set('tab', 'start');
 
     $response
-        ->assertSeeInOrder(['Completed', '0', 'In Progress', '0', 'Not Calibrated', '0'])
+        ->assertSeeInOrder(['Calibration Worklist', 'Completed', '0', 'In Progress', '0'])
         ->assertSee('No instruments found.');
 });
 
@@ -482,7 +511,7 @@ it('prefers an in-progress session for the year and ignores cancelled sessions',
     $response = Livewire::test('pages::calibrations')->set('tab', 'start');
 
     $response
-        ->assertSeeInOrder(['Completed', '0', 'In Progress', '1', 'Not Calibrated', '0'])
+        ->assertSeeInOrder(['Calibration Worklist', 'Completed', '0', 'In Progress', '1'])
         ->assertSeeInOrder(['Sodiline', 'Weight', '2026-09-01', '2026-12-12', 'In Progress', 'On Track'])
         ->assertDontSee('2026-10-11')
         ->assertDontSee('Active session')
@@ -510,7 +539,7 @@ it('does not treat a completed session from another year as the annual cell', fu
     $response = Livewire::test('pages::calibrations')->set('tab', 'start');
 
     $response
-        ->assertSeeInOrder(['Completed', '0', 'In Progress', '0', 'Not Calibrated', '1'])
+        ->assertSeeInOrder(['Calibration Worklist', 'Completed', '0', 'In Progress', '0'])
         ->assertSeeInOrder(['Sodiline', 'Weight', 'Not Calibrated', 'Overdue'])
         ->assertDontSee('2025-06-01')
         ->assertDontSee('href="'.route('calibrations.show', 1).'"', false);
@@ -544,12 +573,12 @@ it('switches the annual cell when the selected year changes', function () {
     Livewire::test('pages::calibrations')
         ->set('tab', 'start')
         ->assertSee('option value="2027"', false)
-        ->assertSeeInOrder(['Completed', '1', 'In Progress', '0', 'Not Calibrated', '0'])
+        ->assertSeeInOrder(['Calibration Worklist', 'Completed', '1', 'In Progress', '0'])
         ->assertSeeInOrder(['Sodiline', 'Weight', '2026-03-01', '2026-09-01', 'Completed', 'On Track'])
         ->assertDontSee('2027-04-01')
         ->set('tab', 'start')
         ->set('worklistYear', 2027)
-        ->assertSeeInOrder(['Completed', '1', 'In Progress', '0', 'Not Calibrated', '0'])
+        ->assertSeeInOrder(['Calibration Worklist', 'Completed', '1', 'In Progress', '0'])
         ->assertSeeInOrder(['Sodiline', 'Weight', '2027-04-01', '2027-10-01', 'Completed', 'On Track'])
         ->assertDontSee('2026-03-01');
 });
@@ -615,7 +644,7 @@ it('treats a cancelled-only type as not calibrated for the selected year', funct
     $response = Livewire::test('pages::calibrations')->set('tab', 'start');
 
     $response
-        ->assertSeeInOrder(['Completed', '0', 'In Progress', '0', 'Not Calibrated', '1'])
+        ->assertSeeInOrder(['Calibration Worklist', 'Completed', '0', 'In Progress', '0'])
         ->assertSeeInOrder(['Sodiline', 'Weight', 'Not Calibrated', 'Not Calibrated'])
         ->assertDontSee('2026-10-11')
         ->assertDontSee('href="'.route('calibrations.show', 1).'"', false);
@@ -646,13 +675,13 @@ it('keeps a cross-year in-progress session off the selected year progress', func
 
     Livewire::test('pages::calibrations')
         ->set('tab', 'start')
-        ->assertSeeInOrder(['Completed', '1', 'In Progress', '0', 'Not Calibrated', '0'])
+        ->assertSeeInOrder(['Calibration Worklist', 'Completed', '1', 'In Progress', '0'])
         ->assertSeeInOrder(['Sodiline', 'Weight', '2026-03-01', '2026-12-12', 'Completed', 'On Track'])
         ->assertSee('Active session (2027)')
         ->assertSee('href="'.route('calibrations.show', 2).'"', false)
         ->set('tab', 'start')
         ->set('worklistYear', 2027)
-        ->assertSeeInOrder(['Completed', '0', 'In Progress', '1', 'Not Calibrated', '0'])
+        ->assertSeeInOrder(['Calibration Worklist', 'Completed', '0', 'In Progress', '1'])
         ->assertSeeInOrder(['Sodiline', 'Weight', 'In Progress', 'On Track'])
         ->assertDontSee('Active session (2027)')
         ->assertDontSee('2026-03-01');
@@ -728,7 +757,7 @@ it('reuses home due standing thresholds for current due status', function () {
     $response = Livewire::test('pages::calibrations')->set('tab', 'start');
 
     $response
-        ->assertSeeInOrder(['Completed', '0', 'In Progress', '0', 'Not Calibrated', '3'])
+        ->assertSeeInOrder(['Calibration Worklist', 'Completed', '0', 'In Progress', '0'])
         ->assertSeeInOrder(['On Track Type', 'Not Calibrated', 'On Track'])
         ->assertSeeInOrder(['Due Soon Type', 'Not Calibrated', 'Due Soon'])
         ->assertSeeInOrder(['Overdue Type', 'Not Calibrated', 'Overdue'])

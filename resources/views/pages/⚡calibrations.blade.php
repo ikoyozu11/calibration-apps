@@ -524,22 +524,54 @@ new class extends Component
     x-on:keydown.escape.window="if (exportModalOpen) $wire.closeExportModal()"
     x-init="$watch('exportModalOpen', (open) => $nextTick(() => open ? $refs.exportYear?.focus() : $refs.exportButton?.focus()))"
 >
-    <div class="mx-auto flex max-w-6xl flex-col gap-8">
-        <header data-calibrations-header class="flex flex-col gap-4">
-            <div>
-                <h1 class="text-2xl font-semibold tracking-tight text-navy">Calibrations</h1>
-                <p class="mt-1 text-sm text-muted">
+    <div class="mx-auto flex max-w-[1760px] flex-col gap-6 xl:gap-8">
+        <section data-calibrations-hero class="overflow-hidden rounded-2xl bg-gradient-to-br from-[#14263F] via-[#1D4E73] to-[#365F83] p-4 text-white shadow-[0_22px_44px_-28px_rgb(20_38_63/0.8)] sm:p-6">
+            <header data-calibrations-header>
+                <h1 class="text-2xl font-semibold tracking-tight text-white">Calibrations</h1>
+                <p class="mt-1 text-sm text-blue-100/75">
                     @if (Gate::allows(ApplicationCapability::SessionHistoryView->value))
                         Reports, calibration worklist, and session history.
                     @else
                         Calibration reports and instrument status overview.
                     @endif
                 </p>
-            </div>
+            </header>
 
-            @if (Gate::allows(ApplicationCapability::SessionHistoryView->value)
-                || Gate::allows(ApplicationCapability::SessionStart->value))
-                <div data-calibrations-tabs class="desk-tabs" role="tablist" aria-label="Calibrations views">
+            <div class="mt-5 h-px bg-white/20" aria-hidden="true"></div>
+
+            @php
+                $calibrationMetrics = [
+                    ['label' => 'Total Instruments', 'value' => $this->reportOverview->total, 'iconSurface' => 'bg-white/15'],
+                    ['label' => 'On Track', 'value' => $this->reportOverview->onTrack, 'iconSurface' => 'bg-emerald-400/20'],
+                    ['label' => 'Due Soon', 'value' => $this->reportOverview->dueSoon, 'iconSurface' => 'bg-amber-400/20'],
+                    ['label' => 'Overdue', 'value' => $this->reportOverview->overdue, 'iconSurface' => 'bg-rose-400/20'],
+                    ['label' => 'Not Calibrated', 'value' => $this->reportOverview->notCalibrated, 'iconSurface' => 'bg-blue-200/25'],
+                ];
+            @endphp
+
+            <section data-calibrations-stats aria-label="Calibration statistics" class="mt-4 grid grid-cols-2 gap-y-4 sm:gap-y-5 xl:grid-cols-5 xl:gap-y-0">
+                @foreach ($calibrationMetrics as $metric)
+                    <article data-calibrations-stat data-calibrations-stat-index="{{ $loop->index }}" class="relative flex min-w-0 flex-col items-center gap-1 px-2 py-1 text-center sm:gap-2 sm:px-4 xl:px-6 xl:first:pl-0 xl:last:pr-0">
+                        @if ($loop->index > 0)
+                            <span class="pointer-events-none absolute left-0 top-1/2 hidden h-10 w-px -translate-y-1/2 bg-white/15 xl:block" aria-hidden="true"></span>
+                        @endif
+                        @if ($loop->index % 2 === 1)
+                            <span class="pointer-events-none absolute left-0 top-0 h-full w-px bg-white/15 xl:hidden" aria-hidden="true"></span>
+                        @endif
+                        <div class="flex items-center gap-2">
+                            <span class="size-2 shrink-0 rounded-full {{ $metric['iconSurface'] }}" aria-hidden="true"></span>
+                            <p class="text-[10px] font-medium leading-tight text-blue-50/80 sm:text-sm">{{ $metric['label'] }}</p>
+                        </div>
+                        <p class="text-2xl font-semibold tracking-tight tabular-nums text-white sm:text-4xl" data-calibration-counter="{{ $metric['value'] }}">{{ $metric['value'] }}</p>
+                    </article>
+                @endforeach
+            </section>
+        </section>
+
+        @if (Gate::allows(ApplicationCapability::SessionHistoryView->value)
+            || Gate::allows(ApplicationCapability::SessionStart->value))
+            <nav data-calibrations-tabs class="desk-tabs" aria-label="Calibrations views">
+                <div role="tablist" class="flex min-w-max gap-1">
                 <button
                     type="button"
                     role="tab"
@@ -574,12 +606,10 @@ new class extends Component
                         </button>
                     @endif
                 </div>
-            @endif
-        </header>
+            </nav>
+        @endif
 
         @if ($tab === CalibrationAnnualOverview::TAB_REPORTS)
-            @include('components.calibration-standing-summary', ['overview' => $this->reportOverview])
-
             @include('components.calibration-reports-table', [
                 'reportRows' => $this->reportRows,
                 'reportYears' => $this->reportYears,
@@ -590,38 +620,47 @@ new class extends Component
                 'reportPerPage' => $reportPerPage,
             ])
         @elseif ($tab === CalibrationAnnualOverview::TAB_HISTORY)
-            <section data-calibrations-content class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="session-history-heading">
-                <div class="flex flex-col gap-3 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+            <section data-calibrations-content class="overflow-hidden rounded-2xl border border-line/80 bg-white shadow-[0_1px_2px_rgb(22_49_114/0.06),0_18px_36px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="session-history-heading">
+                <div class="border-b border-line/80 bg-white px-5 py-4">
                     <h2 id="session-history-heading" class="text-base font-semibold tracking-tight text-navy">Session History</h2>
-                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-                        <label for="session-history-year" class="sr-only">Year</label>
-                        <select id="session-history-year" wire:model.live="year" class="rounded-lg border border-line bg-white px-3 py-2 text-sm text-navy">
+                </div>
+
+                <div class="grid gap-3 border-b border-line/80 bg-white px-5 py-4 sm:grid-cols-2 lg:grid-cols-[10rem_10rem_1fr_6rem]">
+                    <label class="text-sm font-medium text-navy">
+                        Calibration Year
+                        <select id="session-history-year" wire:model.live="year" class="ui-input mt-1 w-full">
                             @foreach ($this->years as $yearOption)
                                 <option value="{{ $yearOption }}">{{ $yearOption }}</option>
                             @endforeach
                         </select>
-                        <label for="session-history-status" class="sr-only">Session status</label>
-                        <select id="session-history-status" wire:model.live="sessionStatus" class="rounded-lg border border-line bg-white px-3 py-2 text-sm text-navy">
+                    </label>
+                    <label class="text-sm font-medium text-navy">
+                        Status
+                        <select id="session-history-status" wire:model.live="sessionStatus" class="ui-input mt-1 w-full">
                             <option value="{{ CalibrationSessionHistory::STATUS_ALL }}">All</option>
                             <option value="{{ Calibration::STATUS_IN_PROGRESS }}">In Progress</option>
                             <option value="{{ Calibration::STATUS_COMPLETED }}">Completed</option>
                             <option value="{{ Calibration::STATUS_CANCELLED }}">Cancelled</option>
                         </select>
-                        <label for="session-history-search" class="sr-only">Search by name, type, or calibration number</label>
+                    </label>
+                    <label class="text-sm font-medium text-navy">
+                        Search
                         <input
                             id="session-history-search"
                             type="search"
                             wire:model.live.debounce.300ms="search"
                             placeholder="Name, type, or calibration number"
-                            class="ui-input sm:w-64"
+                            class="ui-input mt-1 w-full"
                         >
-                        <label for="session-history-page-size" class="sr-only">Rows per page</label>
-                        <select id="session-history-page-size" wire:model.live="perPage" class="rounded-lg border border-line bg-white px-3 py-2 text-sm text-navy">
+                    </label>
+                    <label class="text-sm font-medium text-navy">
+                        Per page
+                        <select id="session-history-page-size" wire:model.live="perPage" class="ui-input mt-1 w-full">
                             <option value="10">10</option>
                             <option value="25">25</option>
                             <option value="50">50</option>
                         </select>
-                    </div>
+                    </label>
                 </div>
 
                 @if ($this->sessions->isEmpty())
@@ -634,36 +673,36 @@ new class extends Component
                     @endif
                 @else
                     <div class="overflow-x-auto">
-                        <table class="ui-table">
-                            <thead class="bg-navy text-xs font-medium text-white">
+                        <table class="management-table w-full min-w-[920px]">
+                            <thead>
                                 <tr>
-                                    <th scope="col" class="px-5 py-3 font-medium">Instrument Name</th>
-                                    <th scope="col" class="px-5 py-3 font-medium">Instrument Type</th>
-                                    <th scope="col" class="px-5 py-3 font-medium">Serial Number</th>
-                                    <th scope="col" class="px-5 py-3 font-medium">Calibration Number</th>
-                                    <th scope="col" class="px-5 py-3 font-medium">Session Date</th>
-                                    <th scope="col" class="px-5 py-3 font-medium">Status</th>
-                                    <th scope="col" class="px-5 py-3 font-medium">Method</th>
-                                    <th scope="col" class="px-5 py-3 font-medium">Engineer</th>
+                                    <th scope="col">Instrument Name</th>
+                                    <th scope="col">Instrument Type</th>
+                                    <th scope="col">Serial Number</th>
+                                    <th scope="col">Calibration Number</th>
+                                    <th scope="col">Session Date</th>
+                                    <th scope="col">Status</th>
+                                    <th scope="col">Method</th>
+                                    <th scope="col">Engineer</th>
                                 </tr>
                             </thead>
-                            <tbody class="divide-y divide-white/70">
+                            <tbody>
                                 @foreach ($this->sessions as $session)
-                                    <tr wire:key="session-row-{{ $session['key'] }}" class="odd:bg-[#d6e4f0] even:bg-[#c5d8ec] hover:bg-[#edf4fa]">
-                                        <td class="px-5 py-3.5 font-medium text-navy">
+                                    <tr wire:key="session-row-{{ $session['key'] }}">
+                                        <td class="font-medium text-navy">
                                             <a href="{{ $session['detail_url'] }}" class="text-navy underline-offset-2 hover:text-brand hover:underline focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2">
                                                 {{ $session['name'] }}
                                             </a>
                                         </td>
-                                        <td class="px-5 py-3.5 text-navy">{{ $session['type'] }}</td>
-                                        <td class="px-5 py-3.5 text-navy/70">{{ $session['serial_number'] }}</td>
-                                        <td class="px-5 py-3.5 text-navy">{{ $session['calibration_number'] }}</td>
-                                        <td class="px-5 py-3.5 tabular-nums text-navy">{{ $session['session_date'] }}</td>
-                                        <td class="px-5 py-3.5">
+                                        <td class="text-navy/80">{{ $session['type'] }}</td>
+                                        <td class="break-words text-navy/70">{{ $session['serial_number'] }}</td>
+                                        <td class="text-navy/80">{{ $session['calibration_number'] }}</td>
+                                        <td class="tabular-nums text-navy">{{ $session['session_date'] }}</td>
+                                        <td>
                                             <x-status-badge :status="$session['status']" />
                                         </td>
-                                        <td class="px-5 py-3.5 text-navy">{{ $session['method'] }}</td>
-                                        <td class="px-5 py-3.5 text-navy">{{ $session['engineer'] }}</td>
+                                        <td class="text-navy/80">{{ $session['method'] }}</td>
+                                        <td class="text-navy/80">{{ $session['engineer'] }}</td>
                                     </tr>
                                 @endforeach
                             </tbody>
@@ -671,44 +710,32 @@ new class extends Component
                     </div>
 
                     @if ($this->sessions->hasPages())
-                        <div class="px-5 py-4">
-                            {{ $this->sessions->links() }}
+                        <div>
+                            {{ $this->sessions->links('vendor.pagination.management-tailwind') }}
                         </div>
                     @endif
                 @endif
             </section>
         @else
-            <section data-calibrations-content class="grid gap-4 sm:grid-cols-3">
-                <article class="relative overflow-hidden rounded-2xl bg-on-track p-5 text-white shadow-[0_16px_28px_-16px_rgb(31_122_77/0.75)] transition duration-200 hover:-translate-y-0.5">
-                    <span class="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/25 via-transparent to-black/15" aria-hidden="true"></span>
-                    <div class="relative">
-                        <p class="text-sm font-medium text-white/80">Completed</p>
-                        <p class="mt-3 text-4xl font-semibold tracking-tight tabular-nums">{{ $this->totals['completed'] }}</p>
+            <section data-calibrations-content class="overflow-hidden rounded-2xl border border-line/80 bg-white shadow-[0_1px_2px_rgb(22_49_114/0.06),0_18px_36px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="calibrations-heading">
+                <div class="flex flex-col gap-3 border-b border-line/80 bg-white px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                        <h2 id="calibrations-heading" class="text-base font-semibold tracking-tight text-navy">Calibration Worklist</h2>
+                        <dl data-calibrations-worklist-summary class="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm text-navy/70">
+                            <div class="flex items-center gap-1.5">
+                                <dt>Completed</dt>
+                                <dd class="font-semibold tabular-nums text-navy">{{ $this->totals['completed'] }}</dd>
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                <dt>In Progress</dt>
+                                <dd class="font-semibold tabular-nums text-navy">{{ $this->totals['inProgress'] }}</dd>
+                            </div>
+                        </dl>
                     </div>
-                </article>
-                <article class="relative overflow-hidden rounded-2xl bg-brand p-5 text-white shadow-[0_16px_28px_-16px_rgb(30_86_160/0.75)] transition duration-200 hover:-translate-y-0.5">
-                    <span class="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/25 via-transparent to-black/15" aria-hidden="true"></span>
-                    <div class="relative">
-                        <p class="text-sm font-medium text-white/80">In Progress</p>
-                        <p class="mt-3 text-4xl font-semibold tracking-tight tabular-nums">{{ $this->totals['inProgress'] }}</p>
-                    </div>
-                </article>
-                <article class="relative overflow-hidden rounded-2xl bg-navy p-5 text-white shadow-[0_16px_28px_-16px_rgb(22_49_114/0.75)] transition duration-200 hover:-translate-y-0.5">
-                    <span class="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/25 via-transparent to-black/15" aria-hidden="true"></span>
-                    <div class="relative">
-                        <p class="text-sm font-medium text-white/80">Not Calibrated</p>
-                        <p class="mt-3 text-4xl font-semibold tracking-tight tabular-nums">{{ $this->totals['notCalibrated'] }}</p>
-                    </div>
-                </article>
-            </section>
-
-            <section data-calibrations-content class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="calibrations-heading">
-                <div class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                    <h2 id="calibrations-heading" class="text-base font-semibold tracking-tight text-navy">Calibration Worklist</h2>
                     <button type="button" wire:click="clearWorklistFilters" class="ui-button-secondary">Clear Filters</button>
                 </div>
 
-                <div class="grid gap-3 border-y border-brand/15 px-5 py-4 sm:grid-cols-2 lg:grid-cols-[10rem_1fr_2fr_6rem]">
+                <div class="grid gap-3 border-b border-line/80 bg-white px-5 py-4 sm:grid-cols-2 lg:grid-cols-[10rem_1fr_2fr_6rem]">
                     <label class="text-sm font-medium text-navy">
                         Calibration Year
                         <select id="calibration-year" wire:model.live="worklistYear" class="ui-input mt-1 w-full">
@@ -743,34 +770,35 @@ new class extends Component
                             <option value="25">25</option>
                             <option value="50">50</option>
                         </select>
-                    </div>
+                    </label>
+                </div>
 
                 @if ($this->rows->isEmpty())
                     <p class="px-5 py-8 text-sm text-navy/70">No instruments found.</p>
                 @else
                     <div class="overflow-x-auto">
-                        <table class="ui-table">
-                            <thead class="bg-navy text-xs font-medium text-white">
+                        <table class="management-table min-w-[1180px]">
+                            <thead>
                                 <tr>
-                                    <th scope="col" class="px-5 py-3 font-medium">Instrument Name</th>
-                                    <th scope="col" class="px-5 py-3 font-medium">Brand</th>
-                                    <th scope="col" class="px-5 py-3 font-medium">Type</th>
-                                    <th scope="col" class="px-5 py-3 font-medium">Model</th>
-                                    <th scope="col" class="px-5 py-3 font-medium">Serial Number</th>
-                                    <th scope="col" class="px-5 py-3 font-medium">Asset Number</th>
-                                    <th scope="col" class="px-5 py-3 font-medium">Calibration Date</th>
-                                    <th scope="col" class="px-5 py-3 font-medium">Calibration Due</th>
-                                    <th scope="col" class="px-5 py-3 font-medium">Annual Progress</th>
-                                    <th scope="col" class="px-5 py-3 font-medium">Current Due Status</th>
-                                    <th scope="col" class="px-5 py-3 font-medium">Location</th>
-                                    <th scope="col" class="px-5 py-3 font-medium">Detail Location</th>
-                                    <th scope="col" class="px-5 py-3 font-medium">Action</th>
+                                    <th scope="col">Instrument Name</th>
+                                    <th scope="col">Brand</th>
+                                    <th scope="col">Type</th>
+                                    <th scope="col">Model</th>
+                                    <th scope="col">Serial Number</th>
+                                    <th scope="col">Asset Number</th>
+                                    <th scope="col">Calibration Date</th>
+                                    <th scope="col">Calibration Due</th>
+                                    <th scope="col">Annual Progress</th>
+                                    <th scope="col">Current Due Status</th>
+                                    <th scope="col">Location</th>
+                                    <th scope="col">Detail Location</th>
+                                    <th scope="col">Action</th>
                                 </tr>
                             </thead>
-                            <tbody class="divide-y divide-white/70">
+                            <tbody>
                                 @foreach ($this->rows as $row)
-                                    <tr wire:key="calibration-row-{{ $row['key'] }}" class="odd:bg-[#d6e4f0] even:bg-[#c5d8ec] hover:bg-[#edf4fa]">
-                                        <td class="px-5 py-3.5 font-medium text-navy">
+                                    <tr wire:key="calibration-row-{{ $row['key'] }}">
+                                        <td class="font-medium text-navy">
                                             @if ($row['calibration_id'] === null)
                                                 {{ $row['name'] }}
                                             @else
@@ -779,14 +807,14 @@ new class extends Component
                                                 </a>
                                             @endif
                                         </td>
-                                        <td class="px-5 py-3.5 text-navy">{{ $row['brand'] }}</td>
-                                        <td class="px-5 py-3.5 text-navy">{{ $row['type'] }}</td>
-                                        <td class="px-5 py-3.5 text-navy">{{ $row['model'] }}</td>
-                                        <td class="px-5 py-3.5 text-navy/70">{{ $row['serial_number'] }}</td>
-                                        <td class="px-5 py-3.5 text-navy/70">{{ $row['asset_number'] }}</td>
-                                        <td class="px-5 py-3.5 tabular-nums text-navy">{{ $row['date'] }}</td>
-                                        <td class="px-5 py-3.5 tabular-nums text-navy">{{ $row['due'] }}</td>
-                                        <td class="px-5 py-3.5">
+                                        <td class="text-navy/80">{{ $row['brand'] }}</td>
+                                        <td class="text-navy/80">{{ $row['type'] }}</td>
+                                        <td class="text-navy/80">{{ $row['model'] }}</td>
+                                        <td class="break-words text-navy/70">{{ $row['serial_number'] }}</td>
+                                        <td class="break-words text-navy/70">{{ $row['asset_number'] }}</td>
+                                        <td class="tabular-nums text-navy">{{ $row['date'] }}</td>
+                                        <td class="tabular-nums text-navy">{{ $row['due'] }}</td>
+                                        <td>
                                             <div class="flex flex-col gap-1">
                                                 <x-status-badge :status="$row['progress']" />
                                                 @if ($row['active_year'] !== null)
@@ -802,14 +830,14 @@ new class extends Component
                                                 @endif
                                             </div>
                                         </td>
-                                        <td class="px-5 py-3.5">
+                                        <td>
                                             <x-status-badge :status="$row['due_status']" />
                                         </td>
-                                        <td class="px-5 py-3.5 text-navy">{{ $row['location'] }}</td>
-                                        <td class="px-5 py-3.5 text-navy">{{ $row['detail_location'] }}</td>
-                                        <td class="px-5 py-3.5">
+                                        <td class="text-navy/80">{{ $row['location'] }}</td>
+                                        <td class="text-navy/80">{{ $row['detail_location'] }}</td>
+                                        <td>
                                             @if ($row['can_start'] && $row['start_url'] !== null)
-                                                <a href="{{ $row['start_url'] }}" class="ui-button-primary inline-flex w-fit items-center gap-1.5 whitespace-nowrap px-3 py-2 text-xs">
+                                                <a href="{{ $row['start_url'] }}" class="ui-button-export inline-flex w-fit items-center gap-1.5 whitespace-nowrap px-3 py-2 text-xs">
                                                     <svg aria-hidden="true" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
                                                         <path d="M6.5 4.75a1 1 0 0 1 1.54-.84l7.5 5.25a1 1 0 0 1 0 1.68l-7.5 5.25A1 1 0 0 1 6.5 15.25v-10.5Z" />
                                                     </svg>
@@ -828,8 +856,8 @@ new class extends Component
                     </div>
 
                     @if ($this->rows->hasPages())
-                        <div class="px-5 py-4">
-                            {{ $this->rows->links() }}
+                        <div>
+                            {{ $this->rows->links('vendor.pagination.management-tailwind') }}
                         </div>
                     @endif
                 @endif

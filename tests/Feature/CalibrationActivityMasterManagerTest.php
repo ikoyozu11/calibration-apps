@@ -21,9 +21,9 @@ it('lists and searches the activity master for authenticated users', function ()
         ->assertSee('Verification')
         ->assertSee('Add New Activity')
         ->assertSee('btn-add')
-        ->assertSee('btn-edit')
-        ->assertSee('btn-deactivate')
-        ->assertSee('btn-delete')
+        ->assertSee('management-action-edit')
+        ->assertSee('management-action-neutral')
+        ->assertSee('management-action-danger')
         ->set('search', 'Cleaning')
         ->assertSee('Cleaning')
         ->assertDontSee('Verification');
@@ -39,10 +39,9 @@ it('renders activity status but no mutation controls for Engineers', function ()
         ->assertSee('Active')
         ->assertDontSee('Actions')
         ->assertDontSee('btn-add')
-        ->assertDontSee('btn-edit')
-        ->assertDontSee('btn-activate')
-        ->assertDontSee('btn-deactivate')
-        ->assertDontSee('btn-delete');
+        ->assertDontSee('management-action-edit')
+        ->assertDontSee('management-action-neutral')
+        ->assertDontSee('management-action-danger');
 });
 
 it('creates and edits an activity from the master page', function () {

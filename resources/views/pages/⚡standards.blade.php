@@ -269,20 +269,16 @@ new class extends Component
     x-on:keydown.escape.window="if (standardModalOpen) requestCloseStandardModal()"
     x-init="$watch('standardModalOpen', (open) => $nextTick(() => open ? $refs.standardInstrumentName?.focus() : $refs.addStandardButton?.focus()))"
 >
-    <div class="mx-auto flex max-w-6xl flex-col gap-8">
-        <header>
-            <h1 class="text-2xl font-semibold tracking-tight text-navy">Standard(s) Used</h1>
-            <p class="mt-1 text-sm text-muted">Register master standards independently of the Instruments list.</p>
-        </header>
+    <x-management-shell active="standards">
 
-        <section class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="standard-master-heading">
-            <div class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <section class="overflow-hidden rounded-2xl border border-line/80 bg-white shadow-[0_1px_2px_rgb(22_49_114/0.06),0_18px_36px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="standard-master-heading">
+            <div class="flex flex-col gap-3 border-b border-line/80 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <h2 id="standard-master-heading" class="text-base font-semibold tracking-tight text-navy">Standard Master</h2>
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
                     <label for="standard-master-search" class="sr-only">Search by name, type, or serial number</label>
-                    <input id="standard-master-search" type="search" wire:model.live.debounce.300ms="search" maxlength="100" class="ui-input" placeholder="Name, type / specification, or serial">
+                    <input id="standard-master-search" type="search" wire:model.live.debounce.300ms="search" maxlength="100" class="ui-input" placeholder="Name, Specification, Serial Number">
                     @can('masterdata.manage')
-                        <button x-ref="addStandardButton" type="button" wire:click="startAdding" class="btn-add">
+                        <button x-ref="addStandardButton" type="button" wire:click="startAdding" class="btn-add ui-button-management-primary">
                             <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
                                 <path stroke-linecap="round" d="M12 5v14M5 12h14" />
                             </svg>
@@ -296,27 +292,27 @@ new class extends Component
                 <p class="px-5 py-8 text-sm text-navy/70">No standards found.</p>
             @else
                 <div class="overflow-x-auto">
-                    <table class="ui-table">
-                        <thead class="bg-navy text-xs font-medium text-white">
+                    <table class="management-table">
+                        <thead>
                             <tr>
-                                <th scope="col" class="px-5 py-3 font-medium">Standard ID</th>
-                                <th scope="col" class="px-5 py-3 font-medium">Instrument Name</th>
-                                <th scope="col" class="px-5 py-3 font-medium">Type / Specification</th>
-                                <th scope="col" class="px-5 py-3 font-medium">Serial Number</th>
-                                <th scope="col" class="px-5 py-3 font-medium">Assigned To</th>
+                                <th scope="col">Standard ID</th>
+                                <th scope="col">Instrument Name</th>
+                                <th scope="col">Type / Specification</th>
+                                <th scope="col">Serial Number</th>
+                                <th scope="col">Assigned To</th>
                                 @can('masterdata.manage')
-                                    <th scope="col" class="px-5 py-3 font-medium">Actions</th>
+                                    <th scope="col">Actions</th>
                                 @endcan
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-white/70">
+                        <tbody>
                             @foreach ($this->standards() as $standard)
-                                <tr wire:key="standard-master-{{ $standard->standard_id }}" class="odd:bg-[#d6e4f0] even:bg-[#c5d8ec]">
-                                    <td class="px-5 py-3.5 font-medium text-navy">{{ $standard->standard_code }}</td>
-                                    <td class="px-5 py-3.5 text-navy">{{ $standard->instrument_name }}</td>
-                                    <td class="px-5 py-3.5 text-navy">{{ filled($standard->type_specification) ? $standard->type_specification : '—' }}</td>
-                                    <td class="px-5 py-3.5 text-navy">{{ filled($standard->serial_number) ? $standard->serial_number : '—' }}</td>
-                                    <td class="px-5 py-3.5 text-navy">
+                                <tr wire:key="standard-master-{{ $standard->standard_id }}">
+                                    <td class="font-medium text-navy">{{ $standard->standard_code }}</td>
+                                    <td class="text-navy/80">{{ $standard->instrument_name }}</td>
+                                    <td class="text-navy/80">{{ filled($standard->type_specification) ? $standard->type_specification : '—' }}</td>
+                                    <td class="break-words text-navy/70">{{ filled($standard->serial_number) ? $standard->serial_number : '—' }}</td>
+                                    <td class="text-navy/80">
                                         @if ($standard->assignments->isEmpty())
                                             —
                                         @else
@@ -328,16 +324,16 @@ new class extends Component
                                         @endif
                                     </td>
                                     @can('masterdata.manage')
-                                    <td class="px-5 py-3.5">
+                                    <td>
                                         <div class="flex flex-wrap gap-2">
-                                            <button type="button" wire:click="startEditing({{ $standard->standard_id }})" class="btn-edit">
+                                            <button type="button" wire:click="startEditing({{ $standard->standard_id }})" class="management-action management-action-edit">
                                                 <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="m4 16 10.5-10.5a2.12 2.12 0 0 1 3 3L7 19H4v-3Z" />
                                                     <path stroke-linecap="round" d="m13 7 4 4" />
                                                 </svg>
                                                 <span>Edit</span>
                                             </button>
-                                            <button type="button" wire:click="prepareStandardDelete({{ $standard->standard_id }})" class="btn-delete" wire:loading.attr="disabled" wire:target="prepareStandardDelete">
+                                            <button type="button" wire:click="prepareStandardDelete({{ $standard->standard_id }})" class="management-action management-action-danger" wire:loading.attr="disabled" wire:target="prepareStandardDelete">
                                                 <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M10 11v5M14 11v5M6 7l1 13h10l1-13M9 7V4h6v3" />
                                                 </svg>
@@ -351,12 +347,12 @@ new class extends Component
                         </tbody>
                     </table>
                 </div>
-                <div class="px-5 py-4">
-                    {{ $this->standards()->links() }}
+                <div>
+                    {{ $this->standards()->links('vendor.pagination.management-tailwind') }}
                 </div>
             @endif
         </section>
-    </div>
+    </x-management-shell>
 
     <div
         x-cloak

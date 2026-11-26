@@ -13,6 +13,7 @@ final class InstrumentCalibrationOverview
 {
     /**
      * @param  list<array{instrument_id: int, instrument_name: string, serial_number: string, calibration_date: string, calibration_due: string, status: string}>  $recent
+     * @param  list<array{instrument_id: int, instrument_name: string, serial_number: string, calibration_due: string, status: string, detail_url: string}>  $attention
      */
     public function __construct(
         public int $total,
@@ -21,6 +22,7 @@ final class InstrumentCalibrationOverview
         public int $dueSoon,
         public int $notCalibrated,
         public array $recent,
+        public array $attention = [],
     ) {}
 
     public static function current(Connection $connection, ?string $name = null): self
@@ -53,6 +55,7 @@ final class InstrumentCalibrationOverview
         $dueSoon = 0;
         $notCalibrated = 0;
         $recent = [];
+        $attention = [];
         $needle = self::nameNeedle($name);
 
         foreach ($instruments as $instrument) {
@@ -67,6 +70,18 @@ final class InstrumentCalibrationOverview
                 $dueSoon++;
             } else {
                 $notCalibrated++;
+            }
+
+            if (in_array($standing, [CalibrationStanding::Overdue, CalibrationStanding::DueSoon], true)) {
+                $attention[] = [
+                    'instrument_id' => (int) $instrument->instrument_id,
+                    'instrument_name' => (string) $instrument->instrument_name,
+                    'serial_number' => self::serialNumber($instrument),
+                    'calibration_due' => self::dateLabel($calibration?->calibration_due),
+                    'calibration_due_value' => $calibration?->calibration_due?->toDateString(),
+                    'status' => $standing->value,
+                    'detail_url' => route('instruments.show', $instrument->instrument_id),
+                ];
             }
 
             if ($needle !== '' && mb_stripos($instrument->instrument_name, $needle) === false) {
@@ -87,6 +102,28 @@ final class InstrumentCalibrationOverview
             ];
         }
 
+        usort($attention, static function (array $left, array $right): int {
+            $statusComparison = ($left['status'] === CalibrationStanding::Overdue->value ? 0 : 1)
+                <=> ($right['status'] === CalibrationStanding::Overdue->value ? 0 : 1);
+
+            if ($statusComparison !== 0) {
+                return $statusComparison;
+            }
+
+            $dueComparison = ($left['calibration_due_value'] ?? '9999-12-31')
+                <=> ($right['calibration_due_value'] ?? '9999-12-31');
+
+            if ($dueComparison !== 0) {
+                return $dueComparison;
+            }
+
+            $nameComparison = strnatcasecmp($left['instrument_name'], $right['instrument_name']);
+
+            return $nameComparison !== 0
+                ? $nameComparison
+                : $left['instrument_id'] <=> $right['instrument_id'];
+        });
+
         return new self(
             total: $instruments->count(),
             onTrack: $onTrack,
@@ -94,6 +131,11 @@ final class InstrumentCalibrationOverview
             dueSoon: $dueSoon,
             notCalibrated: $notCalibrated,
             recent: $recent,
+            attention: array_map(static function (array $item): array {
+                unset($item['calibration_due_value']);
+
+                return $item;
+            }, $attention),
         );
     }
 

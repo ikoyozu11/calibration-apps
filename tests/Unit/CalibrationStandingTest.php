@@ -44,3 +44,10 @@ it('treats a due date equal to today as due soon', function () {
     expect(CalibrationStanding::fromDueDate(CarbonImmutable::parse('2026-11-04')))
         ->toBe(CalibrationStanding::DueSoon);
 });
+
+it('supports an explicit evaluation date without changing the shared default rule', function () {
+    expect(CalibrationStanding::fromDueDate(
+        CarbonImmutable::parse('2027-01-03'),
+        CarbonImmutable::parse('2026-11-04'),
+    ))->toBe(CalibrationStanding::DueSoon);
+});

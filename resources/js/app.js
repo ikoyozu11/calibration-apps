@@ -2963,6 +2963,61 @@ function registerMobileNavigation() {
     });
 }
 
+function registerSidebarCollapse() {
+    const root = document.documentElement;
+    const toggle = document.querySelector('[data-sidebar-toggle]');
+
+    if (!toggle || toggle.dataset.sidebarToggleRegistered === 'true') {
+        return;
+    }
+
+    toggle.dataset.sidebarToggleRegistered = 'true';
+
+    const closeIcon = toggle.querySelector('[data-sidebar-toggle-close]');
+    const openIcon = toggle.querySelector('[data-sidebar-toggle-open]');
+
+    const sync = () => {
+        const collapsed = root.dataset.sidebarCollapsed === 'true';
+        toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        toggle.setAttribute('aria-pressed', collapsed ? 'true' : 'false');
+        toggle.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+        toggle.setAttribute('title', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+        closeIcon?.classList.toggle('hidden', collapsed);
+        openIcon?.classList.toggle('hidden', !collapsed);
+    };
+
+    sync();
+
+    toggle.addEventListener('click', () => {
+        const collapsed = root.dataset.sidebarCollapsed !== 'true';
+
+        if (collapsed) {
+            root.dataset.sidebarCollapsed = 'true';
+        } else {
+            delete root.dataset.sidebarCollapsed;
+        }
+
+        try {
+            localStorage.setItem('instrumentsDesk.sidebarCollapsed', collapsed ? 'true' : 'false');
+        } catch {
+            // Keep the current state for this page when storage is unavailable.
+        }
+
+        sync();
+    });
+}
+
+function synchronizeContextualBreadcrumb() {
+    const current = document.querySelector('[data-breadcrumb-current]');
+    const activeCalibrationTab = document.querySelector('[data-calibrations-tabs] [aria-selected="true"]');
+
+    if (!current || !activeCalibrationTab) {
+        return;
+    }
+
+    current.textContent = activeCalibrationTab.textContent.trim();
+}
+
 function registerUserStatusConfirmation() {
     if (window.__instrumentsDeskUserStatusConfirmationRegistered) {
         return;
@@ -3239,9 +3294,59 @@ function restoreDashboardPercentageValues(page) {
 
 function dashboardDistributionStart(element) {
     const row = element.closest('[data-dashboard-distribution-row]');
+    const indexedSegment = Number.parseInt(element.dataset.dashboardSegmentIndex ?? '', 10);
     const index = Number.parseInt(row?.dataset.dashboardDistributionRow ?? '0', 10);
 
+    if (Number.isFinite(indexedSegment)) {
+        return 0.2 + (indexedSegment * 0.07);
+    }
+
     return 0.2 + (Number.isFinite(index) ? index * 0.07 : 0);
+}
+
+function registerDashboardPaginationGestures() {
+    document.querySelectorAll('[data-dashboard-swipe-list]').forEach((list) => {
+        if (list.dataset.dashboardSwipeRegistered === 'true') {
+            return;
+        }
+
+        list.dataset.dashboardSwipeRegistered = 'true';
+        let startPoint = null;
+
+        list.addEventListener('touchstart', (event) => {
+            const touch = event.changedTouches[0];
+
+            startPoint = touch ? { x: touch.clientX, y: touch.clientY } : null;
+        }, { passive: true });
+
+        list.addEventListener('touchend', (event) => {
+            if (!startPoint) {
+                return;
+            }
+
+            const touch = event.changedTouches[0];
+            const deltaX = touch ? touch.clientX - startPoint.x : 0;
+            const deltaY = touch ? touch.clientY - startPoint.y : 0;
+            const isHorizontalSwipe = Math.abs(deltaX) >= 48 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25;
+
+            startPoint = null;
+
+            if (!isHorizontalSwipe || event.target.closest('button')) {
+                return;
+            }
+
+            event.preventDefault();
+
+            const direction = deltaX < 0 ? 'Next' : 'Previous';
+            const button = list.parentElement?.querySelector(`[data-dashboard-pagination] button[aria-label^="${direction}"]`);
+
+            button?.click();
+        }, { passive: false });
+
+        list.addEventListener('touchcancel', () => {
+            startPoint = null;
+        }, { passive: true });
+    });
 }
 
 function restoreDashboardChartSegments(page) {
@@ -3707,8 +3812,6 @@ function initializeDashboardAnimations() {
     const header = page.querySelector('[data-dashboard-header]');
     const stats = [...page.querySelectorAll('[data-dashboard-stat]')];
     const content = [...page.querySelectorAll('[data-dashboard-content]')];
-    const distribution = content[0];
-    const recent = content[1];
     const targets = dashboardAnimationTargets(page);
     const animationPending = document.documentElement.classList.contains('dashboard-animation-pending');
 
@@ -3754,8 +3857,7 @@ function initializeDashboardAnimations() {
 
         gsap.set(header, { opacity: 0, y: 20 });
         gsap.set(stats, { opacity: 0, y: 26, transition: 'none' });
-        gsap.set(distribution, { opacity: 0, y: 16 });
-        gsap.set(recent, { opacity: 0, x: 12 });
+        gsap.set(content, { opacity: 0, y: 16 });
 
         counterStates.forEach(({ element }) => {
             element.textContent = '0';
@@ -3794,16 +3896,13 @@ function initializeDashboardAnimations() {
             opacity: 1,
             y: 0,
             stagger: 0.08,
-        }, 0.18).to(distribution, {
+        }, 0.18).to(content, {
             duration: 0.85,
             opacity: 1,
             y: 0,
+            stagger: 0.06,
             ease: 'power2.out',
-        }, 0.28).to(recent, {
-            duration: 0.8,
-            opacity: 1,
-            x: 0,
-        }, 0.35);
+        }, 0.28);
 
         counterStates.forEach(({ element, state, target }) => {
             const start = element.closest('[data-dashboard-stat]') ? 0.18 : dashboardDistributionStart(element);
@@ -3948,21 +4047,29 @@ window.instrumentsDeskNotifications = {
 
 document.addEventListener('livewire:init', registerLivewireNotifications);
 document.addEventListener('DOMContentLoaded', registerMobileNavigation);
+document.addEventListener('DOMContentLoaded', registerSidebarCollapse);
+document.addEventListener('DOMContentLoaded', synchronizeContextualBreadcrumb);
 document.addEventListener('DOMContentLoaded', registerCertificateRefreshConfirmation);
 document.addEventListener('DOMContentLoaded', registerUserStatusConfirmation);
 document.addEventListener('DOMContentLoaded', initializeLoginAnimations);
 document.addEventListener('DOMContentLoaded', initializeShellAnimations);
 document.addEventListener('DOMContentLoaded', synchronizeTopLevelPageScrollPosition);
 document.addEventListener('DOMContentLoaded', initializeDashboardAnimations);
+document.addEventListener('DOMContentLoaded', registerDashboardPaginationGestures);
 document.addEventListener('DOMContentLoaded', initializeInstrumentsAnimations);
 document.addEventListener('DOMContentLoaded', initializeCalibrationsAnimations);
 document.addEventListener('livewire:navigated', registerMobileNavigation);
+document.addEventListener('livewire:navigated', registerSidebarCollapse);
+document.addEventListener('livewire:navigated', synchronizeContextualBreadcrumb);
+document.addEventListener('livewire:updated', synchronizeContextualBreadcrumb);
 document.addEventListener('livewire:navigated', registerCertificateRefreshConfirmation);
 document.addEventListener('livewire:navigated', registerUserStatusConfirmation);
 document.addEventListener('livewire:navigated', initializeLoginAnimations);
 document.addEventListener('livewire:navigated', initializeShellAnimations);
 document.addEventListener('livewire:navigated', synchronizeTopLevelPageScrollPosition);
 document.addEventListener('livewire:navigated', initializeDashboardAnimations);
+document.addEventListener('livewire:navigated', registerDashboardPaginationGestures);
+document.addEventListener('livewire:updated', registerDashboardPaginationGestures);
 document.addEventListener('livewire:navigated', initializeInstrumentsAnimations);
 document.addEventListener('livewire:navigated', initializeCalibrationsAnimations);
 document.addEventListener('livewire:navigating', cleanupDashboardBeforeNavigation);

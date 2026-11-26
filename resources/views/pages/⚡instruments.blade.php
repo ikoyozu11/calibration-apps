@@ -172,30 +172,10 @@ new class extends Component
 ?>
 
 <div data-instruments-page class="px-4 py-8 sm:px-6 lg:px-10">
-    <div class="mx-auto flex max-w-6xl flex-col gap-8">
-        <header data-instruments-header>
-            <h1 class="text-2xl font-semibold tracking-tight text-navy">Instruments</h1>
-            <p class="mt-1 text-sm text-muted">Browse instruments by name, type, and location.</p>
-        </header>
+    <x-management-shell active="instruments">
 
-        <section aria-label="Instrument totals" class="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
-            @foreach ([
-                ['label' => 'Instruments', 'value' => $this->totals['instruments'], 'surface' => 'bg-on-track shadow-[0_16px_28px_-16px_rgb(31_122_77/0.75)]'],
-                ['label' => 'Types', 'value' => $this->totals['types'], 'surface' => 'bg-overdue shadow-[0_16px_28px_-16px_rgb(180_35_24/0.75)]'],
-                ['label' => 'Locations', 'value' => $this->totals['locations'], 'surface' => 'bg-due-soon shadow-[0_16px_28px_-16px_rgb(138_90_0/0.75)]'],
-            ] as $card)
-                <article data-instruments-stat class="relative min-h-26 overflow-hidden rounded-2xl p-3 text-white transition duration-200 hover:-translate-y-0.5 md:min-h-0 md:p-5 {{ $card['surface'] }}">
-                    <span class="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/25 via-transparent to-black/15" aria-hidden="true"></span>
-                    <div class="relative">
-                        <p class="text-[11px] font-medium leading-tight text-white/80 md:text-sm">{{ $card['label'] }}</p>
-                        <p class="mt-2 text-3xl font-semibold tracking-tight tabular-nums md:mt-3 md:text-4xl" data-instruments-counter="{{ $card['value'] }}">{{ $card['value'] }}</p>
-                    </div>
-                </article>
-            @endforeach
-        </section>
-
-        <section data-instruments-panel class="overflow-hidden rounded-2xl border border-brand/15 bg-brand-soft shadow-[0_16px_32px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="instruments-heading">
-            <div class="flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center md:justify-between">
+        <section data-instruments-panel class="overflow-hidden rounded-2xl border border-line/80 bg-white shadow-[0_1px_2px_rgb(22_49_114/0.06),0_18px_36px_-22px_rgb(22_49_114/0.45)]" aria-labelledby="instruments-heading">
+            <div class="flex flex-col gap-3 border-b border-line/80 bg-white px-5 py-4 md:flex-row md:items-center md:justify-between">
                 <h2 id="instruments-heading" class="text-base font-semibold tracking-tight text-navy">Instrument List</h2>
                 <div data-instruments-toolbar class="grid grid-cols-2 gap-2 md:flex md:items-center">
                     <label for="instrument-location" class="sr-only">Filter by location</label>
@@ -210,7 +190,7 @@ new class extends Component
                         id="instrument-search"
                         type="search"
                         wire:model.live.debounce.300ms="search"
-                        placeholder="Name, brand, type, or model"
+                        placeholder="Name, Type, Brand, Model, Serial Number, Location"
                         class="ui-input order-1 col-span-2 w-full md:order-none md:col-span-1 md:w-64"
                     >
                     <label for="instrument-page-size" class="sr-only">Rows per page</label>
@@ -226,47 +206,47 @@ new class extends Component
                 <p class="px-5 py-8 text-sm text-navy/70">{{ $this->locationId !== '' || trim($this->search) !== '' ? 'No instruments found for the selected filters.' : 'No instruments found.' }}</p>
             @else
                 <div class="overflow-x-auto">
-                    <table class="ui-table">
-                        <thead class="bg-navy text-xs font-medium text-white">
+                    <table class="management-table">
+                        <thead>
                             <tr>
-                                <th scope="col" class="px-5 py-3 font-medium">Instrument Name</th>
-                                <th scope="col" class="px-5 py-3 font-medium">Brand</th>
-                                <th scope="col" class="px-5 py-3 font-medium">Type</th>
-                                <th scope="col" class="px-5 py-3 font-medium">Model</th>
-                                <th scope="col" class="px-5 py-3 font-medium">Serial Number</th>
-                                <th scope="col" class="px-5 py-3 font-medium">Asset Number</th>
-                                <th scope="col" class="px-5 py-3 font-medium">Location</th>
-                                <th scope="col" class="px-5 py-3 font-medium">Detail Location</th>
+                                <th scope="col">Instrument Name</th>
+                                <th scope="col">Brand</th>
+                                <th scope="col">Type</th>
+                                <th scope="col">Model</th>
+                                <th scope="col">Serial Number</th>
+                                <th scope="col">Asset Number</th>
+                                <th scope="col">Location</th>
+                                <th scope="col">Detail Location</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-white/70">
+                        <tbody>
                             @foreach ($this->instruments as $instrument)
                                 @php
                                     $row = $this->row($instrument);
                                 @endphp
-                                <tr wire:key="instrument-{{ $row['key'] }}" class="odd:bg-[#d6e4f0] even:bg-[#c5d8ec] hover:bg-[#edf4fa]">
-                                    <td class="px-5 py-3.5 font-medium">
+                                <tr wire:key="instrument-{{ $row['key'] }}">
+                                    <td class="font-medium text-navy">
                                         <a href="{{ $this->detailUrl($instrument) }}" class="text-navy underline-offset-2 hover:text-brand hover:underline focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2">
                                             {{ $instrument->instrument_name }}
                                         </a>
                                     </td>
-                                    <td class="px-5 py-3.5 text-navy">{{ $row['brand'] }}</td>
-                                    <td class="px-5 py-3.5 text-navy">{{ $row['type'] }}</td>
-                                    <td class="px-5 py-3.5 text-navy">{{ $row['model'] }}</td>
-                                    <td class="px-5 py-3.5 text-navy/70">{{ $row['serial_number'] }}</td>
-                                    <td class="px-5 py-3.5 text-navy/70">{{ $row['asset_number'] }}</td>
-                                    <td class="px-5 py-3.5 text-navy">{{ $row['location'] }}</td>
-                                    <td class="px-5 py-3.5 text-navy">{{ $row['detail_location'] }}</td>
+                                    <td class="text-navy/80">{{ $row['brand'] }}</td>
+                                    <td class="text-navy/80">{{ $row['type'] }}</td>
+                                    <td class="text-navy/80">{{ $row['model'] }}</td>
+                                    <td class="break-words text-navy/70">{{ $row['serial_number'] }}</td>
+                                    <td class="break-words text-navy/70">{{ $row['asset_number'] }}</td>
+                                    <td class="text-navy/80">{{ $row['location'] }}</td>
+                                    <td class="text-navy/80">{{ $row['detail_location'] }}</td>
                                 </tr>
                             @endforeach
                         </tbody>
                     </table>
                 </div>
 
-                <div class="px-5 py-4">
-                    {{ $this->instruments->links() }}
+                <div>
+                    {{ $this->instruments->links('vendor.pagination.management-tailwind') }}
                 </div>
             @endif
         </section>
-    </div>
+    </x-management-shell>
 </div>
