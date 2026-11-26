@@ -120,9 +120,9 @@ it('allows Viewer to browse instruments without master-data access', function ()
     $response
         ->assertOk()
         ->assertSee('Sodiline')
-        ->assertSee('Instruments')
-        ->assertDontSee('Standards')
-        ->assertDontSee('Activities');
+        ->assertSee('Management')
+        ->assertDontSee('href="'.route('standards.index').'"', false)
+        ->assertDontSee('href="'.route('activities.index').'"', false);
 });
 
 it('shows a separate row for every type even when one serial is shared', function () {
@@ -370,11 +370,11 @@ it('keeps the instrument type and location totals while a name search changes th
     ]);
 
     Livewire::test('pages::instruments')
-        ->assertSeeInOrder(['Instruments', '5', 'Types', '3', 'Locations', '2'])
+        ->assertSeeInOrder(['Management', 'Instruments', '5', 'Locations', '2', 'Standards', '0', 'Activities', '0'])
         ->set('search', 'digital')
         ->assertSee('Digital Caliper')
         ->assertDontSee('Sodiline')
-        ->assertSeeInOrder(['Instruments', '5', 'Types', '3', 'Locations', '2']);
+        ->assertSeeInOrder(['Management', 'Instruments', '5', 'Locations', '2', 'Standards', '0', 'Activities', '0']);
 });
 
 it('keeps the page size to ten twenty five or fifty rows', function () {
